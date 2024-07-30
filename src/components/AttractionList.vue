@@ -28,6 +28,10 @@
             <option value="">所有地点</option>
             <option v-for="region in regions" :key="region" :value="region">{{ region }}</option>
           </select>
+          <select v-model="selectedCounty" id="county" class="filter-select">
+            <option value="">所有县</option>
+            <option v-for="county in countis" :key="county" :value="county">{{ county }}</option>
+          </select>
         </div>
         
       </div>
@@ -86,6 +90,7 @@
           // 可以添加更多国家的翻译
         },
         selectedRegion: localStorage.getItem('attractionsRegion')||'',
+        selectedCounty: localStorage.getItem('attractionsCounty')||'',
         regions: []
       };
     },
@@ -104,14 +109,17 @@
       });
       this.fetchAttractions(false);
       this.fetchRegions();
+      this.fetchCountis();
     },
 
     watch: {
       minReviews() {
+        this.page = 1;
         localStorage.setItem('attractionsPage', this.page); // 保存当前页数到localStorage
         localStorage.setItem('attractionMinReviews',this.minReviews);
         localStorage.setItem('attractionsRegion', this.selectedRegion);
         localStorage.setItem('attractionsOrder',this.order);
+        localStorage.setItem('attractionsCounty',this.selectedCounty)
         this.fetchAttractions(false); }, // **新增的watch**
 
       order() {
@@ -119,6 +127,7 @@
         localStorage.setItem('attractionMinReviews',this.minReviews);
         localStorage.setItem('attractionsRegion', this.selectedRegion);
         localStorage.setItem('attractionsOrder',this.order);
+        localStorage.setItem('attractionsCounty',this.selectedCounty)
         this.fetchAttractions(false);}, // **新增的watch**
 
       gotoPage: 'jumpToPage',
@@ -128,7 +137,17 @@
         localStorage.setItem('attractionsPage', 1); 
         localStorage.setItem('attractionMinReviews',this.minReviews);
         localStorage.setItem('attractionsRegion', this.selectedRegion);
-        localStorage.setItem('attractionsOrder',this.order)
+        localStorage.setItem('attractionsOrder',this.order);
+        localStorage.setItem('attractionsCounty',this.selectedCounty)
+        this.fetchAttractions(true);},
+
+        selectedCounty() {
+        this.page = 1;
+        localStorage.setItem('attractionsPage', 1); 
+        localStorage.setItem('attractionMinReviews',this.minReviews);
+        localStorage.setItem('attractionsRegion', this.selectedRegion);
+        localStorage.setItem('attractionsOrder',this.order);
+        localStorage.setItem('attractionsCounty',this.selectedCounty)
         this.fetchAttractions(true);},
 
 
@@ -156,6 +175,17 @@
           .then(response => response.json())
           .then(data => {
             this.regions = data;
+          })
+          .catch(error => {
+            console.error('Error fetching regions:', error);
+          });
+      },
+
+      fetchCountis() {
+        fetch(`https://travelplaces-80006ece4dd7.herokuapp.com/countis/${this.country}`)
+          .then(response => response.json())
+          .then(data => {
+            this.countis = data;
           })
           .catch(error => {
             console.error('Error fetching regions:', error);
