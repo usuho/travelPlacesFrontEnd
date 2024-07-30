@@ -174,7 +174,8 @@
       },
       
       fetchRegions() {
-        fetch(`https://travelplaces-80006ece4dd7.herokuapp.com/regions/${this.country}`)
+        if (selectedCounty) {
+          fetch(`https://travelplaces-80006ece4dd7.herokuapp.com/regions/${this.country}/${this.selectedCounty}`)
           .then(response => response.json())
           .then(data => {
             this.regions = data;
@@ -182,6 +183,17 @@
           .catch(error => {
             console.error('Error fetching regions:', error);
           });
+        }else {
+          fetch(`https://travelplaces-80006ece4dd7.herokuapp.com/regions/${this.country}`)
+          .then(response => response.json())
+          .then(data => {
+            this.regions = data;
+          })
+          .catch(error => {
+            console.error('Error fetching regions:', error);
+          });
+        }
+        
       },
 
       fetchCountis() {
