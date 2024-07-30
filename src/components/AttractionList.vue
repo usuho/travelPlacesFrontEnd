@@ -175,7 +175,7 @@
       },
       
       fetchRegions() {
-        if (selectedCounty) {
+        if (this.selectedCounty) {
           fetch(`https://travelplaces-80006ece4dd7.herokuapp.com/regions/${this.country}/${this.selectedCounty}`)
           .then(response => response.json())
           .then(data => {
