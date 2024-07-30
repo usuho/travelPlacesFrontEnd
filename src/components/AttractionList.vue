@@ -22,6 +22,8 @@
             <option value="rating_desc">好评率降序</option>
             <option value="reviews_asc">总评论数升序</option>
             <option value="reviews_desc">总评论数降序</option>
+            <option value="positive_asc">好评数升序</option>
+            <option value="positive_desc">好评数降序</option>
           </select>
           <label for="region">地点:</label>
           <select v-model="selectedRegion" id="region" class="filter-select">
@@ -48,6 +50,7 @@
             <th>所属县</th>
             <th>总评论数</th>
             <th>好评率</th>
+            <th>好评数</th>
           </tr>
         </thead>
         <tbody>
@@ -60,6 +63,7 @@
             <td>{{ attraction.county }}</td>
             <td>{{ attraction.total_reviews }}</td>
             <td>{{ attraction.rating }}</td>
+            <td>{{ attraction.positive_reviews }}</td>
           </tr>
         </tbody>
       </table>
