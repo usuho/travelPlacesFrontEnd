@@ -142,7 +142,7 @@
               localStorage.setItem('attractionsOrder', this.order);
               this.fetchAttractions(false);
           } else {
-              this.gotoPage = this.page;
+              this.gotoPage = null;
           }
       },
 
@@ -297,7 +297,7 @@
             if (!Number.isInteger(this.gotoPage) || this.gotoPage < 1) {
                 this.gotoPage = 1;
             } else if (this.gotoPage > this.totalPages) {
-                this.gotoPage = this.totalPages;
+                this.gotoPage = null;
             }
         }
     }
