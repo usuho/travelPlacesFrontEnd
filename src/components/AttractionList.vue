@@ -44,6 +44,7 @@
             <th>图片</th> <!-- 新增的图片列 -->
             <th>景点名称</th>
             <th>地点</th>
+            <th>所属县</th>
             <th>总评论数</th>
             <th>好评率</th>
           </tr>
@@ -55,6 +56,7 @@
             </th>
             <td><router-link :to="`/attraction/${country}/${attraction.id}`" @click.native="handleClick(attraction,index,$event)">{{ attraction.name }}</router-link></td>
             <td>{{ attraction.region }}</td>
+            <td>{{ attraction.county }}</td>
             <td>{{ attraction.total_reviews }}</td>
             <td>{{ attraction.rating }}</td>
           </tr>
@@ -91,7 +93,8 @@
         },
         selectedRegion: localStorage.getItem('attractionsRegion')||'',
         selectedCounty: localStorage.getItem('attractionsCounty')||'',
-        regions: []
+        regions: [],
+        countis: []
       };
     },
     computed: {
@@ -203,8 +206,13 @@
           params.append('page',this.page);
         }
         params.append('limit',this.limit);
+
         if (this.selectedRegion) {
           params.append('region', this.selectedRegion);
+        }
+
+        if (this.selectedCounty) {
+          params.append('county', this.selectedCounty);
         }
 
         const response = await fetch(`https://travelplaces-80006ece4dd7.herokuapp.com/attractions/${this.country}?${params.toString()}`);

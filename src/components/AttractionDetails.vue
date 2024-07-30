@@ -17,6 +17,7 @@
 
         <div>
           <p style="color: #b30021;">地点：</p><p class="content">{{ attraction.region }}</p>
+          <p style="color: #b30021;">所属县：</p><p class="content">{{ attraction.county }}</p>
           <p style="color: #b30021;">概况：</p><p class="content">{{ attraction.overview }}</p>
           <p style="color: #b30021;">用时参考：</p><p class="content">{{ attraction.duration }}</p>
           <p style="color: #b30021;">详情：</p><p class="content">{{ attraction.details }}</p>
