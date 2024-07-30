@@ -42,7 +42,7 @@ export default {
       
       this.errorMessage = '';
       try {
-        const response = await fetch('http://localhost:3000/register', {
+        const response = await fetch('https://travelplaces-80006ece4dd7.herokuapp.com/register', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json'

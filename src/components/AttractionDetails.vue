@@ -35,29 +35,57 @@
   </template>
   
   <script>
+  import { openDB } from 'idb';
+
   export default {
     data() {
       return {
         country: this.$route.params.country,
         id: this.$route.params.id,
         attraction: null,
+        image1: null,
+        image2: null,
+        image3: null,
         index:parseInt(localStorage.getItem('attractionIndex')) || 0,
         ids: localStorage.getItem('ids') ? localStorage.getItem('ids').split(',').map(Number) : [] || null
       };
     },
-    created() {
-      fetch(`http://localhost:3000/attraction/${this.country}/${this.id}`)
-        .then(response => response.json())
-        .then(data => {
-          this.attraction = data;
-        });
+    async created() {
+      this.db = await openDB('AttractionsDB', 1, {
+        upgrade(db) {
+          if (!db.objectStoreNames.contains('images')) {
+            db.createObjectStore('images');
+          }
+        }
+      });
+      await this.fetchAttractionDetails();
     },
     methods: {
-      
+
+      async fetchAttractionDetails() {
+        const response = await fetch(`https://travelplaces-80006ece4dd7.herokuapp.com/attraction/${this.country}/${this.id}`);
+        const data = await response.json();
+        this.attraction = data;
+
+        // 缓存图像
+        this.image1 = await this.loadOrCacheImage(`${this.country}-${this.id}-image1`, data.image1);
+        this.image2 = await this.loadOrCacheImage(`${this.country}-${this.id}-image2`, data.image2);
+        this.image3 = await this.loadOrCacheImage(`${this.country}-${this.id}-image3`, data.image3);
+      },
+
+      async loadOrCacheImage(key, imageData) {
+        const cachedImage = await this.db.get('images', key);
+        if (cachedImage) {
+          return `data:image/jpeg;base64,${cachedImage}`;
+        } else {
+          await this.db.put('images', imageData, key);
+          return `data:image/jpeg;base64,${imageData}`;
+        }
+      },
 
       nextPage() {
         if (this.index < 19) {
-          fetch(`http://localhost:3000/attraction/${this.country}/${this.ids[this.index+1]}`)
+          fetch(`https://travelplaces-80006ece4dd7.herokuapp.com/attraction/${this.country}/${this.ids[this.index+1]}`)
           .then(response => response.json())
           .then(data => {
             this.attraction = data;
@@ -70,7 +98,7 @@
       prevPage() {
         if (this.index > 0) {
           
-          fetch(`http://localhost:3000/attraction/${this.country}/${this.ids[this.index-1]}`)
+          fetch(`https://travelplaces-80006ece4dd7.herokuapp.com/attraction/${this.country}/${this.ids[this.index-1]}`)
           .then(response => response.json())
           .then(data => {
             this.attraction = data;

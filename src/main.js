@@ -8,13 +8,10 @@ import AttractionList from './components/AttractionList.vue'
 import AttractionDetails from './components/AttractionDetails.vue'
 
 
-
-
-
 const routes = [
-  { path: '/', component: userLogin },
+  { path: '/userlogin', component: userLogin },
   { path: '/userRegister', component: userRegister },
-  { path: '/countries', component: CountrySelect },
+  { path: '/', component: CountrySelect },
   { path: '/attractions/:country', component: AttractionList },
   { path: '/attraction/:country/:id', component: AttractionDetails }
 ]

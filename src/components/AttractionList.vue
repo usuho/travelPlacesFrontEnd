@@ -68,6 +68,7 @@
   </template>
   
   <script>
+  import { openDB } from 'idb';
 
   export default {
     data() {
@@ -93,7 +94,14 @@
         return Math.ceil(this.total / this.limit);
       }
     },
-    created() {
+    async created() {
+      this.db = await openDB('AttractionsDB', 1, {
+        upgrade(db) {
+          if (!db.objectStoreNames.contains('images')) {
+            db.createObjectStore('images');
+          }
+        }
+      });
       this.fetchAttractions(false);
       this.fetchRegions();
     },
@@ -144,7 +152,7 @@
       },
       
       fetchRegions() {
-        fetch(`http://localhost:3000/regions/${this.country}`)
+        fetch(`https://travelplaces-80006ece4dd7.herokuapp.com/regions/${this.country}`)
           .then(response => response.json())
           .then(data => {
             this.regions = data;
@@ -154,7 +162,7 @@
           });
       },
 
-      fetchAttractions(isregion) {
+      async fetchAttractions(isregion) {
         const params = new URLSearchParams();
         params.append('minReviews', this.minReviews); // 传递过滤条件
         params.append('order', this.order); // 传递排序条件
@@ -169,27 +177,36 @@
           params.append('region', this.selectedRegion);
         }
 
-        fetch(`http://localhost:3000/attractions/${this.country}?${params.toString()}`)
-          .then(response => response.json())
-          .then(data => {
-            if (data.data.length > 0) {
-              this.attractions = data.data;
-              this.total = data.total;
-            } else {
-              alert('未找到景点！');
-            }
-          })
-          .catch(error => {
-            console.error('Error fetching data:', error);
-          });
+        const response = await fetch(`https://travelplaces-80006ece4dd7.herokuapp.com/attractions/${this.country}?${params.toString()}`);
+        const data = await response.json();
+      
+        if (data.data.length > 0) {
+          this.total = data.total;
+          this.attractions = await Promise.all(data.data.map(async attraction => {
+            attraction.image1 = await this.loadOrCacheImage(`${this.country}-${attraction.id}-image1`, attraction.image1);
+            return attraction;
+          }));
+        } else {
+          alert('未找到景点！');
+        }
       },
+
+      async loadOrCacheImage(key, imageData) {
+      const cachedImage = await this.db.get('images', key);
+      if (cachedImage) {
+        return cachedImage;
+      } else {
+        await this.db.put('images', imageData, key);
+        return imageData;
+      }
+    },
 
       goBack() {
         localStorage.setItem('attractionsPage', this.page); // 保存当前页数到localStorage
         localStorage.setItem('attractionMinReviews',this.minReviews);
         localStorage.setItem('attractionsRegion', this.selectedRegion);
         localStorage.setItem('attractionsOrder',this.order)
-        this.$router.push('/countries');
+        this.$router.push('/');
       },
 
       nextPage() {
