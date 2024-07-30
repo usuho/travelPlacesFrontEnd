@@ -7,7 +7,7 @@
             <span>第 {{ page }} 页，总共 {{ totalPages }}页</span>
           <button @click="nextPage" :disabled="page === totalPages" class="pagination-button">下一页</button>
           <label for="gotoPage">跳转:</label>
-          <input type="number" v-model.number="gotoPage" id="gotoPage" :max="totalPages" :min="1" class="goto-input" />
+          <input type="number" v-model.number="gotoPage" @change="validateInput" id="gotoPage" :max="totalPages" :min="1" class="goto-input" />
       </div>
       
       <!-- 新增的过滤和排序功能 -->
@@ -86,7 +86,7 @@
         page: parseInt(localStorage.getItem('attractionsPage')) || 1,
         limit: 20,
         total: 0,
-        gotoPage: 1,
+        gotoPage: null,
         countryTranslations: {
           japan: '日本',
           // 可以添加更多国家的翻译
@@ -133,7 +133,18 @@
         localStorage.setItem('attractionsCounty',this.selectedCounty)
         this.fetchAttractions(false);}, // **新增的watch**
 
-      gotoPage: 'jumpToPage',
+      gotoPage(value) {
+          if (Number.isInteger(value) && value > 0 && value <= this.totalPages) {
+              this.page = value;
+              localStorage.setItem('attractionsPage', this.page); // 保存当前页数到localStorage
+              localStorage.setItem('attractionMinReviews', this.minReviews);
+              localStorage.setItem('attractionsRegion', this.selectedRegion);
+              localStorage.setItem('attractionsOrder', this.order);
+              this.fetchAttractions(false);
+          } else {
+              this.gotoPage = this.page;
+          }
+      },
 
       selectedRegion() {
         this.page = 1;
@@ -282,17 +293,13 @@
         }
       },
 
-      jumpToPage() {
-      if (this.gotoPage >= 1 && this.gotoPage <= this.totalPages) {
-        this.page = this.gotoPage;
-        localStorage.setItem('attractionsPage', this.page); // 保存当前页数到localStorage
-        localStorage.setItem('attractionMinReviews',this.minReviews);
-        localStorage.setItem('attractionsRegion', this.selectedRegion);
-        localStorage.setItem('attractionsOrder',this.order)
-        this.fetchAttractions(false);
-      }
-    }
-      
+      validateInput() {
+            if (!Number.isInteger(this.gotoPage) || this.gotoPage < 1) {
+                this.gotoPage = 1;
+            } else if (this.gotoPage > this.totalPages) {
+                this.gotoPage = this.totalPages;
+            }
+        }
     }
   };
   </script>
@@ -338,7 +345,7 @@
   }
   .filters select {
     margin-right: 20px;
-    width:15%;
+    width:100px;
     background-color: #fff;
     color: #333;
     border: 1px solid #ccc;
