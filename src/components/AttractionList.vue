@@ -145,6 +145,7 @@
         this.fetchAttractions(true);},
 
         selectedCounty() {
+        this.fetchRegions();
         this.page = 1;
         localStorage.setItem('attractionsPage', 1); 
         localStorage.setItem('attractionMinReviews',this.minReviews);
