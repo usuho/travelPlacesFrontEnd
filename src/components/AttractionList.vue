@@ -15,7 +15,7 @@
         <div>
           <button @click="goBack" class="back-button">返回</button>
           <label for="minReviews">评论数大于:</label>
-          <input type="number" v-model="minReviews" min="0" class="filter-input" />
+          <input type="number" v-model="minReviews" @change="validateInputmin" min="0" class="filter-input" />
           <label for="order">排序:</label>
           <select v-model="order" class="filter-select">
             <option value="rating_asc">好评率升序</option>
@@ -28,6 +28,7 @@
             <option value="">所有地点</option>
             <option v-for="region in regions" :key="region" :value="region">{{ region }}</option>
           </select>
+          <label for="region">所属县:</label>
           <select v-model="selectedCounty" id="county" class="filter-select">
             <option value="">所有县</option>
             <option v-for="county in countis" :key="county" :value="county">{{ county }}</option>
@@ -81,7 +82,7 @@
       return {
         country: this.$route.params.country,
         attractions: [],
-        minReviews: parseInt(localStorage.getItem('attractionMinReviews')) || 0, 
+        minReviews: parseInt(localStorage.getItem('attractionMinReviews')) || null, 
         order: localStorage.getItem('attractionsOrder') ||'rating_desc', 
         page: parseInt(localStorage.getItem('attractionsPage')) || 1,
         limit: 20,
@@ -117,13 +118,18 @@
 
     watch: {
       minReviews() {
-        this.page = 1;
-        localStorage.setItem('attractionsPage', this.page); // 保存当前页数到localStorage
-        localStorage.setItem('attractionMinReviews',this.minReviews);
-        localStorage.setItem('attractionsRegion', this.selectedRegion);
-        localStorage.setItem('attractionsOrder',this.order);
-        localStorage.setItem('attractionsCounty',this.selectedCounty)
-        this.fetchAttractions(false); }, // **新增的watch**
+        if (Number.isInteger(value) && value > -1 ) {
+          this.page = 1;
+          localStorage.setItem('attractionsPage', this.page); // 保存当前页数到localStorage
+          localStorage.setItem('attractionMinReviews',this.minReviews);
+          localStorage.setItem('attractionsRegion', this.selectedRegion);
+          localStorage.setItem('attractionsOrder',this.order);
+          localStorage.setItem('attractionsCounty',this.selectedCounty);
+          this.fetchAttractions(false); // **新增的watch**
+        }else {
+          this.gotoPage = null;
+        }
+      },
 
       order() {
         localStorage.setItem('attractionsPage', this.page); // 保存当前页数到localStorage
@@ -299,7 +305,13 @@
             } else if (this.gotoPage > this.totalPages) {
                 this.gotoPage = null;
             }
-        }
+        },
+
+      validateInputmin() {
+          if (!Number.isInteger(this.minReviews) || this.minReviews < 0) {
+              this.minReviews = null;
+          } 
+      }
     }
   };
   </script>
