@@ -125,6 +125,11 @@
     border-radius: 5px;
     box-shadow: 0 2px 4px rgba(207, 206, 206, 0.1);
     padding: 10px;
+    list-style: none;
+    width:auto;
+    background: #ffffff;
+    border-radius: 10px;
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
   }
   .container {
     display: flex;
@@ -164,6 +169,7 @@
     width: 100%;
     max-width: 800px;
   }
+  
   
   .images {
     display:contents;
@@ -218,6 +224,14 @@
     cursor: pointer;
     border-radius: 5px;
     transition: background-color 0.3s;
+  }
+
+  .pagination-button:hover{
+    background-color: #b30021;
+  }
+  
+  .pagination-button:disabled {
+    background-color: #bbb;
   }
 
 

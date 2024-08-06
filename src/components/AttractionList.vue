@@ -3,17 +3,17 @@
       <h1>{{translateCountry(country)}}的景点</h1>
 
       <div class="pagination">
-          <button @click="prevPage" :disabled="page === 1" class="pagination-button">上一页</button>
-            <span>第 {{ page }} 页，总共 {{ totalPages }}页</span>
-          <button @click="nextPage" :disabled="page === totalPages" class="pagination-button">下一页</button>
-          <label for="gotoPage">跳转:</label>
-          <input type="number" v-model.number="gotoPage" @change="validateInput" id="gotoPage" :max="totalPages" :min="1" class="goto-input" />
+        <button @click="goBack" class="back-button">返回</button>
+        <button @click="prevPage" :disabled="page === 1" class="pagination-button">上一页</button>
+          <span>第 {{ page }} 页，总共 {{ totalPages }}页 </span>
+        <button @click="nextPage" :disabled="page === totalPages" class="pagination-button">下一页</button>
+        <label for="gotoPage">跳转：</label>
+        <input type="number" v-model.number="gotoPage" @change="validateInput" id="gotoPage" :max="totalPages" :min="1" class="goto-input" />
       </div>
       
       <!-- 新增的过滤和排序功能 -->
       <div class="filters">
         <div>
-          <button @click="goBack" class="back-button">返回</button>
           <label for="minReviews">评论数大于:</label>
           <input type="number" v-model="minReviews" @change="validateInputmin" min="0" class="filter-input" />
           <label for="order">排序:</label>
@@ -69,6 +69,7 @@
       </table>
 
       <div class="pagination">
+        <button @click="goBack" class="back-button">返回</button>
         <button @click="prevPage" :disabled="page === 1" class="pagination-button">上一页</button>
         <span>第 {{ page }} 页，总共 {{ totalPages }}页</span>
         <button @click="nextPage" :disabled="page === totalPages" class="pagination-button">下一页</button>
@@ -341,9 +342,7 @@
   }
   
   .filters {
-    margin-bottom: 5px;
-    width: 70%
-    
+    margin-bottom: 20px;
   }
   
   .filters label {
@@ -401,7 +400,7 @@
   
   .pagination-button {
     align-self: flex-start;
-    margin-bottom: 20px;
+    margin-right: 15px;
     padding: 10px 20px;
     background-color: #007BFF;
     color: white;
@@ -438,7 +437,7 @@
   
   .back-button {
     align-self: flex-start;
-    margin-bottom: 20px;
+    margin-right: 15px;
     padding: 10px 20px;
     background-color: #007BFF;
     color: white;
