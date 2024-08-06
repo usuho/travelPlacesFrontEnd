@@ -4,9 +4,9 @@
 
       <div class="pagination">
         <button @click="goBack" class="back-button">返回</button>
-        <button @click="prevPage" :disabled="page === 1" class="pagination-button">上一页</button>
+        <button @click="prevPage" :disabled="page === 1" class="pagination-button-t">上一页</button>
           <span>第 {{ page }} 页，总共 {{ totalPages }}页 </span>
-        <button @click="nextPage" :disabled="page === totalPages" class="pagination-button">下一页</button>
+        <button @click="nextPage" :disabled="page === totalPages" class="pagination-button-t">下一页</button>
         <label for="gotoPage">跳转：</label>
         <input type="number" v-model.number="gotoPage" @change="validateInput" id="gotoPage" :max="totalPages" :min="1" class="goto-input" />
       </div>
@@ -71,7 +71,7 @@
       <div class="pagination">
         <button @click="goBack" class="back-button">返回</button>
         <button @click="prevPage" :disabled="page === 1" class="pagination-button">上一页</button>
-        <span>第 {{ page }} 页，总共 {{ totalPages }}页</span>
+        <span>第 {{ page }} 页，总共 {{ totalPages }}页 </span>
         <button @click="nextPage" :disabled="page === totalPages" class="pagination-button">下一页</button>
         <label for="gotoPage">跳转:</label>
         <input type="number" v-model.number="gotoPage" id="gotoPage" :max="totalPages" :min="1" class="goto-input" />
@@ -401,6 +401,20 @@
   .pagination-button {
     align-self: flex-start;
     margin-right: 15px;
+    margin-bottom: 100px;
+    padding: 10px 20px;
+    background-color: #007BFF;
+    color: white;
+    border: none;
+    cursor: pointer;
+    border-radius: 5px;
+    transition: background-color 0.3s;
+  }
+
+  .pagination-button-t {
+    align-self: flex-start;
+    margin-right: 15px;
+    margin-top: 50px;
     padding: 10px 20px;
     background-color: #007BFF;
     color: white;
@@ -415,6 +429,14 @@
   }
   
   .pagination-button:disabled {
+    background-color: #bbb;
+  }
+  
+  .pagination-button-t:hover{
+    background-color: #b30021;
+  }
+  
+  .pagination-button-t:disabled {
     background-color: #bbb;
   }
   
