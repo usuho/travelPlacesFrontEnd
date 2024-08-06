@@ -1,8 +1,8 @@
 <template>
     <div class="container">
       <h1>{{ attraction.name }}</h1>
-      <button @click="goBack" class="back-button">返回</button>
       <div v-if="attraction" class="attraction-details">
+        <button @click="goBack" class="back-button">返回</button>
         <div class="images">
           <div>
             <img :src="`data:image/jpeg;base64,${attraction.image1}`" alt="Attraction Image" style="width: auto; height: auto;" />
@@ -28,11 +28,12 @@
           <p style="color: #b30021;">网址：</p><a class="content" :href="attraction.website">{{ attraction.website }}</a>
         </div>  
       </div>
-    </div>
-    <div class="pagination">
+      <div class="pagination">
           <button @click="prevPage":disabled="index === 0" class="pagination-button">上一页</button>
           <button @click="nextPage":disabled="index === 19" class="pagination-button">下一页</button>
       </div>
+    </div>
+    
   </template>
   
   <script>
