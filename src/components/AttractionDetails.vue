@@ -29,8 +29,9 @@
         </div>  
       </div>
       <div class="pagination">
-          <button @click="prevPage":disabled="index === 0" class="pagination-button">上一页</button>
-          <button @click="nextPage":disabled="index === 19" class="pagination-button">下一页</button>
+        <button @click="goBack" class="back-button">返回</button>
+        <button @click="prevPage":disabled="index === 0" class="pagination-button-up">上一页</button>
+        <button @click="nextPage":disabled="index === 19" class="pagination-button">下一页</button>
       </div>
     </div>
     
@@ -217,7 +218,19 @@
 
   .pagination-button {
     align-self: flex-start;
-    margin: 20px;
+    margin: 40px;
+    padding: 10px 20px;
+    background-color: #007BFF;
+    color: white;
+    border: none;
+    cursor: pointer;
+    border-radius: 5px;
+    transition: background-color 0.3s;
+  }
+
+  .pagination-button-up {
+    align-self: flex-start;
+    margin-left: 200px;
     padding: 10px 20px;
     background-color: #007BFF;
     color: white;
