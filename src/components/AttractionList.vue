@@ -127,9 +127,6 @@
           this.page = 1;
           localStorage.setItem('attractionsPage', this.page); // 保存当前页数到localStorage
           localStorage.setItem('attractionMinReviews',this.minReviews);
-          localStorage.setItem('attractionsRegion', this.selectedRegion);
-          localStorage.setItem('attractionsOrder',this.order);
-          localStorage.setItem('attractionsCounty',this.selectedCounty);
           this.fetchAttractions(false); // **新增的watch**
         }else {
           this.minReviews = null;
@@ -138,20 +135,13 @@
 
       order() {
         localStorage.setItem('attractionsPage', this.page); // 保存当前页数到localStorage
-        localStorage.setItem('attractionMinReviews',this.minReviews);
-        localStorage.setItem('attractionsRegion', this.selectedRegion);
         localStorage.setItem('attractionsOrder',this.order);
-        localStorage.setItem('attractionsCounty',this.selectedCounty)
         this.fetchAttractions(false);}, // **新增的watch**
 
       gotoPage(value) {
           if (Number.isInteger(value) && value > 0 && value <= this.totalPages) {
               this.page = value;
               localStorage.setItem('attractionsPage', this.page); // 保存当前页数到localStorage
-              localStorage.setItem('attractionMinReviews', this.minReviews);
-              localStorage.setItem('attractionsRegion', this.selectedRegion);
-              localStorage.setItem('attractionsOrder', this.order);
-              this.fetchAttractions(false);
           } else {
               this.gotoPage = null;
           }
@@ -159,20 +149,14 @@
 
       selectedRegion() {
         this.page = 1;
-        localStorage.setItem('attractionsPage', 1); 
-        localStorage.setItem('attractionMinReviews',this.minReviews);
+        localStorage.setItem('attractionsPage', this.page); 
         localStorage.setItem('attractionsRegion', this.selectedRegion);
-        localStorage.setItem('attractionsOrder',this.order);
-        localStorage.setItem('attractionsCounty',this.selectedCounty)
         this.fetchAttractions(true);},
 
       selectedCounty() {
         this.fetchRegions();
         this.page = 1;
-        localStorage.setItem('attractionsPage', 1); 
-        localStorage.setItem('attractionMinReviews',this.minReviews);
-        localStorage.setItem('attractionsRegion', this.selectedRegion);
-        localStorage.setItem('attractionsOrder',this.order);
+        localStorage.setItem('attractionsPage', this.page); 
         localStorage.setItem('attractionsCounty',this.selectedCounty)
         this.fetchAttractions(true);},
 
