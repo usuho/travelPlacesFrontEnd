@@ -122,7 +122,7 @@
     },
 
     watch: {
-      minReviews() {
+      minReviews(value) {
         if (Number.isInteger(value) && value > -1 ) {
           this.page = 1;
           localStorage.setItem('attractionsPage', this.page); // 保存当前页数到localStorage
