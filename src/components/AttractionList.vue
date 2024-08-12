@@ -132,7 +132,7 @@
           localStorage.setItem('attractionsCounty',this.selectedCounty);
           this.fetchAttractions(false); // **新增的watch**
         }else {
-          this.gotoPage = null;
+          this.minReviews = null;
         }
       },
 
@@ -166,7 +166,7 @@
         localStorage.setItem('attractionsCounty',this.selectedCounty)
         this.fetchAttractions(true);},
 
-        selectedCounty() {
+      selectedCounty() {
         this.fetchRegions();
         this.page = 1;
         localStorage.setItem('attractionsPage', 1); 
