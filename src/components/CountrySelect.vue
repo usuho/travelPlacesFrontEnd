@@ -13,9 +13,10 @@
 export default {
   data() {
     return {
-      countries: ['japan'], // 可以添加更多国家
+      countries: ['japan','china'], // 可以添加更多国家
       countryTranslations: {
         japan: '日本',
+        china: '中国'
         // 可以添加更多国家的翻译
       }
     };
