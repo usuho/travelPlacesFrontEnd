@@ -30,9 +30,9 @@
             <option value="">所有地点</option>
             <option v-for="region in regions" :key="region" :value="region">{{ region }}</option>
           </select>
-          <label for="region">所属县:</label>
+          <label for="region">所属县/省:</label>
           <select v-model="selectedCounty" id="county" class="filter-select">
-            <option value="">所有县</option>
+            <option value="">所有县/省</option>
             <option v-for="county in countis" :key="county" :value="county">{{ county }}</option>
           </select>
         </div>
@@ -95,6 +95,7 @@
         gotoPage: null,
         countryTranslations: {
           japan: '日本',
+          china: '中国',
           // 可以添加更多国家的翻译
         },
         selectedRegion: localStorage.getItem('attractionsRegion')||'',
