@@ -260,10 +260,12 @@
     },
 
       goBack() {
-        localStorage.setItem('attractionsPage', this.page); // 保存当前页数到localStorage
-        localStorage.setItem('attractionMinReviews',this.minReviews);
-        localStorage.setItem('attractionsRegion', this.selectedRegion);
-        localStorage.setItem('attractionsOrder',this.order)
+        localStorage.setItem('attractionsPage', 1); // 保存当前页数到localStorage
+        localStorage.setItem('attractionMinReviews',0);
+        localStorage.setItem('attractionsRegion', '');
+        localStorage.setItem('attractionsOrder',"rating_desc");
+        localStorage.setItem('attractionsCounty','');
+        localStorage.setItem('attractionsCounty','');
         this.$router.push('/');
       },
 
