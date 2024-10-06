@@ -96,6 +96,7 @@
         countryTranslations: {
           japan: '日本',
           china: '中国',
+          singapore: '新加坡'
           // 可以添加更多国家的翻译
         },
         selectedRegion: localStorage.getItem('attractionsRegion')||'',
@@ -183,7 +184,7 @@
       
       fetchRegions() {
         if (this.selectedCounty) {
-          fetch(`https://travelplaces-80006ece4dd7.herokuapp.com/regions/${this.country}/${this.selectedCounty}`)
+          fetch(`https://juseaxerf.com/regions/${this.country}/${this.selectedCounty}`)
           .then(response => response.json())
           .then(data => {
             this.regions = data;
@@ -192,7 +193,7 @@
             console.error('Error fetching regions:', error);
           });
         }else {
-          fetch(`https://travelplaces-80006ece4dd7.herokuapp.com/regions/${this.country}`)
+          fetch(`https://juseaxerf.com/regions/${this.country}`)
           .then(response => response.json())
           .then(data => {
             this.regions = data;
@@ -205,7 +206,7 @@
       },
 
       fetchCountis() {
-        fetch(`https://travelplaces-80006ece4dd7.herokuapp.com/countis/${this.country}`)
+        fetch(`https://juseaxerf.com/countis/${this.country}`)
           .then(response => response.json())
           .then(data => {
             this.countis = data;
@@ -235,7 +236,7 @@
           params.append('county', this.selectedCounty);
         }
 
-        const response = await fetch(`https://travelplaces-80006ece4dd7.herokuapp.com/attractions/${this.country}?${params.toString()}`);
+        const response = await fetch(`https://juseaxerf.com/attractions/${this.country}?${params.toString()}`);
         const data = await response.json();
       
         if (data.data.length > 0) {

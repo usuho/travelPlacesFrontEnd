@@ -66,7 +66,7 @@
     methods: {
 
       async fetchAttractionDetails() {
-        const response = await fetch(`https://travelplaces-80006ece4dd7.herokuapp.com/attraction/${this.country}/${this.id}`);
+        const response = await fetch(`https://juseaxerf.com/attraction/${this.country}/${this.id}`);
         const data = await response.json();
         this.attraction = data;
 
@@ -88,7 +88,7 @@
 
       nextPage() {
         if (this.index < 19) {
-          fetch(`https://travelplaces-80006ece4dd7.herokuapp.com/attraction/${this.country}/${this.ids[this.index+1]}`)
+          fetch(`https://juseaxerf.com/attraction/${this.country}/${this.ids[this.index+1]}`)
           .then(response => response.json())
           .then(data => {
             this.attraction = data;
@@ -101,7 +101,7 @@
       prevPage() {
         if (this.index > 0) {
           
-          fetch(`https://travelplaces-80006ece4dd7.herokuapp.com/attraction/${this.country}/${this.ids[this.index-1]}`)
+          fetch(`https://juseaxerf.com/attraction/${this.country}/${this.ids[this.index-1]}`)
           .then(response => response.json())
           .then(data => {
             this.attraction = data;
