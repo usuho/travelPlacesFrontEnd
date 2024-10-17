@@ -3,7 +3,7 @@
     <h1>国家</h1>
     <ul class="country-list">
       <li v-for="country in countries" :key="country" class="country-item">
-        <router-link :to="`/attractions/${country}`" class="country-link">{{ translateCountry(country) }}</router-link>
+        <router-link :to="`/attractions/${country}`" class="country-link" @click.native="saveToLocalStorage">{{ translateCountry(country) }}</router-link>
       </li>
     </ul>
   </div>
@@ -25,6 +25,13 @@ export default {
   methods: {
     translateCountry(country) {
       return this.countryTranslations[country] || country;
+    },
+    saveToLocalStorage() {
+      localStorage.setItem('attractionsPage', 1);
+      localStorage.setItem('attractionMinReviews', 0);
+      localStorage.setItem('attractionsRegion', '');
+      localStorage.setItem('attractionsOrder', 'rating_desc');
+      localStorage.setItem('attractionsCounty', '');
     }
   }
 };
