@@ -1,11 +1,150 @@
 <template>
-  <div id = "app">
-    <<router-view></router-view>
+  <div id="app">
+    <router-view></router-view>
   </div>
 </template>
 
 <script>
-export default{
-  name:'App'
+export default {
+  name: 'App'
 }
 </script>
+
+<style>
+/* 全局样式重置 */
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html, body {
+  height: 100%;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+  background-color: #f5f5f7;
+  color: #1d1d1f;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+#app {
+  min-height: 100vh;
+}
+
+/* 全局按钮样式 */
+button {
+  font-family: inherit;
+  font-size: 17px;
+  font-weight: 400;
+  border: none;
+  border-radius: 12px;
+  padding: 12px 24px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  background-color: #007aff;
+  color: white;
+}
+
+button:hover {
+  background-color: #0056cc;
+  transform: translateY(-1px);
+}
+
+button:active {
+  transform: translateY(0);
+}
+
+button:disabled {
+  background-color: #8e8e93;
+  cursor: not-allowed;
+  transform: none;
+}
+
+/* 全局输入框样式 */
+input, select {
+  font-family: inherit;
+  font-size: 17px;
+  border: 1px solid #d2d2d7;
+  border-radius: 8px;
+  padding: 12px 16px;
+  background-color: white;
+  transition: border-color 0.2s ease;
+}
+
+input:focus, select:focus {
+  outline: none;
+  border-color: #007aff;
+}
+
+/* 全局链接样式 */
+a {
+  color: #007aff;
+  text-decoration: none;
+  transition: color 0.2s ease;
+}
+
+a:hover {
+  color: #0056cc;
+}
+
+/* 加载动画 */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.fade-in {
+  animation: fadeIn 0.5s ease-out;
+}
+
+.loading-spinner {
+  width: 40px;
+  height: 40px;
+  border: 3px solid #f3f3f3;
+  border-top: 3px solid #007aff;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+  margin: 20px auto;
+}
+
+/* 卡片样式 */
+.card {
+  background: white;
+  border-radius: 18px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+  transition: all 0.3s ease;
+}
+
+.card:hover {
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.12);
+  transform: translateY(-2px);
+}
+
+/* 响应式设计 */
+@media (max-width: 768px) {
+  button {
+    font-size: 16px;
+    padding: 10px 20px;
+  }
+  
+  input, select {
+    font-size: 16px;
+    padding: 10px 14px;
+  }
+}
+</style>

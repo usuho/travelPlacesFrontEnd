@@ -1,83 +1,206 @@
 <template>
-    <div class="container">
-      <h1>{{translateCountry(country)}}的景点</h1>
-
-      <div class="pagination">
-        <button @click="goBack" class="back-button">返回</button>
-        <button @click="prevPage" :disabled="page === 1" class="pagination-button-t">上一页</button>
-          <span>第 {{ page }} 页，总共 {{ totalPages }}页 </span>
-        <button @click="nextPage" :disabled="page === totalPages" class="pagination-button-t">下一页</button>
-        <label for="gotoPage">跳转：</label>
-        <input type="number" v-model.number="gotoPage" @change="validateInput" id="gotoPage" :max="totalPages" :min="1" class="goto-input" />
+  <div class="container fade-in">
+    <!-- 页面头部 -->
+    <header class="page-header">
+      <button @click="goBack" class="back-button top-back-button">
+        返回
+      </button>
+      <div class="header-content">
+        <h1 class="page-title">{{translateCountry(country)}}的景点</h1>
+        <p class="page-subtitle">发现{{translateCountry(country)}}最受欢迎的旅游景点</p>
       </div>
-      
-      <!-- 新增的过滤和排序功能 -->
-      <div class="filters">
-        <div>
-          <label for="minReviews">评论数大于:</label>
-          <input type="number" v-model="minReviews" @change="validateInputmin" min="0" class="filter-input" />
-          <label for="order">排序:</label>
-          <select v-model="order" class="filter-select">
-            <option value="rating_asc">好评率升序</option>
+    </header>
+
+    <!-- 加载状态 -->
+    <div v-if="loading" class="loading-container">
+      <div class="loading-spinner"></div>
+      <p class="loading-text">正在加载景点数据...</p>
+    </div>
+
+    <!-- 过滤和排序功能 -->
+    <div v-else class="filters-section card">
+      <div class="filters-grid">
+        <div class="filter-group">
+          <label for="minReviews">最小评论数</label>
+          <input 
+            type="number" 
+            v-model.number="minReviews" 
+            @keyup.enter="validateInputmin" 
+            @blur="validateInputmin" 
+            min="0" 
+            id="minReviews"
+            placeholder="0" 
+          />
+        </div>
+        
+        <div class="filter-group">
+          <label for="order">排序方式</label>
+          <select v-model="order" id="order">
             <option value="rating_desc">好评率降序</option>
-            <option value="reviews_asc">总评论数升序</option>
+            <option value="rating_asc">好评率升序</option>
             <option value="reviews_desc">总评论数降序</option>
-            <option value="positive_asc">好评数升序</option>
+            <option value="reviews_asc">总评论数升序</option>
             <option value="positive_desc">好评数降序</option>
-          </select>
-          <label for="region">地点:</label>
-          <select v-model="selectedRegion" id="region" class="filter-select">
-            <option value="">所有地点</option>
-            <option v-for="region in regions" :key="region" :value="region">{{ region }}</option>
-          </select>
-          <label for="region">所属县/省:</label>
-          <select v-model="selectedCounty" id="county" class="filter-select">
-            <option value="">所有县/省</option>
-            <option v-for="county in countis" :key="county" :value="county">{{ county }}</option>
+            <option value="positive_asc">好评数升序</option>
           </select>
         </div>
         
+        <div class="filter-group">
+          <label for="county">省份/县</label>
+            <select v-model="selectedCounty" id="county">
+              <option value="">所有省份</option>
+              <option v-for="county in countis.filter(c => !countySearch || c.toLowerCase().includes(countySearch.toLowerCase()))" :key="county" :value="county">{{ county }}</option>
+            </select>
+        </div>
+        
+        <div class="filter-group">
+          <label for="region">地区</label>
+            <select v-model="selectedRegion" id="region">
+              <option value="">所有地区</option>
+              <option v-for="region in regions.filter(r => !regionSearch || r.toLowerCase().includes(regionSearch.toLowerCase()))" :key="region" :value="region">{{ region }}</option>
+            </select>
+        </div>
       </div>
 
-
-      <!-- 表格展示景点信息 -->
-      <table class="attraction-table">
-        <thead>
-          <tr>
-            <th>图片</th> <!-- 新增的图片列 -->
-            <th>景点名称</th>
-            <th>地点</th>
-            <th>所属县</th>
-            <th>总评论数</th>
-            <th>好评率</th>
-            <th>好评数</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-for= "(attraction,index) in attractions" :key="attraction.id">
-            <th>
-              <img :src= "`data:image/jpeg;base64,${attraction.image1}`" alt="Attraction Image" class="attraction-image" />
-            </th>
-            <td><router-link :to="`/attraction/${country}/${attraction.id}`" @click.native="handleClick(attraction,index,$event)">{{ attraction.name }}</router-link></td>
-            <td>{{ attraction.region }}</td>
-            <td>{{ attraction.county }}</td>
-            <td>{{ attraction.total_reviews }}</td>
-            <td>{{ attraction.rating }}</td>
-            <td>{{ attraction.positive_reviews }}</td>
-          </tr>
-        </tbody>
-      </table>
-
-      <div class="pagination">
-        <button @click="goBack" class="back-button">返回</button>
-        <button @click="prevPage" :disabled="page === 1" class="pagination-button">上一页</button>
-        <span>第 {{ page }} 页，总共 {{ totalPages }}页 </span>
-        <button @click="nextPage" :disabled="page === totalPages" class="pagination-button">下一页</button>
-        <label for="gotoPage">跳转:</label>
-        <input type="number" v-model.number="gotoPage" id="gotoPage" :max="totalPages" :min="1" class="goto-input" />
+      <!-- 第二行：仅放两个搜索框，与上面列对齐 -->
+      <div class="filters-grid" style="margin-top: 12px;">
+        <div class="filter-group"></div>
+        <div class="filter-group"></div>
+        <div class="filter-group">
+          <div class="search-container">
+            <input 
+              type="text" 
+              v-model="countySearch" 
+              placeholder="搜索省份/县..."
+              class="search-input"
+              ref="countyInput"
+              @input="filterCounties; updateCountyDropdownPosition()"
+              @focus="showCountySuggestions = true; updateCountyDropdownPosition()"
+              @blur="hideCountySuggestions"
+            />
+            <teleport to="body">
+              <div v-if="showCountySuggestions && countySearch.trim() && countySuggestions.length > 0" class="suggestions-dropdown" :style="countyDropdownStyle">
+                <div 
+                  v-for="county in countySuggestions" 
+                  :key="county" 
+                  class="suggestion-item"
+                  @mousedown="selectCounty(county)"
+                >
+                  {{ county }}
+                </div>
+              </div>
+            </teleport>
+          </div>
+        </div>
+        <div class="filter-group">
+          <div class="search-container">
+            <input 
+              type="text" 
+              v-model="regionSearch" 
+              placeholder="搜索地区..."
+              class="search-input"
+              ref="regionInput"
+              @input="filterRegions; updateRegionDropdownPosition()"
+              @focus="showRegionSuggestions = true; updateRegionDropdownPosition()"
+              @blur="hideRegionSuggestions"
+            />
+            <teleport to="body">
+              <div v-if="showRegionSuggestions && regionSearch.trim() && regionSuggestions.length > 0" class="suggestions-dropdown" :style="regionDropdownStyle">
+                <div 
+                  v-for="region in regionSuggestions" 
+                  :key="region" 
+                  class="suggestion-item"
+                  @mousedown="selectRegion(region)"
+                >
+                  {{ region }}
+                </div>
+              </div>
+            </teleport>
+          </div>
+        </div>
       </div>
     </div>
-  </template>
+
+    <!-- 景点列表 -->
+    <div v-if="!loading" class="attractions-section">
+      <div v-if="attractions.length === 0" class="empty-state">
+        <div class="empty-icon">🏞️</div>
+        <h3>暂无景点数据</h3>
+        <p>请尝试调整筛选条件</p>
+      </div>
+      
+      <div v-else class="attractions-list">
+        <div v-for="(attraction, index) in attractions" :key="attraction.id" class="attraction-item" @click="handleClick(attraction,index,$event)">
+          <div class="attraction-image-wrapper">
+            <img :src="`data:image/jpeg;base64,${attraction.image1}`" alt="景点图片" class="attraction-image" />
+          </div>
+          
+          <div class="attraction-content">
+            <div class="attraction-header">
+              <h3 class="attraction-name">
+                <span class="attraction-name-text">{{ attraction.name }}</span>
+              </h3>
+              <div class="attraction-location">
+                <span class="location-icon">📍</span>
+                <span>{{ attraction.region }}, {{ attraction.county }}</span>
+              </div>
+            </div>
+            
+            <div class="attraction-stats">
+              <div class="stat-item">
+                <span class="stat-number">{{ attraction.total_reviews }}</span>
+                <span class="stat-label">总评论</span>
+              </div>
+              <div class="stat-item">
+                <span class="stat-number">{{ attraction.positive_reviews }}</span>
+                <span class="stat-label">好评数</span>
+              </div>
+              <div class="stat-item rating-item">
+                <span class="stat-number rating-number" :style="{ backgroundColor: getRatingColor(attraction.rating) }">{{ attraction.rating }}</span>
+                <span class="stat-label">好评率</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 分页控制 -->
+    <div v-if="!loading && attractions.length > 0" class="pagination-section">
+      <div class="pagination-controls">
+        <button @click="goBack" class="back-button bottom-back-button">
+          返回
+        </button>
+        
+        <button @click="prevPage" :disabled="page === 1" class="pagination-button">
+          上一页
+        </button>
+        
+                <div class="page-input-group">
+                  <label for="gotoPage">跳转到</label>
+                  <input 
+                    type="number" 
+                    v-model.number="gotoPage" 
+                    @keyup.enter="validateInput"
+                    @blur="validateInput"
+                    id="gotoPage" 
+                    :max="totalPages" 
+                    :min="1" 
+                    placeholder="页码"
+                  />
+                </div>
+        
+        <button @click="nextPage" :disabled="page === totalPages" class="pagination-button">
+          下一页
+        </button>
+      </div>
+      
+      <div class="pagination-info">
+        <span>第 {{ page }} 页，共 {{ totalPages }} 页</span>
+      </div>
+    </div>
+  </div>
+</template>
   
   <script>
   import { openDB } from 'idb';
@@ -87,6 +210,7 @@
       return {
         country: this.$route.params.country,
         attractions: [],
+        loading: true,
         minReviews: parseInt(localStorage.getItem('attractionMinReviews')) || null, 
         order: localStorage.getItem('attractionsOrder') ||'rating_desc', 
         page: parseInt(localStorage.getItem('attractionsPage')) || 1,
@@ -102,12 +226,30 @@
         selectedRegion: localStorage.getItem('attractionsRegion')||'',
         selectedCounty: localStorage.getItem('attractionsCounty')||'',
         regions: [],
-        countis: []
+        countis: [],
+        countySearch: '',
+        regionSearch: '',
+        filteredCounties: [],
+        filteredRegions: [],
+        showCountySuggestions: false,
+        showRegionSuggestions: false,
+        countyDropdownStyle: {},
+        regionDropdownStyle: {}
       };
     },
     computed: {
       totalPages() {
         return Math.ceil(this.total / this.limit);
+      },
+      countySuggestions() {
+        if (!this.countySearch.trim()) return [];
+        const q = this.countySearch.toLowerCase();
+        return this.countis.filter(c => c && c.toLowerCase().includes(q));
+      },
+      regionSuggestions() {
+        if (!this.regionSearch.trim()) return [];
+        const q = this.regionSearch.toLowerCase();
+        return this.regions.filter(r => r && r.toLowerCase().includes(q));
       }
     },
     async created() {
@@ -124,31 +266,13 @@
     },
 
     watch: {
-      minReviews(value) {
-        if (Number.isInteger(value) && value > -1 ) {
-          this.page = 1;
-          localStorage.setItem('attractionsPage', this.page); // 保存当前页数到localStorage
-          localStorage.setItem('attractionMinReviews',this.minReviews);
-          this.fetchAttractions(false); // **新增的watch**
-        }else {
-          this.minReviews = null;
-        }
-      },
+      // 移除在输入时立即触发的行为
 
       order() {
         localStorage.setItem('attractionsPage', this.page); // 保存当前页数到localStorage
         localStorage.setItem('attractionsOrder',this.order);
         this.fetchAttractions(false);}, // **新增的watch**
 
-      gotoPage(value) {
-          if (Number.isInteger(value) && value > 0 && value <= this.totalPages) {
-              this.page = value;
-              localStorage.setItem('attractionsPage', this.page); // 保存当前页数到localStorage
-              this.fetchAttractions(false);
-          } else {
-              this.gotoPage = null;
-          }
-      },
 
       selectedRegion() {
         this.page = 1;
@@ -176,6 +300,11 @@
         };
         console.log(ids);
         localStorage.setItem('ids',ids);
+        // 将列表中实际使用的背景色直接传递给详情页，保证一致
+        try {
+          const color = this.getRatingColor(attraction.rating);
+          localStorage.setItem('selectedAttractionRatingColor', color);
+        } catch(e) {}
         this.$router.push(`/attraction/${this.country}/${attraction.id}`)
       },
 
@@ -189,6 +318,7 @@
           .then(response => response.json())
           .then(data => {
             this.regions = data;
+            this.filteredRegions = data;
           })
           .catch(error => {
             console.error('Error fetching regions:', error);
@@ -198,6 +328,7 @@
           .then(response => response.json())
           .then(data => {
             this.regions = data;
+            this.filteredRegions = data;
           })
           .catch(error => {
             console.error('Error fetching regions:', error);
@@ -211,6 +342,7 @@
           .then(response => response.json())
           .then(data => {
             this.countis = data;
+            this.filteredCounties = data;
           })
           .catch(error => {
             console.error('Error fetching regions:', error);
@@ -218,36 +350,67 @@
       },
 
       async fetchAttractions(isregion) {
-        const params = new URLSearchParams();
-        params.append('minReviews', this.minReviews); // 传递过滤条件
-        params.append('order', this.order); // 传递排序条件
-        if (isregion){
-          params.append('page',1);
-        }
-        else {
-          params.append('page',this.page);
-        }
-        params.append('limit',this.limit);
+        this.loading = true;
+        try {
+          const params = new URLSearchParams();
+          params.append('minReviews', this.minReviews); // 传递过滤条件
+          params.append('order', this.order); // 传递排序条件
+          if (isregion){
+            params.append('page',1);
+          }
+          else {
+            params.append('page',this.page);
+          }
+          params.append('limit',this.limit);
 
-        if (this.selectedRegion) {
-          params.append('region', this.selectedRegion);
-        }
+          if (this.selectedRegion) {
+            params.append('region', this.selectedRegion);
+          }
 
-        if (this.selectedCounty) {
-          params.append('county', this.selectedCounty);
-        }
+          if (this.selectedCounty) {
+            params.append('county', this.selectedCounty);
+          }
 
-        const response = await fetch(`https://juseaxerf.com/api/attractions/${this.country}?${params.toString()}`);
-        const data = await response.json();
-      
-        if (data.data.length > 0) {
-          this.total = data.total;
-          this.attractions = await Promise.all(data.data.map(async attraction => {
-            attraction.image1 = await this.loadOrCacheImage(`${this.country}-${attraction.id}-image1`, attraction.image1);
-            return attraction;
-          }));
-        } else {
-          alert('未找到景点！');
+          // 在好评率降序时，追加次级排序为总评论数降序（由服务端处理）
+          if (this.order === 'rating_desc') {
+            params.append('secondary', 'reviews_desc');
+          }
+
+          const response = await fetch(`https://juseaxerf.com/api/attractions/${this.country}?${params.toString()}`);
+          const data = await response.json();
+        
+          if (data.data.length > 0) {
+            this.total = data.total;
+            this.attractions = await Promise.all(data.data.map(async attraction => {
+              attraction.image1 = await this.loadOrCacheImage(`${this.country}-${attraction.id}-image1`, attraction.image1);
+              return attraction;
+            }));
+
+            // 前端兜底：当排序为好评率降序时，对相同好评率按总评论数降序排列
+            if (this.order === 'rating_desc') {
+              const parsePercent = (v) => {
+                if (v == null) return 0;
+                const s = String(v).replace('%', '');
+                const n = parseFloat(s);
+                return Number.isFinite(n) ? n : 0;
+              };
+              this.attractions = [...this.attractions].sort((a, b) => {
+                const ra = parsePercent(a.rating);
+                const rb = parsePercent(b.rating);
+                if (rb !== ra) return rb - ra; // 好评率降序
+                const ta = Number(a.total_reviews) || 0;
+                const tb = Number(b.total_reviews) || 0;
+                return tb - ta; // 总评论数降序
+              });
+            }
+          } else {
+            this.attractions = [];
+          }
+        } catch (error) {
+          console.error('获取景点数据失败:', error);
+          this.attractions = [];
+        } finally {
+          this.loading = false;
         }
       },
 
@@ -294,171 +457,649 @@
       },
 
       validateInput() {
-            if (!Number.isInteger(this.gotoPage) || this.gotoPage < 1) {
-                this.gotoPage = 1;
-            } else if (this.gotoPage > this.totalPages) {
-                this.gotoPage = null;
-            }
-        },
+        if (!Number.isInteger(this.gotoPage) || this.gotoPage < 1) {
+          this.gotoPage = 1;
+        } else if (this.gotoPage > this.totalPages) {
+          this.gotoPage = this.totalPages;
+        }
+        
+        if (this.gotoPage && this.gotoPage !== this.page) {
+          this.page = this.gotoPage;
+          localStorage.setItem('attractionsPage', this.page);
+          this.fetchAttractions(false);
+        }
+      },
 
       validateInputmin() {
           if (!Number.isInteger(this.minReviews) || this.minReviews < 0) {
-              this.minReviews = null;
-          } 
+              this.minReviews = 0;
+          }
+          this.page = 1;
+          localStorage.setItem('attractionsPage', this.page);
+          localStorage.setItem('attractionMinReviews', this.minReviews);
+          this.fetchAttractions(false);
+      },
+
+      filterCounties() {
+        if (this.countySearch.trim() === '') {
+          this.filteredCounties = this.countis.filter(county =>
+            this.countySearch.trim() ? county.toLowerCase().includes(this.countySearch.toLowerCase()) : false
+          );
+        } else {
+          this.filteredCounties = this.countis.filter(county => 
+            county.toLowerCase().includes(this.countySearch.toLowerCase())
+          );
+        }
+      },
+
+      filterRegions() {
+        if (this.regionSearch.trim() === '') {
+          this.filteredRegions = this.regions.filter(region =>
+            this.regionSearch.trim() ? region.toLowerCase().includes(this.regionSearch.toLowerCase()) : false
+          );
+        } else {
+          this.filteredRegions = this.regions.filter(region => 
+            region.toLowerCase().includes(this.regionSearch.toLowerCase())
+          );
+        }
+      },
+
+      getRatingColor(rating) {
+        // 兼容 "95"、"95%"、数字类型、空值等，且限制在 0-100
+        const raw = typeof rating === 'number' ? rating : parseFloat(String(rating || '').replace('%', '').trim());
+        const ratingValue = Number.isFinite(raw) ? Math.max(0, Math.min(100, raw)) : 0;
+        // 50% 及以下为纯红
+        if (ratingValue <= 50) {
+          return '#ff3b30';
+        }
+        // 100% 为纯绿
+        if (ratingValue >= 100) {
+          return '#34c759';
+        }
+        // 50% - 100%：红色以 10 倍速度衰减，绿色 1 倍增加
+        const x = (ratingValue - 50) / 50;
+        const red = Math.round(255 * Math.max(0, 1 - 10 * x));
+        const green = Math.round(255 * x);
+        return `rgb(${red}, ${green}, 0)`;
+      },
+
+      selectCounty(county) {
+        this.selectedCounty = county;
+        this.countySearch = county;
+        this.showCountySuggestions = false;
+        this.applyFilters();
+      },
+
+      selectRegion(region) {
+        this.selectedRegion = region;
+        this.regionSearch = region;
+        this.showRegionSuggestions = false;
+        this.applyFilters();
+      },
+
+      hideCountySuggestions() {
+        setTimeout(() => {
+          this.showCountySuggestions = false;
+        }, 200);
+      },
+
+      hideRegionSuggestions() {
+        setTimeout(() => {
+          this.showRegionSuggestions = false;
+        }, 200);
+      },
+
+      updateCountyDropdownPosition() {
+        this.$nextTick(() => {
+          const input = this.$refs.countyInput;
+          if (input) {
+            const rect = input.getBoundingClientRect();
+            this.countyDropdownStyle = {
+              top: `${rect.bottom}px`,
+              left: `${rect.left}px`,
+              width: `${rect.width}px`
+            };
+          }
+        });
+      },
+
+      updateRegionDropdownPosition() {
+        this.$nextTick(() => {
+          const input = this.$refs.regionInput;
+          if (input) {
+            const rect = input.getBoundingClientRect();
+            this.regionDropdownStyle = {
+              top: `${rect.bottom}px`,
+              left: `${rect.left}px`,
+              width: `${rect.width}px`
+            };
+          }
+        });
       }
     }
   };
   </script>
 
 
-  <style scoped>
+<style scoped>
+.container {
+  min-height: 100vh;
+  padding: 40px 20px;
+  background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+}
+
+/* 页面头部 */
+.page-header {
+  margin-bottom: 60px;
+  position: relative;
+}
+
+.header-content {
+  text-align: center;
+}
+
+.page-title {
+  margin: 0;
+  margin-bottom: 16px;
+}
+
+.page-subtitle {
+  margin: 0;
+}
+
+.back-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 24px;
+  background: linear-gradient(135deg, #007aff 0%, #0056cc 100%);
+  color: white;
+  border: none;
+  border-radius: 25px;
+  font-size: 16px;
+  font-weight: 600;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  cursor: pointer;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0 4px 15px rgba(0, 122, 255, 0.3);
+  position: relative;
+  overflow: hidden;
+  margin-bottom: 40px;
+  clip-path: polygon(20px 0, 100% 0, 100% 100%, 20px 100%, 0 50%);
+}
+
+.back-button::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
+  transition: left 0.5s;
+}
+
+.back-button:hover::before {
+  left: 100%;
+}
+
+.back-button:hover {
+  background: linear-gradient(135deg, #0056cc 0%, #004bb5 100%);
+  transform: translateY(-3px) scale(1.02);
+  box-shadow: 0 8px 25px rgba(0, 122, 255, 0.4);
+}
+
+.back-button:active {
+  transform: translateY(-1px) scale(0.98);
+  box-shadow: 0 4px 15px rgba(0, 122, 255, 0.3);
+}
+
+.top-back-button {
+  margin-bottom: 0;
+}
+
+.bottom-back-button {
+  margin-bottom: 0;
+}
+
+.back-icon {
+  font-size: 18px;
+  font-weight: bold;
+}
+
+.page-title {
+  font-size: 3.5rem;
+  font-weight: 700;
+  margin-bottom: 16px;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.page-subtitle {
+  font-size: 1.25rem;
+  color: #6e6e73;
+  font-weight: 400;
+}
+
+/* 加载状态 */
+.loading-container {
+  text-align: center;
+  padding: 80px 20px;
+}
+
+.loading-text {
+  margin-top: 20px;
+  color: #6e6e73;
+  font-size: 1.1rem;
+}
+
+/* 过滤器部分 */
+.filters-section {
+  margin-bottom: 40px;
+  padding: 32px;
+  background: rgba(255, 255, 255, 0.95);
+  backdrop-filter: blur(10px);
+}
+
+.filters-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 24px;
+  align-items: end;
+}
+
+.filter-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.filter-group label {
+  font-weight: 600;
+  color: #1d1d1f;
+  font-size: 0.9rem;
+}
+
+.filter-group input,
+.filter-group select {
+  padding: 12px 16px;
+  border: 1px solid #d2d2d7;
+  border-radius: 8px;
+  background: white;
+  font-size: 16px;
+}
+
+.filter-group input:focus,
+.filter-group select:focus {
+  border-color: #007aff;
+  outline: none;
+}
+
+.search-container {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.search-input {
+  padding: 8px 12px;
+  border: 1px solid #d2d2d7;
+  border-radius: 6px;
+  background: white;
+  font-size: 14px;
+  transition: border-color 0.2s ease;
+}
+
+.search-input:focus {
+  border-color: #007aff;
+  outline: none;
+}
+
+.search-container {
+  position: relative;
+}
+
+.suggestions-dropdown {
+  position: fixed;
+  background: white;
+  border: 1px solid #d2d2d7;
+  border-radius: 12px;
+  padding: 8px 6px;
+  max-height: none;
+  overflow: visible;
+  z-index: 2147483647;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.15);
+  min-width: 200px;
+}
+
+.suggestion-item {
+  padding: 10px 14px;
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+  border-bottom: 1px solid #f0f0f0;
+  font-size: 14px;
+}
+
+.suggestion-item:hover {
+  background-color: #f8f9fa;
+}
+
+.suggestion-item:last-child {
+  border-bottom: none;
+}
+
+/* 景点网格 */
+.attractions-section {
+  margin-bottom: 60px;
+}
+
+.empty-state {
+  text-align: center;
+  padding: 80px 20px;
+  color: #6e6e73;
+}
+
+.empty-icon {
+  font-size: 4rem;
+  margin-bottom: 24px;
+}
+
+.empty-state h3 {
+  font-size: 1.5rem;
+  margin-bottom: 8px;
+  color: #1d1d1f;
+}
+
+.attractions-list {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+.attraction-item {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  background: rgba(255, 255, 255, 0.95);
+  backdrop-filter: blur(10px);
+  border-radius: 16px;
+  padding: 20px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  transition: all 0.3s ease;
+  cursor: pointer;
+}
+
+.attraction-item:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.15);
+  background: rgba(255, 255, 255, 1);
+}
+
+.attraction-image-wrapper {
+  position: relative;
+  flex-shrink: 0;
+  width: 120px;
+  height: 120px;
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.attraction-image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition: transform 0.3s ease;
+}
+
+.attraction-item:hover .attraction-image {
+  transform: scale(1.05);
+}
+
+.rating-badge {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  background: linear-gradient(135deg, #007aff 0%, #0056cc 100%);
+  color: white;
+  padding: 4px 8px;
+  border-radius: 12px;
+  font-weight: 600;
+  font-size: 0.8rem;
+  box-shadow: 0 2px 8px rgba(0, 122, 255, 0.3);
+}
+
+.rating-text {
+  font-size: 0.8rem;
+}
+
+.attraction-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.attraction-header {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.attraction-name {
+  margin: 0;
+}
+
+.attraction-name-text {
+  color: #1d1d1f;
+  font-size: 1.25rem;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.attraction-location {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #6e6e73;
+  font-size: 0.9rem;
+}
+
+.location-icon {
+  font-size: 0.9rem;
+}
+
+.attraction-stats {
+  display: flex;
+  gap: 32px;
+}
+
+.stat-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  text-align: center;
+}
+
+.stat-number {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: #1d1d1f;
+}
+
+.stat-label {
+  font-size: 0.75rem;
+  color: #8e8e93;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  font-weight: 500;
+}
+
+.rating-item {
+  position: relative;
+}
+
+.rating-number {
+  padding: 4px 8px;
+  border-radius: 8px;
+  color: white;
+  font-weight: 700;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+}
+
+/* 分页部分 */
+.pagination-section {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 24px;
+  padding: 40px 20px;
+}
+
+.pagination-info {
+  color: #6e6e73;
+  font-size: 1rem;
+  text-align: center;
+}
+
+.pagination-controls {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+  justify-content: flex-start;
+  max-width: 1200px;
+  margin: 0 auto;
+  padding-left: 0;
+}
+
+.pagination-button {
+  min-width: 120px;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 24px;
+  background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+  color: #495057;
+  border: none;
+  border-radius: 20px;
+  font-size: 16px;
+  font-weight: 600;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  cursor: pointer;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+  position: relative;
+  overflow: hidden;
+}
+
+.pagination-button::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.3), transparent);
+  transition: left 0.5s;
+}
+
+.pagination-button:hover::before {
+  left: 100%;
+}
+
+.pagination-button:hover:not(:disabled) {
+  background: linear-gradient(135deg, #007aff 0%, #0056cc 100%);
+  color: white;
+  transform: translateY(-3px) scale(1.02);
+  box-shadow: 0 8px 25px rgba(0, 122, 255, 0.3);
+}
+
+.pagination-button:active:not(:disabled) {
+  transform: translateY(-1px) scale(0.98);
+  box-shadow: 0 4px 15px rgba(0, 122, 255, 0.2);
+}
+
+.pagination-button:disabled {
+  background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+  color: #adb5bd;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+}
+
+.page-input-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.page-input-group label {
+  color: #6e6e73;
+  font-size: 0.9rem;
+}
+
+.page-input-group input {
+  width: 80px;
+  text-align: center;
+}
+
+/* 响应式设计 */
+@media (max-width: 768px) {
   .container {
-    display: flex;
+    padding: 20px 16px;
+  }
+  
+  .header-content {
+    margin-top: 16px;
+  }
+  
+  .page-title {
+    font-size: 2.5rem;
+  }
+  
+  .page-subtitle {
+    font-size: 1.1rem;
+    text-align: center;
+  }
+  
+  .filters-grid {
+    grid-template-columns: 1fr;
+    gap: 16px;
+  }
+  
+  .attractions-list {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+  
+  .attraction-item {
     flex-direction: column;
-    align-items: center;
-    padding: 20px; 
-    box-sizing: border-box;
-    height: 100vh;
-    width: 100%;
-    background-color: #f0f0f0; /* 设置背景色为浅色 */
-    color: #333; /* 设置文字颜色 */
-    font-family: 'Arial', sans-serif; /* 设置字体 */
+    gap: 16px;
+    text-align: center;
   }
   
-  h1 {
-    font-size: 2.5em;
-    margin-bottom: 20px;
+  .attraction-image-wrapper {
+    width: 100px;
+    height: 100px;
+    align-self: center;
   }
   
-  .filters {
-    margin-bottom: 20px;
+  .attraction-stats {
+    gap: 20px;
+    justify-content: center;
   }
   
-  .filters label {
-    margin-right: 10px;
+  .pagination-controls {
+    flex-direction: column;
+    gap: 12px;
   }
   
-  .filters input{
-    margin-right: 20px;
-    width:50px;
-    background-color: #fff;
-    color: #333;
-    border: 1px solid #ccc;
-    padding: 5px;
-    border-radius: 5px;
+  .reviews-info {
+    gap: 16px;
   }
-  .filters select {
-    margin-right: 20px;
-    width:100px;
-    background-color: #fff;
-    color: #333;
-    border: 1px solid #ccc;
-    padding: 5px;
-    border-radius: 5px;
-  }
-  
-  .attraction-table {
-    width:fit-content;
-    border-collapse: collapse;
-    margin-bottom: 20px;
-  }
-  
-  .attraction-table th {
-    font-size: 1.2em;
-    border: 1px solid #ddd;
-    background-color: #fff;
-    white-space: nowrap; /* 使表格宽度自适应内容 */
-  }
-  .attraction-table td {
-    font-size: 1.2em;
-    padding: 10px;
-    border: 1px solid #ddd;
-    background-color: #fff;
-    white-space: nowrap; /* 使表格宽度自适应内容 */
-  }
-  
-  .attraction-image {
-    padding: 0px;
-    width: 200px;
-    height: auto;
-  }
-  
-  .pagination {
-    margin-bottom: 20px;
-  }
-  
-  .pagination-button {
-    align-self: flex-start;
-    margin-right: 15px;
-    margin-bottom: 100px;
-    padding: 10px 20px;
-    background-color: #007BFF;
-    color: white;
-    border: none;
-    cursor: pointer;
-    border-radius: 5px;
-    transition: background-color 0.3s;
-  }
-
-  .pagination-button-t {
-    align-self: flex-start;
-    margin-right: 15px;
-    margin-top: 50px;
-    padding: 10px 20px;
-    background-color: #007BFF;
-    color: white;
-    border: none;
-    cursor: pointer;
-    border-radius: 5px;
-    transition: background-color 0.3s;
-  }
-
-  .pagination-button:hover{
-    background-color: #b30021;
-  }
-  
-  .pagination-button:disabled {
-    background-color: #bbb;
-  }
-  
-  .pagination-button-t:hover{
-    background-color: #b30021;
-  }
-  
-  .pagination-button-t:disabled {
-    background-color: #bbb;
-  }
-  
-  .goto-page {
-    margin-bottom: 20px;
-  }
-  
-  .goto-page label {
-    margin-right: 10px;
-  }
-  
-  .goto-input {
-    background-color: #fff;
-    color: #333;
-    border: 1px solid #ccc;
-    padding: 5px;
-    border-radius: 5px;
-    width: 50px;
-  }
-  
-  .back-button {
-    align-self: flex-start;
-    margin-right: 15px;
-    padding: 10px 20px;
-    background-color: #007BFF;
-    color: white;
-    border: none;
-    cursor: pointer;
-    border-radius: 5px;
-    transition: background-color 0.3s;
-  }
-  
-  .back-button:hover {
-    background-color: #b30021;
-  }
-  </style>
+}
+</style>
