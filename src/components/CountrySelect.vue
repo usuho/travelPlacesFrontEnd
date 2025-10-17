@@ -23,11 +23,15 @@
 export default {
   data() {
     return {
-      countries: ['japan','china','singapore'], // 可以添加更多国家
+      countries: ['japan','china','singapore','switzerland','america','iceland','denmark'], // 可以添加更多国家
       countryTranslations: {
         japan: '日本',
         china: '中国',
-        singapore: '新加坡'
+        singapore: '新加坡',
+        switzerland: '瑞士',
+        america: '美国',
+        iceland: '冰岛',
+        denmark: '丹麦'
         // 可以添加更多国家的翻译
       }
     };
@@ -40,7 +44,11 @@ export default {
       const emojis = {
         japan: '🇯🇵',
         china: '🇨🇳',
-        singapore: '🇸🇬'
+        singapore: '🇸🇬',
+        switzerland: '🇨🇭',
+        america: '🇺🇸',
+        iceland: '🇮🇸',
+        denmark: '🇩🇰'
       };
       return emojis[country] || '🌍';
     },
@@ -48,7 +56,11 @@ export default {
       const descriptions = {
         japan: '探索樱花之国，体验传统文化与现代科技的完美融合',
         china: '发现千年古国的壮丽山河与深厚文化底蕴',
-        singapore: '感受花园城市的多元文化与现代都市魅力'
+        singapore: '感受花园城市的多元文化与现代都市魅力',
+        switzerland: '领略阿尔卑斯山的雄伟景色，沉浸在钟表工艺与巧克力的精致世界',
+        america: '探索自由之国的多彩文化，领略壮丽自然景观与繁华都市的无限魅力',
+        iceland: '追寻冰与火之地的神秘极光，探访冰川、火山与壮丽瀑布的奇幻景致',
+        denmark: '感受童话王国的浪漫氛围，体验北欧设计与幸福生活的完美结合'
       };
       return descriptions[country] || '探索这个美丽的国家';
     },

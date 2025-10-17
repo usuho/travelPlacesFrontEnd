@@ -46,7 +46,7 @@
         </div>
         
         <div class="filter-group">
-          <label for="county">省份/县</label>
+          <label for="county">省份</label>
             <select v-model="selectedCounty" id="county">
               <option value="">所有省份</option>
               <option v-for="county in countis.filter(c => !countySearch || c.toLowerCase().includes(countySearch.toLowerCase()))" :key="county" :value="county">{{ county }}</option>
@@ -71,7 +71,7 @@
             <input 
               type="text" 
               v-model="countySearch" 
-              placeholder="搜索省份/县..."
+              placeholder="搜索省份..."
               class="search-input"
               ref="countyInput"
               @input="filterCounties; updateCountyDropdownPosition()"
@@ -220,7 +220,11 @@
         countryTranslations: {
           japan: '日本',
           china: '中国',
-          singapore: '新加坡'
+          singapore: '新加坡',
+          switzerland: '瑞士',
+          america: '美国',
+          iceland: '冰岛',
+          denmark: '丹麦'
           // 可以添加更多国家的翻译
         },
         selectedRegion: localStorage.getItem('attractionsRegion')||'',
