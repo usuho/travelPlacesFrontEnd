@@ -613,6 +613,45 @@
 
 
 <style scoped>
+
+/* --- 景点卡片飞入动画 --- */
+.attractions-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 24px;
+  justify-content: center;
+}
+
+/* 初始状态：下移 + 透明 */
+.attraction-item {
+  opacity: 0;
+  transform: translateY(50px);
+  animation: flyInUp 0.2s ease-out forwards;
+}
+
+/* 更大的参差延迟（每个相差 0.1s） */
+.attraction-item:nth-child(1)  { animation-delay: 0.0s; }
+.attraction-item:nth-child(2)  { animation-delay: 0.03s; }
+.attraction-item:nth-child(3)  { animation-delay: 0.06s; }
+.attraction-item:nth-child(4)  { animation-delay: 0.09s; }
+.attraction-item:nth-child(5)  { animation-delay: 0.12s; }
+.attraction-item:nth-child(6)  { animation-delay: 0.15s; }
+.attraction-item:nth-child(7)  { animation-delay: 0.18s; }
+.attraction-item:nth-child(8)  { animation-delay: 0.21s; }
+.attraction-item:nth-child(9)  { animation-delay: 0.24s; }
+.attraction-item:nth-child(10) { animation-delay: 0.27s; }
+
+@keyframes flyInUp {
+  0% {
+    opacity: 0;
+    transform: translateY(60px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 .container {
   min-height: 100vh;
   padding: 40px 20px;
