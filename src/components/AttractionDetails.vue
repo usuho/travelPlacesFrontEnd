@@ -91,7 +91,7 @@
               </div>
               <div class="info-item">
                 <span class="info-label">概况</span>
-                <span class="info-value">{{ attraction.overview }}</span>
+                <span class="info-value">{{ attraction.details }}</span>
               </div>
             </div>
           </div>
@@ -102,7 +102,7 @@
               <h3>详细介绍</h3>
             </div>
             <div class="info-content">
-              <p class="details-text">{{ attraction.details }}</p>
+              <p class="details-text">{{ attraction.overview }}</p>
             </div>
           </div>
 
@@ -446,8 +446,8 @@
 }
 
 .bottom-back-button {
-  margin-bottom: 24px;
-  align-self: flex-start;
+  margin-bottom: 0;
+  align-self: center;
 }
 
 .back-icon {

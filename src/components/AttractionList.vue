@@ -45,11 +45,11 @@
           </select>
         </div>
         
-        <div class="filter-group">
-          <label for="county">省份</label>
+        <div class="filter-group" v-if="countisLoaded && countis.length > 0">
+          <label for="county">{{translateCounty(country)}}</label>
             <select v-model="selectedCounty" id="county">
-              <option value="">所有省份</option>
-              <option v-for="county in countis.filter(c => !countySearch || c.toLowerCase().includes(countySearch.toLowerCase()))" :key="county" :value="county">{{ county }}</option>
+              <option value="">所有{{translateCounty(country)}}</option>
+              <option v-for="county in countis" :key="county" :value="county">{{ county }}</option>
             </select>
         </div>
         
@@ -57,7 +57,7 @@
           <label for="region">地区</label>
             <select v-model="selectedRegion" id="region">
               <option value="">所有地区</option>
-              <option v-for="region in regions.filter(r => !regionSearch || r.toLowerCase().includes(regionSearch.toLowerCase()))" :key="region" :value="region">{{ region }}</option>
+              <option v-for="region in regions" :key="region" :value="region">{{ region }}</option>
             </select>
         </div>
       </div>
@@ -66,12 +66,12 @@
       <div class="filters-grid" style="margin-top: 12px;">
         <div class="filter-group"></div>
         <div class="filter-group"></div>
-        <div class="filter-group">
+        <div class="filter-group" v-if="countisLoaded && countis.length > 0">
           <div class="search-container">
             <input 
               type="text" 
               v-model="countySearch" 
-              placeholder="搜索省份..."
+              :placeholder="`搜索${translateCounty(country)}...`"
               class="search-input"
               ref="countyInput"
               @input="filterCounties; updateCountyDropdownPosition()"
@@ -208,6 +208,7 @@
   export default {
     data() {
       return {
+        countisLoaded: false,
         country: this.$route.params.country,
         attractions: [],
         loading: true,
@@ -217,16 +218,34 @@
         limit: 20,
         total: 0,
         gotoPage: null,
+
         countryTranslations: {
           japan: '日本',
           china: '中国',
           singapore: '新加坡',
+          malaysia: '马来西亚',
+          thailand: '泰国',
+          vietnam: '越南',
           switzerland: '瑞士',
           america: '美国',
+          canada: '加拿大',
+          mexico: '墨西哥',
           iceland: '冰岛',
-          denmark: '丹麦'
+          denmark: '丹麦',
+          australia: '澳大利亚',
+          newzealand: '新西兰'
           // 可以添加更多国家的翻译
         },
+
+        countyTranslations: {
+          japan: '都/道/府/县',
+          china: '省份',
+          america: '州',
+          canada: '省份',
+          mexico: '州',
+          australia: '州/领地',
+        },
+
         selectedRegion: localStorage.getItem('attractionsRegion')||'',
         selectedCounty: localStorage.getItem('attractionsCounty')||'',
         regions: [],
@@ -285,6 +304,8 @@
         this.fetchAttractions(true);},
 
       selectedCounty() {
+        this.selectedRegion = ''; // 重置地区
+        localStorage.setItem('attractionsRegion', ''); // 保存到 localStorage 
         this.fetchRegions();
         this.page = 1;
         localStorage.setItem('attractionsPage', this.page); 
@@ -314,6 +335,10 @@
 
       translateCountry(country) {
         return this.countryTranslations[country] || country;
+      },
+
+      translateCounty(country) {
+        return this.countyTranslations[country] || '省份';
       },
       
       fetchRegions() {
@@ -345,11 +370,13 @@
         fetch(`https://juseaxerf.com/api/countis/${this.country}`)
           .then(response => response.json())
           .then(data => {
-            this.countis = data;
-            this.filteredCounties = data;
+            this.countis = data.filter(county => county && county.trim() !== '');
+            this.filteredCounties = [...this.countis];
+            this.countisLoaded = true;
           })
           .catch(error => {
             console.error('Error fetching regions:', error);
+            this.countisLoaded = true;
           });
       },
 
@@ -701,12 +728,12 @@
 
 /* 过滤器部分 */
 .filters-section {
-  margin-bottom: 40px;
+  margin: 0 auto 40px; /* 居中并保留下边距 */
   padding: 32px;
   background: rgba(255, 255, 255, 0.95);
   backdrop-filter: blur(10px);
+  max-width: 1200px; /* 和景点列表宽度一致 */
 }
-
 .filters-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
