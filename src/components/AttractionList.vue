@@ -640,6 +640,17 @@
 .attraction-item:nth-child(8)  { animation-delay: 0.21s; }
 .attraction-item:nth-child(9)  { animation-delay: 0.24s; }
 .attraction-item:nth-child(10) { animation-delay: 0.27s; }
+.attraction-item:nth-child(11) { animation-delay: 0.30s; }
+.attraction-item:nth-child(12) { animation-delay: 0.33s; }
+.attraction-item:nth-child(13) { animation-delay: 0.36s; }
+.attraction-item:nth-child(14) { animation-delay: 0.39s; }
+.attraction-item:nth-child(15) { animation-delay: 0.42s; }
+.attraction-item:nth-child(16) { animation-delay: 0.45s; }
+.attraction-item:nth-child(17) { animation-delay: 0.48s; }
+.attraction-item:nth-child(18) { animation-delay: 0.51s; }
+.attraction-item:nth-child(19) { animation-delay: 0.54s; }
+.attraction-item:nth-child(20) { animation-delay: 0.57s; }
+
 
 @keyframes flyInUp {
   0% {
