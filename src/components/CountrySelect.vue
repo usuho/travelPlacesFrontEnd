@@ -11,7 +11,7 @@
       class="continent-section"
     >
       <h2 class="continent-title">{{ translateContinent(continent) }}</h2>
-      <div class="countries-grid">
+      <div class="countries-grid" v-fly-in>
         <div
           v-for="country in countries"
           :key="country"

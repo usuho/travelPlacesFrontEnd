@@ -7,6 +7,9 @@ import CountrySelect from './components/CountrySelect.vue'
 import AttractionList from './components/AttractionList.vue'
 import AttractionDetails from './components/AttractionDetails.vue'
 
+import flyIn from './directives/flyIn.js';
+import './assets/styles/global.css';
+
 
 const routes = [
   { path: '/userlogin', component: userLogin },
@@ -23,4 +26,5 @@ const router = createRouter({
 
 const app = createApp(App)
 app.use(router)
+app.directive('fly-in', flyIn);
 app.mount('#app')

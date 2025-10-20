@@ -1,66 +1,61 @@
 <template>
   <div class="container fade-in">
-    <!-- 页面头部 -->
-    <header class="page-header">
-      <button @click="goBack" class="back-button top-back-button">
-        返回
-      </button>
-      <div class="header-content">
-        <h1 class="page-title">{{translateCountry(country)}}的景点</h1>
-        <p class="page-subtitle">发现{{translateCountry(country)}}最受欢迎的旅游景点</p>
-      </div>
-    </header>
+    <!-- 固定顶部区域（标题 + 筛选器） -->
+    <div class="fixed-header">
+      <header class="page-header">
+        <button @click="goBack" class="back-button top-back-button">
+          返回
+        </button>
+        <div class="header-content">
+          <h1 class="page-title">{{translateCountry(country)}}的景点</h1>
+          <p class="page-subtitle">发现{{translateCountry(country)}}最受欢迎的旅行目的地</p>
+        </div>
+      </header>
 
-    <!-- 加载状态 -->
-    <div v-if="loading" class="loading-container">
-      <div class="loading-spinner"></div>
-      <p class="loading-text">正在加载景点数据...</p>
-    </div>
-
-    <!-- 过滤和排序功能 -->
-    <div v-else class="filters-section card">
-      <div class="filters-grid">
-        <div class="filter-group">
-          <label for="minReviews">最小评论数</label>
-          <input 
-            type="number" 
-            v-model.number="minReviews" 
-            @keyup.enter="validateInputmin" 
-            @blur="validateInputmin" 
-            min="0" 
-            id="minReviews"
-            placeholder="0" 
-          />
-        </div>
-        
-        <div class="filter-group">
-          <label for="order">排序方式</label>
-          <select v-model="order" id="order">
-            <option value="rating_desc">好评率降序</option>
-            <option value="rating_asc">好评率升序</option>
-            <option value="reviews_desc">总评论数降序</option>
-            <option value="reviews_asc">总评论数升序</option>
-            <option value="positive_desc">好评数降序</option>
-            <option value="positive_asc">好评数升序</option>
-          </select>
-        </div>
-        
-        <div class="filter-group" v-if="countisLoaded && countis.length > 0">
-          <label for="county">{{translateCounty(country)}}</label>
-            <select v-model="selectedCounty" id="county">
-              <option value="">所有{{translateCounty(country)}}</option>
-              <option v-for="county in countis" :key="county" :value="county">{{ county }}</option>
+      <div class="filters-section card">
+        <!-- 这里是你原来的筛选器内容 -->
+        <div class="filters-grid">
+          <div class="filter-group">
+            <label for="minReviews">最小评论数</label>
+            <input 
+              type="number" 
+              v-model.number="minReviews" 
+              @keyup.enter="validateInputmin" 
+              @blur="validateInputmin" 
+              min="0" 
+              id="minReviews"
+              placeholder="0" 
+            />
+          </div>
+          
+          <div class="filter-group">
+            <label for="order">排序方式</label>
+            <select v-model="order" id="order">
+              <option value="rating_desc">好评率降序</option>
+              <option value="rating_asc">好评率升序</option>
+              <option value="reviews_desc">总评论数降序</option>
+              <option value="reviews_asc">总评论数升序</option>
+              <option value="positive_desc">好评数降序</option>
+              <option value="positive_asc">好评数升序</option>
             </select>
+          </div>
+          
+          <div class="filter-group" v-if="countisLoaded && countis.length > 0">
+            <label for="county">{{translateCounty(country)}}</label>
+              <select v-model="selectedCounty" id="county">
+                <option value="">所有{{translateCounty(country)}}</option>
+                <option v-for="county in countis" :key="county" :value="county">{{ county }}</option>
+              </select>
+          </div>
+          
+          <div class="filter-group">
+            <label for="region">地区</label>
+              <select v-model="selectedRegion" id="region">
+                <option value="">所有地区</option>
+                <option v-for="region in regions" :key="region" :value="region">{{ region }}</option>
+              </select>
+          </div>
         </div>
-        
-        <div class="filter-group">
-          <label for="region">地区</label>
-            <select v-model="selectedRegion" id="region">
-              <option value="">所有地区</option>
-              <option v-for="region in regions" :key="region" :value="region">{{ region }}</option>
-            </select>
-        </div>
-      </div>
 
       <!-- 第二行：仅放两个搜索框，与上面列对齐 -->
       <div class="filters-grid" style="margin-top: 12px;">
@@ -119,84 +114,95 @@
           </div>
         </div>
       </div>
+        <!-- ...完整的 filters-grid 两段放这里 -->
+      </div>
     </div>
 
-    <!-- 景点列表 -->
-    <div v-if="!loading" class="attractions-section">
-      <div v-if="attractions.length === 0" class="empty-state">
-        <div class="empty-icon">🏞️</div>
-        <h3>暂无景点数据</h3>
-        <p>请尝试调整筛选条件</p>
+    <!-- 滚动内容区域 -->
+    <div class="scroll-content">
+      <!-- 加载状态 -->
+      <div v-if="loading" class="loading-container">
+        <div class="loading-spinner"></div>
+        <p class="loading-text">正在加载景点数据...</p>
       </div>
-      
-      <div v-else class="attractions-list">
-        <div v-for="(attraction, index) in attractions" :key="attraction.id" class="attraction-item" @click="handleClick(attraction,index,$event)">
-          <div class="attraction-image-wrapper">
-            <img :src="`data:image/jpeg;base64,${attraction.image1}`" alt="景点图片" class="attraction-image" />
-          </div>
-          
-          <div class="attraction-content">
-            <div class="attraction-header">
-              <h3 class="attraction-name">
-                <span class="attraction-name-text">{{ attraction.name }}</span>
-              </h3>
-              <div class="attraction-location">
-                <span class="location-icon">📍</span>
-                <span>{{ attraction.region }}, {{ attraction.county }}</span>
-              </div>
+
+      <!-- 景点列表 -->
+      <div v-if="!loading" class="attractions-section">
+        <div v-if="attractions.length === 0" class="empty-state">
+          <div class="empty-icon">🏞️</div>
+          <h3>暂无景点数据</h3>
+          <p>请尝试调整筛选条件</p>
+        </div>
+        
+        <div v-else class="attractions-list" v-fly-in>
+          <div v-for="(attraction, index) in attractions" :key="attraction.id" class="attraction-item" @click="handleClick(attraction,index,$event)">
+            <div class="attraction-image-wrapper">
+              <img :src="`data:image/jpeg;base64,${attraction.image1}`" alt="景点图片" class="attraction-image" />
             </div>
             
-            <div class="attraction-stats">
-              <div class="stat-item">
-                <span class="stat-number">{{ attraction.total_reviews }}</span>
-                <span class="stat-label">总评论</span>
+            <div class="attraction-content">
+              <div class="attraction-header">
+                <h3 class="attraction-name">
+                  <span class="attraction-name-text">{{ attraction.name }}</span>
+                </h3>
+                <div class="attraction-location">
+                  <span class="location-icon">📍</span>
+                  <span>{{ attraction.region }}, {{ attraction.county }}</span>
+                </div>
               </div>
-              <div class="stat-item">
-                <span class="stat-number">{{ attraction.positive_reviews }}</span>
-                <span class="stat-label">好评数</span>
-              </div>
-              <div class="stat-item rating-item">
-                <span class="stat-number rating-number" :style="{ backgroundColor: getRatingColor(attraction.rating) }">{{ attraction.rating }}</span>
-                <span class="stat-label">好评率</span>
+              
+              <div class="attraction-stats">
+                <div class="stat-item">
+                  <span class="stat-number">{{ attraction.total_reviews }}</span>
+                  <span class="stat-label">总评论</span>
+                </div>
+                <div class="stat-item">
+                  <span class="stat-number">{{ attraction.positive_reviews }}</span>
+                  <span class="stat-label">好评数</span>
+                </div>
+                <div class="stat-item rating-item">
+                  <span class="stat-number rating-number" :style="{ backgroundColor: getRatingColor(attraction.rating) }">{{ attraction.rating }}</span>
+                  <span class="stat-label">好评率</span>
+                </div>
               </div>
             </div>
           </div>
         </div>
       </div>
-    </div>
 
-    <!-- 分页控制 -->
-    <div v-if="!loading && attractions.length > 0" class="pagination-section">
-      <div class="pagination-controls">
-        <button @click="goBack" class="back-button bottom-back-button">
-          返回
-        </button>
+      <!-- 分页控制 -->
+      <div v-if="!loading && attractions.length > 0" class="pagination-section">
+        <div class="pagination-controls">
+          <button @click="goBack" class="back-button bottom-back-button">
+            返回
+          </button>
+          
+          <button @click="prevPage" :disabled="page === 1" class="pagination-button">
+            上一页
+          </button>
+          
+                  <div class="page-input-group">
+                    <label for="gotoPage">跳转到</label>
+                    <input 
+                      type="number" 
+                      v-model.number="gotoPage" 
+                      @keyup.enter="validateInput"
+                      @blur="validateInput"
+                      id="gotoPage" 
+                      :max="totalPages" 
+                      :min="1" 
+                      placeholder="页码"
+                    />
+                  </div>
+          
+          <button @click="nextPage" :disabled="page === totalPages" class="pagination-button">
+            下一页
+          </button>
+        </div>
         
-        <button @click="prevPage" :disabled="page === 1" class="pagination-button">
-          上一页
-        </button>
-        
-                <div class="page-input-group">
-                  <label for="gotoPage">跳转到</label>
-                  <input 
-                    type="number" 
-                    v-model.number="gotoPage" 
-                    @keyup.enter="validateInput"
-                    @blur="validateInput"
-                    id="gotoPage" 
-                    :max="totalPages" 
-                    :min="1" 
-                    placeholder="页码"
-                  />
-                </div>
-        
-        <button @click="nextPage" :disabled="page === totalPages" class="pagination-button">
-          下一页
-        </button>
-      </div>
-      
-      <div class="pagination-info">
-        <span>第 {{ page }} 页，共 {{ totalPages }} 页</span>
+        <div class="pagination-info">
+          <span>第 {{ page }} 页，共 {{ totalPages }} 页</span>
+        </div>
       </div>
     </div>
   </div>
@@ -614,59 +620,31 @@
 
 <style scoped>
 
-/* --- 景点卡片飞入动画 --- */
-.attractions-list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 24px;
-  justify-content: center;
-}
-
-/* 初始状态：下移 + 透明 */
-.attraction-item {
-  opacity: 0;
-  transform: translateY(50px);
-  animation: flyInUp 0.2s ease-out forwards;
-}
-
-/* 更大的参差延迟（每个相差 0.1s） */
-.attraction-item:nth-child(1)  { animation-delay: 0.0s; }
-.attraction-item:nth-child(2)  { animation-delay: 0.03s; }
-.attraction-item:nth-child(3)  { animation-delay: 0.06s; }
-.attraction-item:nth-child(4)  { animation-delay: 0.09s; }
-.attraction-item:nth-child(5)  { animation-delay: 0.12s; }
-.attraction-item:nth-child(6)  { animation-delay: 0.15s; }
-.attraction-item:nth-child(7)  { animation-delay: 0.18s; }
-.attraction-item:nth-child(8)  { animation-delay: 0.21s; }
-.attraction-item:nth-child(9)  { animation-delay: 0.24s; }
-.attraction-item:nth-child(10) { animation-delay: 0.27s; }
-.attraction-item:nth-child(11) { animation-delay: 0.30s; }
-.attraction-item:nth-child(12) { animation-delay: 0.33s; }
-.attraction-item:nth-child(13) { animation-delay: 0.36s; }
-.attraction-item:nth-child(14) { animation-delay: 0.39s; }
-.attraction-item:nth-child(15) { animation-delay: 0.42s; }
-.attraction-item:nth-child(16) { animation-delay: 0.45s; }
-.attraction-item:nth-child(17) { animation-delay: 0.48s; }
-.attraction-item:nth-child(18) { animation-delay: 0.51s; }
-.attraction-item:nth-child(19) { animation-delay: 0.54s; }
-.attraction-item:nth-child(20) { animation-delay: 0.57s; }
-
-
-@keyframes flyInUp {
-  0% {
-    opacity: 0;
-    transform: translateY(60px);
-  }
-  100% {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
 
 .container {
-  min-height: 100vh;
-  padding: 40px 20px;
+  display: flex;
+  flex-direction: column;
+  height: 100vh; /* 页面占满视口高度 */
+  overflow: hidden; /* 防止整个页面滚动 */
   background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+}
+
+/* 固定顶部区域（标题+筛选器） */
+.fixed-header {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+  padding: 20px 20px 0;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+}
+
+/* 滚动内容部分 */
+.scroll-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 20px;
+  padding-top: 40px;
 }
 
 /* 页面头部 */
@@ -778,7 +756,7 @@
 
 /* 过滤器部分 */
 .filters-section {
-  margin: 0 auto 40px; /* 居中并保留下边距 */
+  margin: 0 auto; /* 居中并保留下边距 */
   padding: 32px;
   background: rgba(255, 255, 255, 0.95);
   backdrop-filter: blur(10px);
@@ -1037,7 +1015,7 @@
   flex-direction: column;
   align-items: center;
   gap: 24px;
-  padding: 40px 20px;
+  padding: 0px 20px;
 }
 
 .pagination-info {

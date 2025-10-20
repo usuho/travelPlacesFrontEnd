@@ -56,7 +56,7 @@
         </div>
 
       <!-- 景点信息 -->
-      <section class="info-section">
+      <section class="info-section" v-fly-in>
         <div class="info-grid">
           <div class="info-card card">
             <div class="info-header">
@@ -520,6 +520,7 @@
 /* 图片展示区域 */
 .images-section {
   padding: 60px 20px;
+  padding-bottom: 30px;
   max-width: 1400px;
   margin: 0 auto;
 }
@@ -610,6 +611,7 @@
 /* 信息区域 */
 .info-section {
   padding: 60px 20px;
+  padding-top: 30px;
   max-width: 1400px;
   margin: 0 auto;
 }
