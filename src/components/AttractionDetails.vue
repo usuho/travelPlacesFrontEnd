@@ -1,21 +1,16 @@
 <template>
   <div class="container fade-in">
-    <!-- 加载状态 -->
-    <div v-if="!attraction" class="loading-container">
-      <div class="loading-spinner"></div>
-      <p class="loading-text">正在加载景点详情...</p>
-    </div>
 
-    <!-- 景点详情内容 -->
-    <div v-else class="attraction-details">
+     <!-- 固定顶部区域（标题 + 筛选器） -->
+    <div class="fixed-header">
       <!-- 页面头部 -->
       <header class="page-header">
         <button @click="goBack" class="back-button top-back-button">
           返回
         </button>
         <div class="header-content">
-          <h1 class="attraction-title">{{ attraction.name }}</h1>
-          <div class="rating-section">
+          <h1 class="attraction-title">{{ attraction ? attraction.name : '景点详情' }}</h1>
+          <div v-if="attraction" class="rating-section">
             <div class="rating-badge" :style="{ background: ratingBackgroundColor }">
               <span class="rating-label">好评率</span>
               <span class="rating-text">{{ attraction.rating }}</span>
@@ -27,6 +22,18 @@
           </div>
         </div>
       </header>
+    </div>
+
+    <!-- 滚动内容区域 -->
+    <div class="scroll-content">
+      <!-- 加载状态 -->
+      <div v-if="!attraction" class="loading-container">
+        <div class="loading-spinner"></div>
+        <p class="loading-text">正在加载景点详情...</p>
+      </div>
+
+      <!-- 景点详情内容 -->
+      <div v-else class="attraction-details fade-in">
 
         <!-- 图片展示区域 -->
         <section class="images-section">
@@ -55,89 +62,91 @@
           </div>
         </div>
 
-      <!-- 景点信息 -->
-      <section class="info-section" v-fly-in>
-        <div class="info-grid">
-          <div class="info-card card">
-            <div class="info-header">
-              <span class="info-icon">📍</span>
-              <h3>位置信息</h3>
+        <!-- 景点信息 -->
+        <section class="info-section">
+          <div class="info-grid" v-fly-in>
+            <div class="info-card card">
+              <div class="info-header">
+                <span class="info-icon">📍</span>
+                <h3>位置信息</h3>
+              </div>
+              <div class="info-content">
+                <div class="info-item">
+                  <span class="info-label">地区</span>
+                  <span class="info-value">{{ attraction.region }}</span>
+                </div>
+                <div class="info-item">
+                  <span class="info-label">省份/县</span>
+                  <span class="info-value">{{ attraction.county }}</span>
+                </div>
+                <div class="info-item">
+                  <span class="info-label">具体位置</span>
+                  <span class="info-value">{{ attraction.position }}</span>
+                </div>
+              </div>
             </div>
-            <div class="info-content">
-              <div class="info-item">
-                <span class="info-label">地区</span>
-                <span class="info-value">{{ attraction.region }}</span>
+
+            <div class="info-card card">
+              <div class="info-header">
+                <span class="info-icon">⏰</span>
+                <h3>游览信息</h3>
               </div>
-              <div class="info-item">
-                <span class="info-label">省份/县</span>
-                <span class="info-value">{{ attraction.county }}</span>
+              <div class="info-content">
+                <div class="info-item">
+                  <span class="info-label">建议游览时间</span>
+                  <span class="info-value">{{ attraction.duration }}</span>
+                </div>
+                <div class="info-item">
+                  <span class="info-label">概况</span>
+                  <span class="info-value">{{ attraction.details }}</span>
+                </div>
               </div>
-              <div class="info-item">
-                <span class="info-label">具体位置</span>
-                <span class="info-value">{{ attraction.position }}</span>
+            </div>
+
+            <div class="info-card card info-card-wide">
+              <div class="info-header">
+                <span class="info-icon">📖</span>
+                <h3>详细介绍</h3>
+              </div>
+              <div class="info-content">
+                <p class="details-text">{{ attraction.overview }}</p>
+              </div>
+            </div>
+
+            <div v-if="attraction.website" class="info-card card">
+              <div class="info-header">
+                <span class="info-icon">🌐</span>
+                <h3>网址</h3>
+              </div>
+              <div class="info-content">
+                <a :href="attraction.website" target="_blank" class="website-link">
+                  <span class="website-text">{{ attraction.website }}</span>
+                  <span class="external-icon">↗</span>
+                </a>
               </div>
             </div>
           </div>
+        </section>
 
-          <div class="info-card card">
-            <div class="info-header">
-              <span class="info-icon">⏰</span>
-              <h3>游览信息</h3>
-            </div>
-            <div class="info-content">
-              <div class="info-item">
-                <span class="info-label">建议游览时间</span>
-                <span class="info-value">{{ attraction.duration }}</span>
-              </div>
-              <div class="info-item">
-                <span class="info-label">概况</span>
-                <span class="info-value">{{ attraction.details }}</span>
-              </div>
-            </div>
+        <!-- 导航控制 -->
+        <section class="navigation-section">
+          <div class="navigation-controls">
+            <button @click="goBack" class="back-button bottom-back-button">
+              返回
+            </button>
+            <button @click="prevPage" :disabled="index === 0" class="nav-button">
+              <span class="nav-icon">←</span>
+              上一个景点
+            </button>
+            <button @click="nextPage" :disabled="index === 19" class="nav-button">
+              下一个景点
+              <span class="nav-icon">→</span>
+            </button>
           </div>
-
-          <div class="info-card card info-card-wide">
-            <div class="info-header">
-              <span class="info-icon">📖</span>
-              <h3>详细介绍</h3>
-            </div>
-            <div class="info-content">
-              <p class="details-text">{{ attraction.overview }}</p>
-            </div>
-          </div>
-
-          <div v-if="attraction.website" class="info-card card">
-            <div class="info-header">
-              <span class="info-icon">🌐</span>
-              <h3>网址</h3>
-            </div>
-            <div class="info-content">
-              <a :href="attraction.website" target="_blank" class="website-link">
-                <span class="website-text">{{ attraction.website }}</span>
-                <span class="external-icon">↗</span>
-              </a>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <!-- 导航控制 -->
-      <section class="navigation-section">
-        <div class="navigation-controls">
-          <button @click="goBack" class="back-button bottom-back-button">
-            返回
-          </button>
-          <button @click="prevPage" :disabled="index === 0" class="nav-button">
-            <span class="nav-icon">←</span>
-            上一个景点
-          </button>
-          <button @click="nextPage" :disabled="index === 19" class="nav-button">
-            下一个景点
-            <span class="nav-icon">→</span>
-          </button>
-        </div>
-      </section>
+        </section>
+      </div>
     </div>
+    
   </div>
 </template>
   
@@ -209,6 +218,7 @@
 
       nextPage() {
         if (this.index < 19) {
+          this.attraction = null; // 显示加载状态
           fetch(`https://juseaxerf.com/api/attraction/${this.country}/${this.ids[this.index+1]}`)
           .then(response => response.json())
           .then(data => {
@@ -221,7 +231,7 @@
 
       prevPage() {
         if (this.index > 0) {
-          
+          this.attraction = null; // 显示加载状态
           fetch(`https://juseaxerf.com/api/attraction/${this.country}/${this.ids[this.index-1]}`)
           .then(response => response.json())
           .then(data => {
@@ -355,9 +365,27 @@
 
 
 <style scoped>
+
 .container {
+  display: flex;
+  flex-direction: column;
   min-height: 100vh;
   background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+}
+
+.fixed-header {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+  padding: 20px 20px 0;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+}
+
+.scroll-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 20px;
 }
 
 /* 加载状态 */
@@ -723,7 +751,6 @@
 /* 导航区域 */
 .navigation-section {
   padding: 60px 20px;
-  background: rgba(255, 255, 255, 0.95);
   backdrop-filter: blur(10px);
   border-top: 1px solid rgba(255, 255, 255, 0.2);
   display: flex;
