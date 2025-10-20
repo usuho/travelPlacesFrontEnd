@@ -8,6 +8,7 @@ import AttractionList from './components/AttractionList.vue'
 import AttractionDetails from './components/AttractionDetails.vue'
 
 import flyIn from './directives/flyIn.js';
+import fadeIn from './directives/fadeIn.js';
 import './assets/styles/global.css';
 
 
@@ -27,4 +28,5 @@ const router = createRouter({
 const app = createApp(App)
 app.use(router)
 app.directive('fly-in', flyIn);
+app.directive('fade-in', fadeIn);
 app.mount('#app')

@@ -52,7 +52,7 @@
 
             <div class="secondary-image-container" @click="openFullscreen(image3)">
               <div v-if="!image3&&attraction.hasImage3" class="image-skeleton secondary-image-skeleton"></div>
-              <img v-if="image3" :src="image3" alt="景点图片" class="secondary-image" />
+              <img v-if="image3" :src="image3" alt="景点图片" class="secondary-image" v-fly-in/>
             </div>
           </div>
         </section>
@@ -141,11 +141,11 @@
             <button @click="goBack" class="back-button bottom-back-button">
               返回
             </button>
-            <button @click="prevPage" :disabled="index === 0" class="nav-button">
+            <button @click="prevPage" :disabled="fromSearch || index === 0"  class="nav-button">
               <span class="nav-icon">←</span>
               上一个景点
             </button>
-            <button @click="nextPage" :disabled="index === 19" class="nav-button">
+            <button @click="nextPage" :disabled="fromSearch || index === 19" class="nav-button">
               下一个景点
               <span class="nav-icon">→</span>
             </button>
@@ -163,6 +163,7 @@
   export default {
     data() {
       return {
+        fromSearch: this.$route.query.from === 'search',
         loading: true,
         country: this.$route.params.country,
         id: this.$route.params.id,

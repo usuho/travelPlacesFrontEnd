@@ -60,11 +60,44 @@
       <!-- 第二行：仅放两个搜索框，与上面列对齐 -->
       <div class="filters-grid" style="margin-top: 12px;">
         <div class="filter-group"></div>
-        <div class="filter-group"></div>
+
+        <!-- ✅ 新增：景点搜索框 -->
+        <div class="filter-group">
+          <div class="search-container">
+            <input 
+              type="search" 
+              v-model="attractionSearch" 
+              placeholder="搜索景点..." 
+              class="search-input"
+              ref="attractionInput"
+              @input="filterAttractions(); updateAttractionDropdownPosition()"
+              @focus="showAttractionSuggestions = true; updateAttractionDropdownPosition()"
+              @blur="hideAttractionSuggestions"
+            />
+            
+            <teleport to="body">
+              <div 
+                v-if="showAttractionSuggestions && attractionSearch.trim() && attractionSuggestions.length > 0"
+                class="suggestions-dropdown" 
+                :style="attractionDropdownStyle"
+              >
+                <div 
+                  v-for="item in attractionSuggestions" 
+                  :key="item.id" 
+                  class="suggestion-item"
+                  @mousedown="selectAttraction(item)"
+                >
+                  {{ item.name }}
+                </div>
+              </div>
+            </teleport>
+          </div>
+        </div>
+
         <div class="filter-group" v-if="countisLoaded && countis.length > 0">
           <div class="search-container">
             <input 
-              type="text" 
+              type="search" 
               v-model="countySearch" 
               :placeholder="`搜索${translateCounty(country)}...`"
               class="search-input"
@@ -90,7 +123,7 @@
         <div class="filter-group">
           <div class="search-container">
             <input 
-              type="text" 
+              type="search" 
               v-model="regionSearch" 
               placeholder="搜索地区..."
               class="search-input"
@@ -138,11 +171,11 @@
           <div v-for="(attraction, index) in attractions" :key="attraction.id" class="attraction-item" @click="handleClick(attraction,index,$event)">
             <div class="attraction-image-wrapper">
               <div v-if="!attraction.image1" class="image-placeholder shimmer"></div>
-              <img 
+              <img v-fade-in
                 v-if="attraction.image1"
                 :src="attraction.image1"
                 alt="景点图片" 
-                class="attraction-image fade-in-image"
+                class="attraction-image"
                />
             </div>
             
@@ -269,7 +302,13 @@
         showCountySuggestions: false,
         showRegionSuggestions: false,
         countyDropdownStyle: {},
-        regionDropdownStyle: {}
+        regionDropdownStyle: {},
+
+        attractionSearch: '',
+        showAttractionSuggestions: false,
+        attractionDropdownStyle: {},
+        allAttractions: [],
+        attractionSuggestions: []
       };
     },
 
@@ -292,6 +331,7 @@
       this.fetchAttractions(false);
       this.fetchRegions();
       this.fetchCountis();
+      this.fetchAllAttractions();
     },
 
     watch: {
@@ -307,7 +347,8 @@
         this.page = 1;
         localStorage.setItem('attractionsPage', this.page); 
         localStorage.setItem('attractionsRegion', this.selectedRegion);
-        this.fetchAttractions(true);},
+        this.fetchAttractions(true);
+        this.fetchAllAttractions();},
 
       selectedCounty() {
         this.selectedRegion = ''; // 重置地区
@@ -316,12 +357,70 @@
         this.page = 1;
         localStorage.setItem('attractionsPage', this.page); 
         localStorage.setItem('attractionsCounty',this.selectedCounty)
-        this.fetchAttractions(true);},
+        this.fetchAttractions(true);
+        this.fetchAllAttractions();},
 
 
     },
 
     methods: {
+
+      async fetchAllAttractions() {
+        try {
+
+          const params = new URLSearchParams({
+            region: this.selectedRegion || '',
+            county: this.selectedCounty || ''
+          }).toString();
+
+          const res = await fetch(`https://juseaxerf.com/api/attractions-names-filtered/${this.country}?${params}`);
+          const data = await res.json();
+          this.allAttractions = Array.isArray(data.data) ? data.data : data; // 兼容不同API格式
+          console.log('✅ 已加载景点名称数量:', this.allAttractions.length);
+        } catch (err) {
+          console.error('拉取所有景点失败:', err);
+        }
+      },
+
+      filterAttractions() {
+        const q = this.attractionSearch.trim().toLowerCase();
+        if (!q) {
+          this.attractionSuggestions = [];
+          return;
+        }
+        this.attractionSuggestions = this.allAttractions.filter(a =>
+          a.name.toLowerCase().includes(q)
+        );
+      },
+      
+
+      selectAttraction(attraction) {
+        this.showAttractionSuggestions = false;
+        this.attractionSearch = attraction.name;
+        // ✅ 直接跳转到详情页
+        this.$router.push(`/attraction/${this.country}/${attraction.id}?from=search`);
+      },
+
+      hideAttractionSuggestions() {
+        setTimeout(() => {
+          this.showAttractionSuggestions = false;
+        }, 200);
+      },
+
+      updateAttractionDropdownPosition() {
+        this.$nextTick(() => {
+          const input = this.$refs.attractionInput;
+          if (input) {
+            const rect = input.getBoundingClientRect();
+            this.attractionDropdownStyle = {
+              top: `${rect.bottom}px`,
+              left: `${rect.left}px`,
+              width: `${rect.width}px`
+            };
+          }
+        });
+      },
+
       
       handleClick(attraction,index,event) {
         event.preventDefault();
