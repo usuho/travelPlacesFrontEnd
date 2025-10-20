@@ -137,7 +137,13 @@
         <div v-else class="attractions-list" v-fly-in>
           <div v-for="(attraction, index) in attractions" :key="attraction.id" class="attraction-item" @click="handleClick(attraction,index,$event)">
             <div class="attraction-image-wrapper">
-              <img :src="`data:image/jpeg;base64,${attraction.image1}`" alt="景点图片" class="attraction-image" />
+              <div v-if="!attraction.image1" class="image-placeholder shimmer"></div>
+              <img 
+                v-if="attraction.image1"
+                :src="attraction.image1"
+                alt="景点图片" 
+                class="attraction-image fade-in-image"
+               />
             </div>
             
             <div class="attraction-content">
@@ -266,6 +272,7 @@
         regionDropdownStyle: {}
       };
     },
+
     computed: {
       totalPages() {
         return Math.ceil(this.total / this.limit);
@@ -282,13 +289,6 @@
       }
     },
     async created() {
-      this.db = await openDB('AttractionsDB', 1, {
-        upgrade(db) {
-          if (!db.objectStoreNames.contains('images')) {
-            db.createObjectStore('images');
-          }
-        }
-      });
       this.fetchAttractions(false);
       this.fetchRegions();
       this.fetchCountis();
@@ -322,6 +322,7 @@
     },
 
     methods: {
+      
       handleClick(attraction,index,event) {
         event.preventDefault();
         const ids=[];
@@ -417,11 +418,23 @@
           const data = await response.json();
         
           if (data.data.length > 0) {
+            // ✅ 第一步：只加载文字数据
             this.total = data.total;
-            this.attractions = await Promise.all(data.data.map(async attraction => {
-              attraction.image1 = await this.loadOrCacheImage(`${this.country}-${attraction.id}-image1`, attraction.image1);
-              return attraction;
+            this.attractions = data.data.map(a => ({
+              ...a,
+              image1: '', // 先显示文字，图片留空
             }));
+            this.loading = false; // ✅ 提前结束 loading，先显示文字
+
+            // ✅ 图片异步加载（确保响应式更新）
+            this.attractions.forEach(async (a, i) => {
+              if (a.hasImage) {
+                const res = await fetch(`https://juseaxerf.com/api/attraction-image/${this.country}/${a.id}/1`);
+                const blob = await res.blob();
+                const url = URL.createObjectURL(blob);
+                this.attractions[i].image1 = url;
+              }
+            });
 
             // 前端兜底：当排序为好评率降序时，对相同好评率按总评论数降序排列
             if (this.order === 'rating_desc') {
@@ -442,24 +455,15 @@
             }
           } else {
             this.attractions = [];
+            this.loading = false;
           }
         } catch (error) {
           console.error('获取景点数据失败:', error);
           this.attractions = [];
-        } finally {
           this.loading = false;
-        }
+        } 
       },
 
-      async loadOrCacheImage(key, imageData) {
-      const cachedImage = await this.db.get('images', key);
-      if (cachedImage) {
-        return cachedImage;
-      } else {
-        await this.db.put('images', imageData, key);
-        return imageData;
-      }
-    },
 
       goBack() {
         localStorage.setItem('attractionsPage', 1); // 保存当前页数到localStorage
@@ -620,6 +624,28 @@
 
 <style scoped>
 
+.image-placeholder {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(120deg, #f0f0f0, #e0e0e0, #f0f0f0);
+  background-size: 200% 100%;
+  animation: placeholderShimmer 1.6s infinite linear;
+  border-radius: 12px;
+}
+
+@keyframes placeholderShimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+.fade-in-image {
+  opacity: 1;
+  transform: scale(1);
+  filter: blur(0);
+}
 
 .container {
   display: flex;
@@ -1142,9 +1168,12 @@
   }
   
   .attraction-image-wrapper {
-    width: 100px;
-    height: 100px;
-    align-self: center;
+    position: relative;
+    width: 100%;
+    height: 180px;
+    overflow: hidden;
+    border-radius: 12px;
+    background: #f2f2f2;
   }
   
   .attraction-stats {

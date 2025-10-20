@@ -27,7 +27,7 @@
     <!-- 滚动内容区域 -->
     <div class="scroll-content">
       <!-- 加载状态 -->
-      <div v-if="!attraction" class="loading-container">
+      <div v-if="!attraction||loading" class="loading-container">
         <div class="loading-spinner"></div>
         <p class="loading-text">正在加载景点详情...</p>
       </div>
@@ -37,15 +37,22 @@
 
         <!-- 图片展示区域 -->
         <section class="images-section">
-          <div class="main-image-container" @click="openFullscreen(attraction.image1)">
-            <img :src="`data:image/jpeg;base64,${attraction.image1}`" alt="景点主图" class="main-image" />
+          <!-- 主图 -->
+          <div class="main-image-container" @click="openFullscreen(image1)">
+            <div v-if="!image1&&attraction.hasImage1" class="image-skeleton main-image-skeleton"></div>
+            <img v-if="image1" :src="image1" alt="景点主图" class="main-image" />
           </div>
+
+          <!-- 次要图片 -->
           <div class="secondary-images">
-            <div class="secondary-image-container" @click="openFullscreen(attraction.image2)">
-              <img :src="`data:image/jpeg;base64,${attraction.image2}`" alt="景点图片" class="secondary-image" />
+            <div class="secondary-image-container" @click="openFullscreen(image2)">
+              <div v-if="!image2&&attraction.hasImage2" class="image-skeleton secondary-image-skeleton"></div>
+              <img v-if="image2" :src="image2" alt="景点图片" class="secondary-image" />
             </div>
-            <div class="secondary-image-container" @click="openFullscreen(attraction.image3)">
-              <img :src="`data:image/jpeg;base64,${attraction.image3}`" alt="景点图片" class="secondary-image" />
+
+            <div class="secondary-image-container" @click="openFullscreen(image3)">
+              <div v-if="!image3&&attraction.hasImage3" class="image-skeleton secondary-image-skeleton"></div>
+              <img v-if="image3" :src="image3" alt="景点图片" class="secondary-image" />
             </div>
           </div>
         </section>
@@ -54,7 +61,7 @@
         <div v-if="fullscreenImage" class="fullscreen-overlay" @click="handleOverlayClick" @wheel="handleWheel" @touchstart="handleTouchStart" @touchmove="handleTouchMove" @touchend="handleTouchEnd">
           <div class="fullscreen-container" @mousedown="handleMouseDown" @mousemove="handleMouseMove" @mouseup="handleMouseUp" @mouseleave="handleMouseUp">
             <img 
-              :src="`data:image/jpeg;base64,${fullscreenImage}`" 
+              :src="fullscreenImage" 
               alt="全屏图片" 
               class="fullscreen-image"
               :style="{ transform: `scale(${imageScale}) translate(${imageTranslateX}px, ${imageTranslateY}px)` }"
@@ -156,6 +163,7 @@
   export default {
     data() {
       return {
+        loading: true,
         country: this.$route.params.country,
         id: this.$route.params.id,
         attraction: null,
@@ -175,13 +183,6 @@
       };
     },
     async created() {
-      this.db = await openDB('AttractionsDB', 1, {
-        upgrade(db) {
-          if (!db.objectStoreNames.contains('images')) {
-            db.createObjectStore('images');
-          }
-        }
-      });
       await this.fetchAttractionDetails();
     },
   computed: {
@@ -196,47 +197,105 @@
     methods: {
 
       async fetchAttractionDetails() {
+        // 1️⃣ 拉取 JSON 数据
         const response = await fetch(`https://juseaxerf.com/api/attraction/${this.country}/${this.id}`);
         const data = await response.json();
-        this.attraction = data;
 
-        // 缓存图像
-        this.image1 = await this.loadOrCacheImage(`${this.country}-${this.id}-image1`, data.image1);
-        this.image2 = await this.loadOrCacheImage(`${this.country}-${this.id}-image2`, data.image2);
-        this.image3 = await this.loadOrCacheImage(`${this.country}-${this.id}-image3`, data.image3);
-      },
+        if (data) {
+            // ✅ 第一步：只加载文字数据
+            this.attraction = data;
+            this.loading = false; // ✅ 提前结束 loading，先显示文字
 
-      async loadOrCacheImage(key, imageData) {
-        const cachedImage = await this.db.get('images', key);
-        if (cachedImage) {
-          return `data:image/jpeg;base64,${cachedImage}`;
-        } else {
-          await this.db.put('images', imageData, key);
-          return `data:image/jpeg;base64,${imageData}`;
+        // 2️⃣ 如果 hasImage1/2/3 存在，就异步拉取图片
+        for (let i = 1; i <= 3; i++) {
+          if (data[`hasImage${i}`]) {
+            fetch(`https://juseaxerf.com/api/attraction-image/${this.country}/${this.id}/${i}`)
+              .then(response => {
+                if (!response.ok) throw new Error('Failed to fetch image');
+                return response.blob();
+              })
+              .then(blob => {
+                const url = URL.createObjectURL(blob);
+                this[`image${i}`] = url;
+              });
+          }
         }
+      }
       },
 
-      nextPage() {
+      async nextPage() {
+      localStorage.setItem('attractionIndex', this.index + 1);
         if (this.index < 19) {
           this.attraction = null; // 显示加载状态
-          fetch(`https://juseaxerf.com/api/attraction/${this.country}/${this.ids[this.index+1]}`)
-          .then(response => response.json())
-          .then(data => {
-            this.attraction = data;
-          });
+
+          for (let i = 1; i <=3; i++) {
+            this[`image${i}`] = null; // 重置图片
+          }
+
+          this.loading = true;
+          // 1️⃣ 拉取 JSON 数据
+          const response = await fetch(`https://juseaxerf.com/api/attraction/${this.country}/${this.ids[this.index+1]}`);
+          const data = await response.json();
+
+          if (data) {
+              // ✅ 第一步：只加载文字数据
+              this.attraction = data;
+              this.loading = false; // ✅ 提前结束 loading，先显示文字
+
+          // 2️⃣ 如果 hasImage1/2/3 存在，就异步拉取图片
+          for (let i = 1; i <= 3; i++) {
+            if (data[`hasImage${i}`]) {
+              fetch(`https://juseaxerf.com/api/attraction-image/${this.country}/${this.ids[this.index+1]}/${i}`)
+                .then(response => {
+                  if (!response.ok) throw new Error('Failed to fetch image');
+                  return response.blob();
+                })
+                .then(blob => {
+                  const url = URL.createObjectURL(blob);
+                  this[`image${i}`] = url;
+                });
+            }
+          }
+        }
           this.$router.push(`${this.ids[this.index+1]}`);
           this.index ++
         }
       },
 
-      prevPage() {
+      async prevPage() {
+        localStorage.setItem('attractionIndex', this.index - 1);
         if (this.index > 0) {
           this.attraction = null; // 显示加载状态
-          fetch(`https://juseaxerf.com/api/attraction/${this.country}/${this.ids[this.index-1]}`)
-          .then(response => response.json())
-          .then(data => {
-            this.attraction = data;
-          });
+          
+          for (let i = 1; i <=3; i++) {
+            this[`image${i}`] = null; // 重置图片
+          }
+
+          this.loading = true;
+          // 1️⃣ 拉取 JSON 数据
+          const response = await fetch(`https://juseaxerf.com/api/attraction/${this.country}/${this.ids[this.index-1]}`);
+          const data = await response.json();
+
+          if (data) {
+              // ✅ 第一步：只加载文字数据
+              this.attraction = data;
+              this.loading = false; // ✅ 提前结束 loading，先显示文字
+
+          // 2️⃣ 如果 hasImage1/2/3 存在，就异步拉取图片
+          for (let i = 1; i <= 3; i++) {
+            if (data[`hasImage${i}`]) {
+              fetch(`https://juseaxerf.com/api/attraction-image/${this.country}/${this.ids[this.index-1]}/${i}`)
+                .then(response => {
+                  if (!response.ok) throw new Error('Failed to fetch image');
+                  return response.blob();
+                })
+                .then(blob => {
+                  const url = URL.createObjectURL(blob);
+                  this[`image${i}`] = url;
+                });
+            }
+          }
+        }
           this.$router.push(`${this.ids[this.index-1]}`);
           this.index--
         }
@@ -365,6 +424,24 @@
 
 
 <style scoped>
+
+/* 闪光骨架样式 */
+.image-skeleton {
+  width: 100%;
+  background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+  border-radius: 12px;
+}
+
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+.main-image-skeleton { height: 500px; border-radius: 24px; }
+.secondary-image-skeleton { height: 250px; border-radius: 20px; }
+
 
 .container {
   display: flex;
