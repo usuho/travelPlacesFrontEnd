@@ -625,7 +625,7 @@
 
 /* 图片展示区域 */
 .images-section {
-  padding: 60px 20px;
+  padding: 30px 20px;
   padding-bottom: 30px;
   max-width: 1400px;
   margin: 0 auto;
@@ -717,7 +717,7 @@
 /* 信息区域 */
 .info-section {
   padding: 60px 20px;
-  padding-top: 30px;
+  padding-top: 15px;
   max-width: 1400px;
   margin: 0 auto;
 }
@@ -829,6 +829,7 @@
 /* 导航区域 */
 .navigation-section {
   padding: 60px 20px;
+  padding-top: 0;
   backdrop-filter: blur(10px);
   border-top: 1px solid rgba(255, 255, 255, 0.2);
   display: flex;
@@ -915,8 +916,44 @@
 
 /* 响应式设计 */
 @media (max-width: 768px) {
+
+  .info-section {
+    padding: 0px 10px;
+    padding-top: 15px;
+    margin: 0;
+  }
+
+  .fixed-header {
+    padding:0;
+  }
+
+  .top-back-button {
+    display:none;
+  }
+
   .page-header {
-    padding: 32px 16px;
+    padding: 4px;
+    padding-bottom:8px;
+  }
+
+  .scroll-content {
+    padding: 0;
+  }
+
+  .rating-badge {
+    padding: 5px 10px;
+    border-radius: 20px;
+    gap: 0;
+  }
+
+  .rating-label {
+    font-size: 0.7rem;
+    opacity: 0.9;
+  }
+
+  .rating-text {
+    font-size: 0.8rem;
+    font-weight: 700;
   }
   
   .header-content {
@@ -924,57 +961,122 @@
   }
   
   .attraction-title {
-    font-size: 2.2rem;
+    margin-bottom:0;
+    font-size: 1.7rem;
   }
   
   .rating-section {
-    flex-direction: column;
+    flex-direction: row;
     gap: 16px;
     text-align: center;
   }
-  
+
+  /* 图片展示区域 */
   .images-section {
-    padding: 40px 16px;
+    padding-top: 15px;
+    padding:10px;
+    padding-bottom:0;
   }
-  
+
+  .main-image-container {
+    border-radius: 12px;
+    margin-bottom: 12px;
+  }
+
   .main-image {
-    height: 300px;
+    height: auto;
   }
-  
+
+  .secondary-image-container {
+    border-radius: 12px;
+  }
+
   .secondary-images {
+    height:auto;
+    grid-template-columns: repeat(2,1fr);
+  }
+
+  .secondary-image {
+    height: auto;
+  }
+
+  /* 信息区域 */
+
+  .info-grid {
     grid-template-columns: 1fr;
     gap: 16px;
   }
-  
-  .secondary-image {
-    height: 200px;
-  }
-  
-  .info-section {
-    padding: 40px 16px;
-  }
-  
-  .info-grid {
-    grid-template-columns: 1fr;
-    gap: 24px;
-  }
-  
+
   .info-card {
-    padding: 24px;
+    padding: 10px;
+  }
+
+  .info-header {
+    gap: 4px;
+    margin-bottom: 8px;
+    padding-bottom: 8px;
+  }
+
+  .info-icon {
+    font-size: 0.8rem;
+  }
+
+  .info-header h3 {
+    font-size: 0.8rem;
+  }
+
+  .info-content {
+    flex-direction:row;
+    flex-wrap: wrap;      /* 超出宽度的项目换行 */
+    gap: 8px;
+
+  }
+
+  .info-item {
+    gap: 3px;
+  }
+
+  .info-label {
+    font-size: 0.7rem;
+  }
+
+  .details-text {
+    font-size: 0.85rem;
+  }
+
+  .website-text {
+    font-size:0.7rem;
+  }
+
+  .website-link {
+    padding:0;
+  }
+
+  .external-icon {
+    font-size:0.7rem;
+    margin-left:4px;
+  }
+
+  .info-value {
+    font-size: 0.85rem;
   }
   
   .navigation-section {
-    padding: 40px 16px;
+    padding: 20px;
+    padding-bottom:80px;
   }
   
   .navigation-controls {
-    flex-direction: column;
+    flex-direction: row;
     gap: 16px;
   }
   
   .nav-button {
     min-width: auto;
-    width: 100%;
+    padding: 14px 14px;
+    border-radius: 12px;
+    font-size: 12px;
+    font-weight: 750;
   }
 }
 

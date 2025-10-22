@@ -3,7 +3,7 @@
     <!-- 固定顶部区域（标题 + 筛选器） -->
     <div class="fixed-header">
       <header class="page-header">
-        <button @click="goBack" class="back-button top-back-button">
+        <button @click="goBack" class="back-button top-back-button desktop-back-button">
           返回
         </button>
         <div class="header-content">
@@ -12,7 +12,8 @@
         </div>
       </header>
 
-      <div class="filters-section card">
+      <div class="filters-section card desktop-filters">
+        
         <!-- 这里是你原来的筛选器内容 -->
         <div class="filters-grid">
           <div class="filter-group">
@@ -57,29 +58,140 @@
           </div>
         </div>
 
-      <!-- 第二行：仅放两个搜索框，与上面列对齐 -->
-      <div class="filters-grid" style="margin-top: 12px;">
-        <div class="filter-group"></div>
+        <!-- 第二行：仅放两个搜索框，与上面列对齐 -->
+        <div class="filters-grid" style="margin-top: 12px;">
+          <div class="filter-group"></div>
 
-        <!-- ✅ 新增：景点搜索框 -->
-        <div class="filter-group">
-          <div class="search-container">
-            <input 
-              type="search" 
-              v-model="attractionSearch" 
-              placeholder="搜索景点..." 
-              class="search-input"
-              ref="attractionInput"
-              @input="filterAttractions(); updateAttractionDropdownPosition()"
-              @focus="showAttractionSuggestions = true; updateAttractionDropdownPosition()"
+          <!-- ✅ 新增：景点搜索框 -->
+          <div class="filter-group">
+            <div class="search-container">
+              <input 
+                type="search" 
+                v-model="attractionSearch" 
+                placeholder="搜索景点..." 
+                class="search-input"
+                ref="attractionInput"
+                @input="filterAttractions(); updateAttractionDropdownPosition()"
+                @focus="showAttractionSuggestions = true; updateAttractionDropdownPosition()"
+                @blur="hideAttractionSuggestions"
+              />
+              
+              <teleport to="body">
+                <div 
+                  v-if="showAttractionSuggestions && attractionSearch.trim() && attractionSuggestions.length > 0"
+                  class="suggestions-dropdown" 
+                  :style="attractionDropdownStyle"
+                >
+                  <div 
+                    v-for="item in attractionSuggestions" 
+                    :key="item.id" 
+                    class="suggestion-item"
+                    @mousedown="selectAttraction(item)"
+                  >
+                    {{ item.name }}
+                  </div>
+                </div>
+              </teleport>
+            </div>
+          </div>
+
+          <div class="filter-group" v-if="countisLoaded && countis.length > 0">
+            <div class="search-container">
+              <input 
+                type="search" 
+                v-model="countySearch" 
+                :placeholder="`搜索${translateCounty(country)}...`"
+                class="search-input"
+                ref="countyInput"
+                @input="filterCounties; updateCountyDropdownPosition()"
+                @focus="showCountySuggestions = true; updateCountyDropdownPosition()"
+                @blur="hideCountySuggestions"
+              />
+              <teleport to="body">
+                <div v-if="showCountySuggestions && countySearch.trim() && countySuggestions.length > 0" class="suggestions-dropdown" :style="countyDropdownStyle">
+                  <div 
+                    v-for="county in countySuggestions" 
+                    :key="county" 
+                    class="suggestion-item"
+                    @mousedown="selectCounty(county)"
+                  >
+                    {{ county }}
+                  </div>
+                </div>
+              </teleport>
+            </div>
+          </div>
+          <div class="filter-group">
+            <div class="search-container">
+              <input 
+                type="search" 
+                v-model="regionSearch" 
+                placeholder="搜索地区..."
+                class="search-input"
+                ref="regionInput"
+                @input="filterRegions; updateRegionDropdownPosition()"
+                @focus="showRegionSuggestions = true; updateRegionDropdownPosition()"
+                @blur="hideRegionSuggestions"
+              />
+              <teleport to="body">
+                <div v-if="showRegionSuggestions && regionSearch.trim() && regionSuggestions.length > 0" class="suggestions-dropdown" :style="regionDropdownStyle">
+                  <div 
+                    v-for="region in regionSuggestions" 
+                    :key="region" 
+                    class="suggestion-item"
+                    @mousedown="selectRegion(region)"
+                  >
+                    {{ region }}
+                  </div>
+                </div>
+              </teleport>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 滚动内容区域 -->
+    <div class="scroll-content">
+
+      <!-- 移动端筛选器 -->
+      <div class="filters-section card mobile-filters">
+        <div class="mobile-filters-grid">
+          <!-- 第一行：最小评论数 -->
+          <div class="mobile-filter-row">
+            <span class="filter-label">最小评论数</span>
+            <input type="number" v-model.number="minReviews" @keyup.enter="validateInputmin" @blur="validateInputmin" min="0" placeholder="0" />
+            <div></div>
+          </div>
+
+          <!-- 第二行：排序方式 + 景点搜索 -->
+          <div class="mobile-filter-row">
+
+            <span class="filter-label">排序方式</span>
+            <select v-model="order">
+              <option value="rating_desc">好评率降序</option>
+              <option value="rating_asc">好评率升序</option>
+              <option value="reviews_desc">总评论数降序</option>
+              <option value="reviews_asc">总评论数升序</option>
+              <option value="positive_desc">好评数降序</option>
+              <option value="positive_asc">好评数升序</option>
+            </select>
+            <input
+              type="search"
+              v-model="attractionSearch"
+              placeholder="搜索景点..."
+              ref="mobileAttractionInput"
+              @input="filterAttractions(); updateMobileAttractionDropdownPosition()"
+              @focus="showAttractionSuggestions = true; updateMobileAttractionDropdownPosition()"
               @blur="hideAttractionSuggestions"
             />
-            
-            <teleport to="body">
+          </div>
+
+          <teleport to="body">
               <div 
                 v-if="showAttractionSuggestions && attractionSearch.trim() && attractionSuggestions.length > 0"
                 class="suggestions-dropdown" 
-                :style="attractionDropdownStyle"
+                :style="mobileAttractionDropdownStyle"
               >
                 <div 
                   v-for="item in attractionSuggestions" 
@@ -91,23 +203,28 @@
                 </div>
               </div>
             </teleport>
-          </div>
-        </div>
 
-        <div class="filter-group" v-if="countisLoaded && countis.length > 0">
-          <div class="search-container">
+          <!-- 第三行：county -->
+          <div class="mobile-filter-row" v-if="countisLoaded && countis.length > 0">
+            <span class="filter-label">{{translateCounty(country)}}</span>
+            <select v-model="selectedCounty">
+              <option value="">所有{{translateCounty(country)}}</option>
+              <option v-for="county in countis" :key="county" :value="county">{{ county }}</option>
+            </select>
             <input 
               type="search" 
               v-model="countySearch" 
               :placeholder="`搜索${translateCounty(country)}...`"
-              class="search-input"
-              ref="countyInput"
-              @input="filterCounties; updateCountyDropdownPosition()"
-              @focus="showCountySuggestions = true; updateCountyDropdownPosition()"
+              ref="mobileCountyInput"
+              @input="filterCounties(); updateMobileCountyDropdownPosition()"
+              @focus="showCountySuggestions = true; updateMobileCountyDropdownPosition()"
               @blur="hideCountySuggestions"
             />
+
             <teleport to="body">
-              <div v-if="showCountySuggestions && countySearch.trim() && countySuggestions.length > 0" class="suggestions-dropdown" :style="countyDropdownStyle">
+              <div v-if="showCountySuggestions && countySearch.trim() && countySuggestions.length > 0" 
+                  class="suggestions-dropdown" 
+                  :style="mobileCountyDropdownStyle">
                 <div 
                   v-for="county in countySuggestions" 
                   :key="county" 
@@ -118,22 +235,30 @@
                 </div>
               </div>
             </teleport>
+
           </div>
-        </div>
-        <div class="filter-group">
-          <div class="search-container">
+
+          <!-- 第四行：地区 -->
+          <div class="mobile-filter-row">
+            <span class="filter-label">地区</span>
+            <select v-model="selectedRegion">
+              <option value="">所有地区</option>
+              <option v-for="region in regions" :key="region" :value="region">{{ region }}</option>
+            </select>
             <input 
               type="search" 
               v-model="regionSearch" 
               placeholder="搜索地区..."
-              class="search-input"
-              ref="regionInput"
-              @input="filterRegions; updateRegionDropdownPosition()"
-              @focus="showRegionSuggestions = true; updateRegionDropdownPosition()"
+              ref="mobileRegionInput"
+              @input="filterRegions(); updateMobileRegionDropdownPosition()"
+              @focus="showRegionSuggestions = true; updateMobileRegionDropdownPosition()"
               @blur="hideRegionSuggestions"
             />
+
             <teleport to="body">
-              <div v-if="showRegionSuggestions && regionSearch.trim() && regionSuggestions.length > 0" class="suggestions-dropdown" :style="regionDropdownStyle">
+              <div v-if="showRegionSuggestions && regionSearch.trim() && regionSuggestions.length > 0" 
+                  class="suggestions-dropdown" 
+                  :style="mobileRegionDropdownStyle">
                 <div 
                   v-for="region in regionSuggestions" 
                   :key="region" 
@@ -144,15 +269,12 @@
                 </div>
               </div>
             </teleport>
+
+
           </div>
         </div>
       </div>
-        <!-- ...完整的 filters-grid 两段放这里 -->
-      </div>
-    </div>
 
-    <!-- 滚动内容区域 -->
-    <div class="scroll-content">
       <!-- 加载状态 -->
       <div v-if="loading" class="loading-container">
         <div class="loading-spinner"></div>
@@ -167,9 +289,9 @@
           <p>请尝试调整筛选条件</p>
         </div>
         
-        <div v-else class="attractions-list" v-fly-in>
+        <div v-else class="attractions-list attractions-list-desktop" v-fly-in>
           <div v-for="(attraction, index) in attractions" :key="attraction.id" class="attraction-item" @click="handleClick(attraction,index,$event)">
-            <div class="attraction-image-wrapper">
+            <div class="attraction-image-wrapper attraction-content-desktop">
               <div v-if="!attraction.image1" class="image-placeholder shimmer"></div>
               <img v-fade-in
                 v-if="attraction.image1"
@@ -179,7 +301,7 @@
                />
             </div>
             
-            <div class="attraction-content">
+            <div class="attraction-content attraction-content-desktop">
               <div class="attraction-header">
                 <h3 class="attraction-name">
                   <span class="attraction-name-text">{{ attraction.name }}</span>
@@ -202,6 +324,35 @@
                 <div class="stat-item rating-item">
                   <span class="stat-number rating-number" :style="{ backgroundColor: getRatingColor(attraction.rating) }">{{ attraction.rating }}</span>
                   <span class="stat-label">好评率</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- 移动端内容布局 -->
+            <div class="attraction-content-mobile">
+              <!-- ✅ 第一行：名字 + 位置 同行显示 -->
+              <div class="attraction-header-mobile">
+                <h3 class="attraction-name">{{ attraction.name }}</h3>
+                <div class="attraction-location">
+                  <span class="location-icon">📍</span>
+                  <span>{{ attraction.region }}, {{ attraction.county }}</span>
+                </div>
+              </div>
+
+              <!-- 第二行：左图片，右文字 -->
+              <div class="attraction-info-row">
+                <div class="attraction-image-wrapper">
+                  <img v-fade-in v-if="attraction.image1" :src="attraction.image1" alt="景点图片" class="attraction-image" />
+                  <div v-else class="image-placeholder shimmer"></div>
+                </div>
+
+                <div class="attraction-stats-wrapper">
+                  <div class="attraction-stats">
+                    <div class="stat-item rating-item">
+                      <span class="stat-number rating-number" :style="{ backgroundColor: getRatingColor(attraction.rating) }">{{ attraction.rating }}</span>
+                      <span class="stat-label">好评率</span>
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
@@ -253,6 +404,9 @@
   export default {
     data() {
       return {
+        mobileCountyDropdownStyle: {},
+        mobileRegionDropdownStyle: {},
+        mobileAttractionDropdownStyle: {},
         countisLoaded: false,
         country: this.$route.params.country,
         attractions: [],
@@ -364,6 +518,52 @@
     },
 
     methods: {
+
+      updateMobileAttractionDropdownPosition() {
+        this.$nextTick(() => {
+          const input = this.$refs.mobileAttractionInput;
+          if (input) {
+            const rect = input.getBoundingClientRect();
+            this.mobileAttractionDropdownStyle = {
+              top: `${rect.bottom}px`,      // 下方对齐
+              left: `${rect.left}px`,       // 左边对齐
+              width: `${rect.width}px`,
+              position: 'fixed',
+            };
+          }
+        });
+      },
+
+      updateMobileCountyDropdownPosition() {
+        this.$nextTick(() => {
+          const input = this.$refs.mobileCountyInput;
+          if (input) {
+            const rect = input.getBoundingClientRect();
+            this.mobileCountyDropdownStyle = {
+              top: `${rect.bottom}px`,
+              left: `${rect.left}px`,
+              width: `${rect.width}px`,
+              position: 'fixed',
+            };
+          }
+        });
+      },
+
+      updateMobileRegionDropdownPosition() {
+        this.$nextTick(() => {
+          const input = this.$refs.mobileRegionInput;
+          if (input) {
+            const rect = input.getBoundingClientRect();
+            this.mobileRegionDropdownStyle = {
+              top: `${rect.bottom}px`,
+              left: `${rect.left}px`,
+              width: `${rect.width}px`,
+              position: 'fixed',
+            };
+          }
+        });
+      },
+
 
       async fetchAllAttractions() {
         try {
@@ -723,6 +923,32 @@
 
 <style scoped>
 
+/* 让景点名和位置在同一行显示 */
+.attraction-header-mobile {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap; /* 如果太长就换行 */
+  gap: 6px; /* 名称和位置之间的间距 */
+}
+
+.attraction-header-mobile .attraction-name {
+  font-size: 1.05rem;
+  font-weight: 600;
+  margin: 0;
+  white-space: nowrap; /* 避免标题换行 */
+}
+
+.attraction-header-mobile .attraction-location {
+  display: flex;
+  align-items: center;
+  color: #666;
+  white-space: nowrap; /* 避免位置换行 */
+}
+
+.attraction-header-mobile .location-icon {
+  margin-right: 2px;
+}
+
 .image-placeholder {
   position: absolute;
   top: 0;
@@ -759,9 +985,7 @@
   position: sticky;
   top: 0;
   z-index: 20;
-  background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
   padding: 20px 20px 0;
-  box-shadow: 0 2px 6px rgba(0,0,0,0.1);
 }
 
 /* 滚动内容部分 */
@@ -885,13 +1109,13 @@
   padding: 32px;
   background: rgba(255, 255, 255, 0.95);
   backdrop-filter: blur(10px);
-  max-width: 1200px; /* 和景点列表宽度一致 */
+  max-width: 1000px; 
 }
 .filters-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
   gap: 24px;
-  align-items: end;
+  align-items: center;
 }
 
 .filter-group {
@@ -996,11 +1220,12 @@
   color: #1d1d1f;
 }
 
-.attractions-list {
+.attractions-list-desktop {
+  align-items:center;
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: 1fr 1fr 1fr 1fr;
   gap: 16px;
-  max-width: 1200px;
+  max-width: 2000px;
   margin: 0 auto;
 }
 
@@ -1150,6 +1375,7 @@
 }
 
 .pagination-controls {
+  white-space: nowrap;
   display: flex;
   align-items: center;
   gap: 16px;
@@ -1161,7 +1387,7 @@
 }
 
 .pagination-button {
-  min-width: 120px;
+  min-width: auto;
   display: inline-flex;
   align-items: center;
   gap: 10px;
@@ -1227,66 +1453,307 @@
 }
 
 .page-input-group input {
+  padding:10px;
   width: 80px;
   text-align: center;
 }
 
-/* 响应式设计 */
+/* 默认隐藏移动端 filters */
+.mobile-filters {
+  display: none;
+}
+
+.mobile-filters-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 8px; /* 行间距 */
+  width: 100%;
+}
+
+.mobile-filter-row {
+  display: grid;
+  grid-template-columns: auto 1fr 1fr; /* 左列自适应，右两列平分 */
+  align-items: center;
+  gap: 8px; /* 列间距 */
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.mobile-filter-row .filter-label {
+  flex: 0 0 auto; /* 左边文字不伸缩 */
+  min-width: 80px; /* 可根据需要调整文字宽度 */
+  font-weight: 600;
+  font-size: 0.9rem;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+/* 中间和右边输入框、下拉框统一样式 */
+.mobile-filter-row select,
+.mobile-filter-row input[type="search"],
+.mobile-filter-row input[type="number"] {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 4px 8px;
+  border: 1px solid #ccc;
+  border-radius: 12px;
+  font-size: 0.8rem;
+}
+
+.mobile-filter-row > * {
+  height: 36px; /* 保证输入框、选择框高度一致 */
+  display: flex;
+  align-items: center;
+}
+
+.mobile-filter-row input[type="number"] {
+  -moz-appearance: textfield; /* 去掉 Firefox 上的上下箭头 */
+}
+
+
+
+.mobile-filter-row input::-webkit-outer-spin-button,
+.mobile-filter-row input::-webkit-inner-spin-button {
+  -webkit-appearance: none; /* 去掉 Chrome 上的上下箭头 */
+  margin: 0;
+}
+
+.attraction-content-mobile {
+  display: none;
+}
+
+
+/* 桌面端保持原样 */
 @media (max-width: 768px) {
-  .container {
-    padding: 20px 16px;
+
+  .attractions-section {
+    margin-bottom: 20px;
   }
-  
-  .header-content {
-    margin-top: 16px;
+
+  .page-input-group label {
+    color: #6e6e73;
+    font-size: 0.85rem;
   }
-  
-  .page-title {
-    font-size: 2.5rem;
-  }
-  
-  .page-subtitle {
-    font-size: 1.1rem;
+
+  .page-input-group input {
+    font-size: 0.8rem;
+    width: 50px;
     text-align: center;
   }
-  
-  .filters-grid {
-    grid-template-columns: 1fr;
-    gap: 16px;
-  }
-  
-  .attractions-list {
-    grid-template-columns: 1fr;
-    gap: 12px;
-  }
-  
-  .attraction-item {
-    flex-direction: column;
-    gap: 16px;
-    text-align: center;
-  }
-  
-  .attraction-image-wrapper {
-    position: relative;
-    width: 100%;
-    height: 180px;
-    overflow: hidden;
+
+  .pagination-button {
+    min-width: auto;
+    padding: 14px 14px;
     border-radius: 12px;
-    background: #f2f2f2;
+    font-size: 12px;
+    font-weight: 750;
   }
+
+  .scroll-content {
+    flex: 1;
+    overflow-y: auto;
+    padding: 20px;
+    padding-top: 10px;
+  }
+
+  .back-button {
+    padding: 14px 20px;
+    font-size: 12px;
+    font-weight: 750;
+  }
+
+  .desktop-back-button {
+    display: none;
+  }
+
+  .attraction-content-mobile {
+    display: flex;
+    flex-direction: column;
+    gap: 6px; /* 减少文字和内容间距 */
+    padding: 0; /* 缩小卡片内边距 */
+  }
+
+  .attraction-content-mobile .attraction-name {
+    font-size: 13px;
+    font-weight: 600;
+    margin: 0;
+    white-space: nowrap;       /* 不换行 */
+    overflow: hidden;          /* 超出隐藏 */
+    text-overflow: ellipsis;   /* 超出显示省略号 */
+    line-height: 1.3;
+  }
+
+  .attraction-content-desktop {
+    display: none;
+  }
+
+  .attractions-list {
+    grid-template-columns: 1fr 1fr; /* 双列保持 */
+    gap: 12px; /* 缩小列间距 */
+  }
+
+  .attraction-item {
+    display: flex;
+    flex-direction: column;
+    background: rgba(255, 255, 255, 0.95);
+    border-radius: 16px;
+    padding: 6px;
+    gap: 8px;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+  }
+
+  /* 第一行：名字 */
+  .attraction-name {
+    font-size: 1.1rem;
+    font-weight: 600;
+    line-height: 1.2;
+    white-space: nowrap;       /* 不换行 */
+    overflow: hidden;
+    text-overflow: ellipsis;  /* 超长显示省略号 */
+    margin: 0;
+  }
+
+  /* 第二行：图片 + 右侧信息 */
+  .attraction-info-row {
+    display: flex;
+    gap: 12px;
+    align-items: stretch; /* 让左右高度一致 */
+  }
+
   
+
+  .attraction-name-text {
+    font-size: 1rem; /* 缩小标题字体 */
+    white-space: normal; /* 默认值，允许换行 */
+    word-wrap: break-word; /* 遇到太长的单词时也换行 */
+    overflow-wrap: break-word; /* 同上，标准写法 */
+  }
+
+  .stat-number {
+    font-size: 0.95rem;
+    font-weight: 700;
+    color: white;
+    padding: 2px 6px;
+    border-radius: 6px;
+  }
+
+  .stat-label {
+    font-size: 0.55rem;
+    color: #8e8e93;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    font-weight: 500;
+  }
+
+  /* 左侧图片 */
+  .attraction-image-wrapper {
+    flex-shrink: 0;
+    width: 80px;
+    height: 40px;
+    border-radius: 12px;
+    overflow: hidden;
+  }
+
+  .attraction-image {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+
+  /* 右侧信息垂直分布 */
+  .attraction-stats-wrapper {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between; /* 上下平分 */
+  }
+
+  /* 好评率 */
   .attraction-stats {
-    gap: 20px;
-    justify-content: center;
+    display: flex;
+    gap: 16px;
+  }
+
+  .stat-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+    margin: 0; /* 卡片间距尽量小 */
+    padding: 0; /* 去掉多余的内边距 */
+  }
+
+
+  /* 地点 */
+  .attraction-location {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 0.55rem;
+    color: #6e6e73;
   }
   
-  .pagination-controls {
+  .page-header {
+    margin-bottom: 5px;
+  }
+
+  .fixed-header {
+    padding: 12px 16px 0; /* 缩小上下左右间距 */
+  }
+
+  .desktop-filters {
+    display: none;
+  }
+
+  .page-subtitle {
+    font-size: 0.8rem; /* 缩小副标题字体 */
+    text-align: center;
+  }
+
+  .filters-section.card.mobile-filters {
+    width: 100%; /* 卡片宽度自适应屏幕 */
+    padding: 10px;
+    box-sizing: border-box;
+    margin: 0 auto 16px; /* 居中并加底部间距 */
+  }
+
+  .page-title {
+    font-size: 1.5rem; /* 缩小标题字体 */
+    margin-bottom: 8px;
+    text-align: center;
+  }
+
+  .mobile-filters {
+    padding: 8px;
+    background: rgba(255, 255, 255, 0.95);
+    border-radius: 16px;
+    box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+    max-width: 100%;
+    box-sizing: border-box; /* 确保 padding 包含在宽度内 */
+    overflow: hidden;
+    display: grid;
+    gap: 8px;
+  }
+
+  .mobile-left-column,
+  .mobile-right-column {
+    display: flex;
     flex-direction: column;
     gap: 12px;
   }
-  
-  .reviews-info {
-    gap: 16px;
+
+  /* 第一行空白高度和左边行对齐 */
+  .mobile-right-column .empty {
+    height: 62px; /* 根据左边 filter-group 高度微调 */
+  }
+
+  .rating-number {
+    padding: 2px 6px;
+    border-radius: 6px;
+    color: white;
+    font-weight: 600;
+    font-size: 12px;
   }
 }
+
 </style>

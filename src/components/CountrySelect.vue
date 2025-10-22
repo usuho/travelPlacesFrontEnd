@@ -22,8 +22,12 @@
             class="country-link"
             @click.native="saveToLocalStorage"
           >
-            <div class="country-flag">{{ getCountryEmoji(country) }}</div>
-            <h3 class="country-name">{{ translateCountry(country) }}</h3>
+            <div class="country-flag-name">
+              <div class="country-flag-mobile">{{ getCountryEmoji(country) }}</div>
+              <h3 class="country-name-mobile">{{ translateCountry(country) }}</h3> 
+            </div>
+            <div class="country-flag-desktop">{{ getCountryEmoji(country) }}</div>
+            <h3 class="country-name-desktop">{{ translateCountry(country) }}</h3>
             <p class="country-description">
               {{ getCountryDescription(country) }}
             </p>
@@ -198,7 +202,13 @@ export default {
   color: inherit;
 }
 
-.country-flag {
+.country-flag-name-desktop {
+    display: flex;
+    align-items: center;
+    margin-bottom: 8px;
+  }
+
+.country-flag-desktop {
   font-size: 4rem;
   margin-bottom: 24px;
 }
@@ -211,25 +221,92 @@ export default {
 }
 
 .country-description {
+  margin-top:20px;
   font-size: 1rem;
   color: #6e6e73;
   line-height: 1.6;
 }
 
+.country-flag-mobile {
+  display: none;
+}
+
+.country-name-mobile {
+  display: none;
+}
+
+/* ✅ 移动端优化：保持两列，但卡片缩小 */
 @media (max-width: 768px) {
-  .hero-title {
-    font-size: 2.5rem;
+
+  .hero-section {
+    margin-bottom: 30px;
   }
-  .hero-subtitle {
-    font-size: 1.25rem;
+
+  .continent-section {
+    margin-bottom: 30px;
   }
-  .continent-title {
-    font-size: 1.5rem;
-    margin-bottom: 24px;
+  .country-name-desktop {
+    display: none;
   }
+
+  .country-flag-desktop {
+    display: none;
+  }
+
+  .country-name-mobile {
+    display:flex;
+    font-size: 1rem;
+    margin-bottom: 8px;
+  }
+
+  .country-flag-mobile {
+    margin-right: 1.5rem;
+    display:flex;
+  }
+
+  .country-link {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  
   .countries-grid {
-    grid-template-columns: 1fr;
-    gap: 24px;
+    grid-template-columns: repeat(2, 1fr); /* 两列排列 */
+    gap: 16px; /* 缩小间距 */
+  }
+
+  .country-card {
+    padding: 5px 16px;
+  }
+
+  .country-flag-name {
+    display:flex;
+    align-items:center;
+    font-size: 2.5rem;
+    margin-right: 12px;
+    margin-bottom: 0;
+  }
+
+  .country-name {
+    font-size: 1rem;
+    margin-bottom: 8px;
+  }
+
+  .country-description {
+    margin-top: 5px;
+    font-size: 0.7rem;
+  }
+
+  .hero-title {
+    font-size: 2rem;
+  }
+
+  .hero-subtitle {
+    font-size: 1rem;
+  }
+
+  .continent-title {
+    font-size: 1rem;
+    margin-bottom: 24px;
   }
 }
 </style>
