@@ -83,7 +83,7 @@
                   <span class="info-value">{{ attraction.region }}</span>
                 </div>
                 <div class="info-item">
-                  <span class="info-label">省份/县</span>
+                  <span class="info-label">{{translateCounty(country)}}</span>
                   <span class="info-value">{{ attraction.county }}</span>
                 </div>
                 <div class="info-item">
@@ -180,7 +180,16 @@
         isDragging: false,
         hasDragged: false,
         lastTouchDistance: 0,
-        lastTouchCenter: { x: 0, y: 0 }
+        lastTouchCenter: { x: 0, y: 0 },
+
+        countyTranslations: {
+          japan: '都/道/府/县',
+          china: '省份',
+          america: '州',
+          canada: '省份',
+          mexico: '州',
+          australia: '州/领地',
+        },
       };
     },
     async created() {
@@ -196,6 +205,10 @@
     }
   },
     methods: {
+
+      translateCounty(country) {
+        return this.countyTranslations[country] || '省份';
+      },
 
       async fetchAttractionDetails() {
         // 1️⃣ 拉取 JSON 数据
@@ -972,6 +985,10 @@
   }
 
   /* 图片展示区域 */
+
+  .main-image-skeleton { height: 500px;; border-radius: 24px; }
+  .secondary-image-skeleton { height: 130px; border-radius: 20px; }
+  
   .images-section {
     padding-top: 15px;
     padding:10px;
@@ -994,6 +1011,7 @@
   .secondary-images {
     height:auto;
     grid-template-columns: repeat(2,1fr);
+    gap:10px;
   }
 
   .secondary-image {

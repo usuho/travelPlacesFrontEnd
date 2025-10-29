@@ -335,7 +335,7 @@
                 <h3 class="attraction-name">{{ attraction.name }}</h3>
                 <div class="attraction-location">
                   <span class="location-icon">📍</span>
-                  <span>{{ attraction.region }}, {{ attraction.county }}</span>
+                  <span class="location-text">{{ attraction.region }}, {{ attraction.county }}</span>
                 </div>
               </div>
 
@@ -928,17 +928,20 @@
   display: flex;
   align-items: center;
   flex-wrap: wrap; /* 如果太长就换行 */
-  gap: 6px; /* 名称和位置之间的间距 */
+  justify-content: space-between; /* 让右边的位置信息贴边 */
+  gap: 0; /* 名称和位置之间的间距 */
 }
 
 .attraction-header-mobile .attraction-name {
   font-size: 1.05rem;
   font-weight: 600;
   margin: 0;
-  white-space: nowrap; /* 避免标题换行 */
+  white-space: wrap;
+  vertical-align: middle;  /* 对齐 */
 }
 
 .attraction-header-mobile .attraction-location {
+  flex-shrink: 0;
   display: flex;
   align-items: center;
   color: #666;
@@ -1536,6 +1539,7 @@
   }
 
   .page-input-group input {
+    padding:8px;
     font-size: 0.8rem;
     width: 50px;
     text-align: center;
@@ -1543,7 +1547,7 @@
 
   .pagination-button {
     min-width: auto;
-    padding: 14px 14px;
+    padding: 10px 10px;
     border-radius: 12px;
     font-size: 12px;
     font-weight: 750;
@@ -1557,7 +1561,7 @@
   }
 
   .back-button {
-    padding: 14px 20px;
+    padding: 12px 18px;
     font-size: 12px;
     font-weight: 750;
   }
@@ -1577,10 +1581,10 @@
     font-size: 13px;
     font-weight: 600;
     margin: 0;
-    white-space: nowrap;       /* 不换行 */
-    overflow: hidden;          /* 超出隐藏 */
-    text-overflow: ellipsis;   /* 超出显示省略号 */
+    white-space: wrap; 
     line-height: 1.3;
+    display: block;
+    box-sizing: border-box;
   }
 
   .attraction-content-desktop {
@@ -1588,6 +1592,7 @@
   }
 
   .attractions-list {
+    display: grid;
     grid-template-columns: 1fr 1fr; /* 双列保持 */
     gap: 12px; /* 缩小列间距 */
   }
@@ -1600,6 +1605,9 @@
     padding: 6px;
     gap: 8px;
     border: 1px solid rgba(255, 255, 255, 0.2);
+    max-width: 50vw;
+    box-sizing: border-box;
+    overflow: hidden; 
   }
 
   /* 第一行：名字 */
@@ -1607,9 +1615,7 @@
     font-size: 1.1rem;
     font-weight: 600;
     line-height: 1.2;
-    white-space: nowrap;       /* 不换行 */
-    overflow: hidden;
-    text-overflow: ellipsis;  /* 超长显示省略号 */
+    white-space: wrap; 
     margin: 0;
   }
 
@@ -1688,9 +1694,16 @@
   .attraction-location {
     display: flex;
     align-items: center;
-    gap: 4px;
+    gap: 0;
     font-size: 0.55rem;
     color: #6e6e73;
+  }
+
+  .location-text {    white-space: nowrap;     /* 禁止换行 */
+    overflow: hidden;        /* 隐藏超出部分 */
+    text-overflow: ellipsis; /* 超出部分显示省略号 */
+    display: inline-block;   /* 让 text-overflow 生效 */
+    vertical-align: middle;  /* 对齐 */
   }
   
   .page-header {
