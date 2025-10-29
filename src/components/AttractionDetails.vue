@@ -9,7 +9,10 @@
           返回
         </button>
         <div class="header-content">
-          <h1 class="attraction-title">{{ attraction ? attraction.name : '景点详情' }}</h1>
+          <h1 class="attraction-title">
+            <span v-if="isFavorited" class="fav-badge" title="已收藏">★</span>
+            {{ attraction ? attraction.name : '景点详情' }}
+          </h1>
           <div v-if="attraction" class="rating-section">
             <div class="rating-badge" :style="{ background: ratingBackgroundColor }">
               <span class="rating-label">好评率</span>
@@ -176,6 +179,7 @@
         ids: localStorage.getItem('ids') ? localStorage.getItem('ids').split(',').map(Number) : [] || null,
         favIndex: parseInt(localStorage.getItem('favIndex')) || 0,
         favNav: (() => { try { return JSON.parse(localStorage.getItem('favNav')||'[]'); } catch(e) { return []; } })(),
+        isFavorited: false,
         fullscreenImage: null,
         imageScale: 1,
         imageTranslateX: 0,
@@ -202,6 +206,7 @@
     async created() {
       // 初始化收藏导航（若来自收藏）
       this.reloadFavState();
+      this.updateIsFavorited();
       this.bumpAnimKeys();
       await this.fetchAttractionDetails();
     },
@@ -211,6 +216,7 @@
         this.country = to.params.country;
         this.id = to.params.id;
         this.reloadFavState();
+        this.updateIsFavorited();
         // 重置数据与动画，确保飞入效果触发
         this.attraction = null;
         for (let i = 1; i <= 3; i++) this[`image${i}`] = null;
@@ -246,6 +252,30 @@
         } catch(e) {
           this.favNav = [];
           this.favIndex = 0;
+        }
+      },
+      updateIsFavorited() {
+        try {
+          // 优先使用跨国家收藏
+          const rawAll = localStorage.getItem('favorites_all');
+          let list = [];
+          if (rawAll) list = JSON.parse(rawAll) || [];
+          // 兼容旧的按国家存储
+          if (!Array.isArray(list) || list.length === 0) {
+            const rawCountry = localStorage.getItem(`favorites_${this.country}`);
+            if (rawCountry) list = JSON.parse(rawCountry) || [];
+          }
+          const found = Array.isArray(list) && list.some(f => {
+            if (!f) return false;
+            const fid = typeof f.id === 'string' ? f.id : Number(f.id);
+            const curId = typeof this.id === 'string' ? this.id : Number(this.id);
+            const sameId = String(fid) === String(curId);
+            const sameCountry = f.country ? String(f.country) === String(this.country) : true;
+            return sameId && sameCountry;
+          });
+          this.isFavorited = !!found;
+        } catch(e) {
+          this.isFavorited = false;
         }
       },
 
@@ -649,6 +679,17 @@
   -webkit-text-fill-color: transparent;
   background-clip: text;
   line-height: 1.2;
+}
+.fav-badge {
+  color: #ffd700;
+  margin-right: 8px;
+  filter: drop-shadow(0 1px 1px rgba(0,0,0,0.2));
+  display: inline-block;
+  /* 使星标不受标题渐变文字样式影响 */
+  background: none !important;
+  -webkit-background-clip: initial !important;
+  background-clip: initial !important;
+  -webkit-text-fill-color: #ffd700 !important;
 }
 
 .rating-section {
