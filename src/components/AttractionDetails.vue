@@ -38,7 +38,14 @@
     </div>
 
     <!-- 滚动内容区域 -->
-    <div class="scroll-content">
+    <div
+      class="scroll-content"
+      :style="detailSwipeStyle"
+      @touchstart="onDetailSwipeStart"
+      @touchmove="onDetailSwipeMove"
+      @touchend="onDetailSwipeEnd"
+      @touchcancel="onDetailSwipeCancel"
+    >
       <!-- 加载状态 -->
       <div v-if="!attraction||loading" class="loading-container">
         <div class="loading-spinner"></div>
@@ -202,6 +209,18 @@
         detailAnimKey: 0,
         imageAnimKey: 0,
         infoAnimKey: 0,
+        // 横向滑动翻页（详情页）
+        detailSwipeStartX: 0,
+        detailSwipeStartY: 0,
+        detailSwipeTracking: false,
+        detailSwipeDirection: null,
+        detailSwipeEligible: false,
+        detailSwipeProgress: 0,
+        detailSwipeOpacity: 1,
+        detailSwipeResetting: false,
+        detailSwipeTriggerDistance: 140,
+        detailSwipeCanTrigger: false,
+        detailSwipeResetTimer: null,
 
         countyTranslations: {
           japan: '都/道/府/县',
@@ -218,6 +237,7 @@
       this.reloadFavState();
       this.updateIsFavorited();
       this.bumpAnimKeys();
+      this.resetDetailSwipeState(true);
       await this.fetchAttractionDetails();
     },
     watch: {
@@ -227,6 +247,7 @@
         this.id = to.params.id;
         this.reloadFavState();
         this.updateIsFavorited();
+        this.resetDetailSwipeState(true);
         // 重置数据与动画，确保飞入效果触发
         this.attraction = null;
         for (let i = 1; i <= 3; i++) this[`image${i}`] = null;
@@ -234,6 +255,11 @@
         this.fetchAttractionDetails();
       }
     },
+
+    beforeDestroy() {
+      this.clearDetailSwipeResetTimer();
+    },
+
   computed: {
     isFavoritesMode() {
       return this.$route.query.from === 'favorites';
@@ -244,9 +270,26 @@
       if (stored) return stored;
       // 兜底本地计算
       return this.getRatingColor(this.attraction?.rating);
+    },
+    detailSwipeStyle() {
+      return {
+        opacity: this.detailSwipeOpacity,
+        transition: this.detailSwipeResetting ? 'opacity 0.2s ease' : 'none',
+      };
     }
   },
     methods: {
+      isMobileViewport() {
+        try { return (window.innerWidth || document.documentElement.clientWidth || 0) < 1024; } catch(e) { return false; }
+      },
+      isTouchDevice() {
+        try {
+          return (
+            (window.matchMedia ? window.matchMedia('(pointer: coarse)').matches : false) ||
+            (window.matchMedia ? window.matchMedia('(hover: none)').matches : false)
+          );
+        } catch(e) { return false; }
+      },
       bumpAnimKeys() {
         const tick = Date.now();
         this.detailAnimKey = `${this.country}-${this.id}-${tick}`;
@@ -335,6 +378,107 @@
           this.isFavorited = true;
         }
       },
+      // 横向滑动翻页（详情页）
+      clearDetailSwipeResetTimer() {
+        if (this.detailSwipeResetTimer) {
+          clearTimeout(this.detailSwipeResetTimer);
+          this.detailSwipeResetTimer = null;
+        }
+      },
+      resetDetailSwipeState(immediate = false, targetOpacity = 1) {
+        this.clearDetailSwipeResetTimer();
+        this.detailSwipeTracking = false;
+        this.detailSwipeEligible = false;
+        this.detailSwipeDirection = null;
+        this.detailSwipeProgress = 0;
+        this.detailSwipeCanTrigger = false;
+        if (immediate) {
+          this.detailSwipeResetting = false;
+          this.detailSwipeOpacity = targetOpacity;
+        } else {
+          this.detailSwipeResetting = true;
+          this.detailSwipeOpacity = targetOpacity;
+          this.detailSwipeResetTimer = setTimeout(() => {
+            this.detailSwipeResetting = false;
+            this.detailSwipeResetTimer = null;
+          }, 200);
+        }
+      },
+      canSwipeDetail(direction) {
+        if (!this.attraction || this.loading) return false;
+        if (this.isFavoritesMode && this.favNav.length > 0) {
+          if (direction === 'left') return this.favIndex < this.favNav.length - 1;
+          if (direction === 'right') return this.favIndex > 0;
+        } else {
+          const maxIndex = Array.isArray(this.ids) && this.ids.length
+            ? this.ids.length - 1
+            : 19;
+          if (direction === 'left') return this.index < maxIndex;
+          if (direction === 'right') return this.index > 0;
+        }
+        return false;
+      },
+      onDetailSwipeStart(evt) {
+        if (window.innerWidth > 768) return;
+        if (this.fullscreenImage || this.loading) return;
+        if (!this.isMobileViewport() || !this.isTouchDevice()) return;
+        if (evt.touches && evt.touches.length > 1) return;
+        const touch = evt.touches ? evt.touches[0] : null;
+        if (!touch) return;
+        this.clearDetailSwipeResetTimer();
+        this.detailSwipeTracking = true;
+        this.detailSwipeEligible = false;
+        this.detailSwipeDirection = null;
+        this.detailSwipeProgress = 0;
+        this.detailSwipeCanTrigger = false;
+        this.detailSwipeResetting = false;
+        this.detailSwipeStartX = touch.clientX;
+        this.detailSwipeStartY = touch.clientY;
+      },
+      onDetailSwipeMove(evt) {
+        if (!this.detailSwipeTracking || this.fullscreenImage) return;
+        if (!evt.touches || evt.touches.length > 1) {
+          this.resetDetailSwipeState(true);
+          return;
+        }
+        const touch = evt.touches[0];
+        const dx = touch.clientX - this.detailSwipeStartX;
+        const dy = touch.clientY - this.detailSwipeStartY;
+        if (!this.detailSwipeDirection) {
+          if (Math.abs(dx) > 12 && Math.abs(dx) > Math.abs(dy)) {
+            this.detailSwipeDirection = dx > 0 ? 'right' : 'left';
+            this.detailSwipeEligible = true;
+          } else if (Math.abs(dy) > 12) {
+            this.resetDetailSwipeState(true);
+            return;
+          } else {
+            return;
+          }
+        }
+        if (!this.detailSwipeEligible) return;
+        const canTrigger = this.canSwipeDetail(this.detailSwipeDirection);
+        this.detailSwipeCanTrigger = canTrigger;
+        const absDx = Math.abs(dx);
+        const progress = Math.min(1, absDx / this.detailSwipeTriggerDistance);
+        this.detailSwipeProgress = progress;
+        const fadeFactor = 0.8; // 阈值时约20%不透明（80%透明）
+        this.detailSwipeOpacity = Math.max(0.2, 1 - fadeFactor * progress);
+        if (Math.abs(dx) > Math.abs(dy) && evt.cancelable) evt.preventDefault();
+      },
+      onDetailSwipeEnd() {
+        if (!this.detailSwipeTracking) return;
+        const shouldTrigger = this.detailSwipeEligible && this.detailSwipeProgress >= 1 && this.detailSwipeCanTrigger;
+        const direction = this.detailSwipeDirection;
+        this.resetDetailSwipeState(false, shouldTrigger ? 0.2 : 1);
+        if (shouldTrigger && direction) {
+          if (direction === 'left') this.nextPage();
+          else this.prevPage();
+        }
+      },
+      onDetailSwipeCancel() {
+        if (!this.detailSwipeTracking) return;
+        this.resetDetailSwipeState(false);
+      },
 
       translateCounty(country) {
         return this.countyTranslations[country] || '省份';
@@ -368,6 +512,7 @@
       },
 
       async nextPage() {
+        this.resetDetailSwipeState(true);
         if (this.isFavoritesMode && this.favNav.length > 0) {
           if (this.favIndex < this.favNav.length - 1) {
             this.favIndex++;
@@ -416,6 +561,7 @@
       },
 
       async prevPage() {
+        this.resetDetailSwipeState(true);
         if (this.isFavoritesMode && this.favNav.length > 0) {
           if (this.favIndex > 0) {
             this.favIndex--;

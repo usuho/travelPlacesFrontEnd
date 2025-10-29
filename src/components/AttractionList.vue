@@ -325,7 +325,16 @@
           <p>请尝试调整筛选条件</p>
         </div>
         
-        <div v-else class="attractions-list attractions-list-desktop" v-fly-in>
+        <div
+          v-else
+          class="attractions-list attractions-list-desktop"
+          v-fly-in
+          :style="swipeStyle"
+          @touchstart="swipeEnabled && onListSwipeStart($event)"
+          @touchmove="swipeEnabled && onListSwipeMove($event)"
+          @touchend="swipeEnabled && onListSwipeEnd($event)"
+          @touchcancel="swipeEnabled && onListSwipeCancel($event)"
+        >
           <div
             v-for="(attraction, index) in attractions"
             :key="attraction.id"
@@ -455,7 +464,16 @@
         @contextmenu.prevent
       >
         <h4>收藏列表</h4>
-        <div ref="favoritesList" class="favorites-list" :style="favoritesListStyle">
+        <transition-group
+          ref="favoritesList"
+          name="fav-move"
+          tag="div"
+          class="favorites-list"
+          :style="favoritesListStyle"
+          @touchstart.passive="onFavoritesListTouchStart"
+          @touchmove.passive="onFavoritesListTouchMove"
+          @touchend.passive="onFavoritesListTouchEnd"
+        >
           <template v-for="(f, i) in sortedFavorites" :key="f.country + '-' + f.id">
             <div
               class="favorites-placeholder"
@@ -498,7 +516,7 @@
             v-if="dragging && placeholderIndex === sortedFavorites.length"
             :style="placeholderStyle"
           ></div>
-        </div>
+        </transition-group>
         <!-- 清空收藏列表操作 -->
         <div
           v-if="sortedFavorites.length"
@@ -529,6 +547,12 @@
           </div>
         </div>
       </div>
+      <div
+        v-if="showFavorites"
+        class="favorites-backdrop"
+        @mousedown.prevent.stop="onFavoritesBackdropClick"
+        @touchstart.prevent.stop="onFavoritesBackdropClick"
+      ></div>
     </teleport>
   </div>
 </template>
@@ -574,6 +598,28 @@
         favSwipeThreshold: 24,
         favSwipeOffsetX: 0,
         favSwipeMaxReveal: 56,
+        // 收藏列表触摸滚动检测
+        favListTouchStartX: 0,
+        favListTouchStartY: 0,
+        favListScrollStartTop: 0,
+        favListTouchScrolling: false,
+        favListTouchTolerance: 8,
+        // 点击穿透保护（关闭收藏菜单后短时间屏蔽卡片点击）
+        clickGuard: false,
+        clickGuardTimer: null,
+        // 页面横向滑动分页
+        swipeStartX: 0,
+        swipeStartY: 0,
+        swipeTracking: false,
+        swipeDirection: null,
+        swipeEligible: false,
+        swipeProgress: 0,
+        swipeOpacity: 1,
+        swipeResetting: false,
+        swipeTriggerDistance: 140,
+        swipeCanTrigger: false,
+        swipeResetTimer: null,
+        swipeEnabled: false,
         // 卡片触摸相关
         cardTouchStartX: 0,
         cardTouchStartY: 0,
@@ -658,6 +704,12 @@
         if (!this.regionSearch.trim()) return [];
         const q = this.regionSearch.toLowerCase();
         return this.regions.filter(r => r && r.toLowerCase().includes(q));
+      },
+      swipeStyle() {
+        return {
+          opacity: this.swipeOpacity,
+          transition: this.swipeResetting ? 'opacity 0.2s ease' : 'none',
+        };
       }
     },
     async created() {
@@ -666,6 +718,14 @@
       this.fetchCountis();
       this.fetchAllAttractions();
       this.loadFavorites();
+      this.resetSwipeState(true);
+    },
+
+    mounted() {
+      this.updateSwipeEnabled();
+      try {
+        window.addEventListener('resize', this.updateSwipeEnabled, { passive: true });
+      } catch (e) {}
     },
 
     watch: {
@@ -704,6 +764,7 @@
       },
 
       showFavorites(val) {
+        this.resetSwipeState(true);
         if (val) {
           this.$nextTick(() => {
             this.updateFavoritesListScroll();
@@ -711,10 +772,33 @@
         } else {
           this.stopAutoScroll();
           this.favoritesListStyle = {};
+          this.favActionId = null;
+          this.favSwipeActive = false;
+          this.favSwipeItemId = null;
+          this.favSwipeOffsetX = 0;
+          this.favListTouchScrolling = false;
+          this.setClickGuard();
+          try {
+            document.removeEventListener('mousedown', this.onOutsideClick, { capture: true });
+            document.removeEventListener('touchstart', this.onOutsideClick, { capture: true });
+            window.removeEventListener('resize', this.updateFavoritesMenuPosition);
+            window.removeEventListener('scroll', this.updateFavoritesMenuPosition);
+          } catch (e) {}
         }
       },
 
 
+    },
+
+    beforeDestroy() {
+      this.clearSwipeResetTimer();
+      if (this.clickGuardTimer) {
+        clearTimeout(this.clickGuardTimer);
+        this.clickGuardTimer = null;
+      }
+      try {
+        window.removeEventListener('resize', this.updateSwipeEnabled);
+      } catch (e) {}
     },
 
     methods: {
@@ -788,10 +872,13 @@
         const nav = this.sortedFavorites.map(x => ({ country: x.country, id: x.id }));
         localStorage.setItem('favNav', JSON.stringify(nav));
         localStorage.setItem('favIndex', String(idx));
+        this.setClickGuard();
+        this.showFavorites = false;
         this.$router.push(`/attraction/${f.country}/${f.id}?from=favorites`);
       },
       // 卡片长按处理
       startCardPress(attraction, evt) {
+        if (this.showFavorites || this.clickGuard) return;
         this.cancelCardPress();
         if (evt && evt.touches && evt.touches[0]) {
           this.cardTouchStartX = evt.touches[0].clientX;
@@ -828,6 +915,7 @@
       // 收藏菜单按钮与弹层
       toggleFavoritesMenu() {
         this.showFavorites = !this.showFavorites;
+        this.resetSwipeState(true);
         if (this.showFavorites) {
           this.updateFavoritesMenuPosition();
           this.$nextTick(() => {
@@ -840,6 +928,13 @@
             try { this.sortedFavorites.forEach(f => this.ensureFavThumb(f)); } catch(e) {}
           });
         } else {
+          // 关闭菜单时，重置所有滑动相关状态
+          this.favActionId = null;
+          this.favSwipeActive = false;
+          this.favSwipeItemId = null;
+          this.favSwipeOffsetX = 0;
+          this.favListTouchScrolling = false;
+          this.setClickGuard();
           this.stopAutoScroll();
           this.dragBoundaries = [];
           document.removeEventListener('mousedown', this.onOutsideClick, { capture: true });
@@ -850,6 +945,11 @@
       },
       thumbKey(f) {
         return `${f.country}-${f.id}`;
+      },
+      favoritesListEl() {
+        const ref = this.$refs.favoritesList;
+        if (!ref) return null;
+        return ref.$el ? ref.$el : ref;
       },
       async ensureFavThumb(f) {
         const key = this.thumbKey(f);
@@ -872,10 +972,39 @@
         const t = e.target;
         const inAnyBtn = btns.some(b => b && b.contains && b.contains(t));
         if (!menu.contains(t) && !inAnyBtn) {
+          if (e && typeof e.preventDefault === 'function') e.preventDefault();
+          if (e && typeof e.stopPropagation === 'function') e.stopPropagation();
+          this.setClickGuard();
           this.showFavorites = false;
           document.removeEventListener('mousedown', this.onOutsideClick, { capture: true });
           document.removeEventListener('touchstart', this.onOutsideClick, { capture: true });
         }
+      },
+      setClickGuard() {
+        try {
+          if (this.clickGuardTimer) clearTimeout(this.clickGuardTimer);
+        } catch (e) {}
+        this.clickGuard = true;
+        this.clickGuardTimer = setTimeout(() => {
+          this.clickGuard = false;
+          this.clickGuardTimer = null;
+        }, 300);
+      },
+      updateSwipeEnabled() {
+        try {
+          const widthOk = (window.innerWidth || document.documentElement.clientWidth || 0) < 1024;
+          const coarse = window.matchMedia ? window.matchMedia('(pointer: coarse)').matches : false;
+          const hoverNone = window.matchMedia ? window.matchMedia('(hover: none)').matches : false;
+          const enabled = widthOk && (coarse || hoverNone);
+          if (!enabled) this.resetSwipeState(true);
+          this.swipeEnabled = enabled;
+        } catch (e) {
+          this.swipeEnabled = false;
+        }
+      },
+      onFavoritesBackdropClick() {
+        this.setClickGuard();
+        this.showFavorites = false;
       },
       updateFavoritesMenuPosition() {
         this.$nextTick(() => {
@@ -906,7 +1035,7 @@
       updateFavoritesListScroll() {
         if (!this.showFavorites) return;
         this.$nextTick(() => {
-          const list = this.$refs.favoritesList;
+          const list = this.favoritesListEl();
           if (!list) return;
           const items = Array.from(list.querySelectorAll('.favorites-item'));
           if (items.length <= 7) {
@@ -947,6 +1076,7 @@
       },
       // 收藏项右滑删除的触摸处理
       onFavTouchStart(f, idx, evt) {
+        if (this.dragging || this.favListTouchScrolling) return;
         if (evt && evt.touches && evt.touches[0]) {
           const t = evt.touches[0];
           this.favSwipeStartX = t.clientX;
@@ -956,6 +1086,7 @@
         }
       },
       onFavTouchMove(evt) {
+        if (this.dragging || this.favListTouchScrolling) return;
         if (!this.favSwipeActive || !evt || !evt.touches || !evt.touches[0]) return;
         const t = evt.touches[0];
         const dx = t.clientX - this.favSwipeStartX;
@@ -974,6 +1105,7 @@
         }
       },
       onFavTouchEnd(f, idx, evt) {
+        if (this.dragging || this.favListTouchScrolling) { this.favSwipeActive = false; return; }
         // 松手：超过阈值则保持展开，否则收起
         if (this.favSwipeOffsetX >= this.favSwipeThreshold) {
           this.favActionId = this.favSwipeItemId;
@@ -1010,7 +1142,7 @@
         return 0;
       },
       captureDragMetrics(itemEls, list) {
-        const targetList = list || this.$refs.favoritesList;
+        const targetList = list || this.favoritesListEl();
         if (!targetList) {
           this.dragBoundaries = [];
           return;
@@ -1038,7 +1170,7 @@
       },
       maybeAutoScroll() {
         if (!this.dragging) return;
-        const list = this.$refs.favoritesList;
+        const list = this.favoritesListEl();
         if (!list) return;
         if (list.scrollHeight <= list.clientHeight + 1) {
           this.stopAutoScroll();
@@ -1072,7 +1204,7 @@
             this.stopAutoScroll();
             return;
           }
-          const list = this.$refs.favoritesList;
+          const list = this.favoritesListEl();
           if (!list) {
             this.stopAutoScroll();
             return;
@@ -1109,6 +1241,142 @@
           this.autoScrollFrame = null;
         }
         this.autoScrollVelocity = 0;
+      },
+      // 收藏列表触摸滚动检测（用于禁止右滑删除）
+      onFavoritesListTouchStart(evt) {
+        const list = this.favoritesListEl();
+        const t = evt && evt.touches && evt.touches[0];
+        this.favListTouchStartX = t ? t.clientX : 0;
+        this.favListTouchStartY = t ? t.clientY : 0;
+        this.favListScrollStartTop = list ? list.scrollTop : 0;
+        this.favListTouchScrolling = false;
+      },
+      onFavoritesListTouchMove(evt) {
+        const list = this.favoritesListEl();
+        const t = evt && evt.touches && evt.touches[0];
+        if (!t) return;
+        const dx = t.clientX - this.favListTouchStartX;
+        const dy = t.clientY - this.favListTouchStartY;
+        const movedY = Math.abs(dy) > Math.abs(dx) && Math.abs(dy) > this.favListTouchTolerance;
+        const scrolled = list && Math.abs((list.scrollTop || 0) - (this.favListScrollStartTop || 0)) > 0;
+        if (movedY || scrolled) {
+          this.favListTouchScrolling = true;
+          // 一旦判定为滚动，立即收起任何展开删除状态
+          if (this.favActionId || this.favSwipeOffsetX) {
+            this.favActionId = null;
+            this.favSwipeOffsetX = 0;
+          }
+          this.favSwipeActive = false;
+          this.favSwipeItemId = null;
+        }
+      },
+      onFavoritesListTouchEnd() {
+        // 触摸结束后，短暂保留滚动判定，防止尾段抖动触发
+        setTimeout(() => { this.favListTouchScrolling = false; }, 50);
+      },
+      // 横向滑动分页（景点列表）
+      clearSwipeResetTimer() {
+        if (this.swipeResetTimer) {
+          clearTimeout(this.swipeResetTimer);
+          this.swipeResetTimer = null;
+        }
+      },
+      resetSwipeState(immediate = false, targetOpacity = 1) {
+        this.clearSwipeResetTimer();
+        this.swipeTracking = false;
+        this.swipeEligible = false;
+        this.swipeDirection = null;
+        this.swipeProgress = 0;
+        this.swipeCanTrigger = false;
+        if (immediate) {
+          this.swipeResetting = false;
+          this.swipeOpacity = targetOpacity;
+        } else {
+          this.swipeResetting = true;
+          this.swipeOpacity = targetOpacity;
+          this.swipeResetTimer = setTimeout(() => {
+            this.swipeResetting = false;
+            this.swipeResetTimer = null;
+          }, 200);
+        }
+      },
+      canSwipeList(direction) {
+        if (direction === 'left') return this.page < this.totalPages;
+        if (direction === 'right') return this.page > 1;
+        return false;
+      },
+      isMobileViewport() {
+        try { return (window.innerWidth || document.documentElement.clientWidth || 0) < 1024; } catch(e) { return false; }
+      },
+      isTouchDevice() {
+        try {
+          return (
+            (window.matchMedia ? window.matchMedia('(pointer: coarse)').matches : false) ||
+            (window.matchMedia ? window.matchMedia('(hover: none)').matches : false)
+          );
+        } catch(e) { return false; }
+      },
+      onListSwipeStart(evt) {
+        if (window.innerWidth > 768) return;
+        if (this.showFavorites || this.loading) return;
+        if (!this.swipeEnabled) return;
+        if (!this.isMobileViewport() || !this.isTouchDevice()) return;
+        if (evt.touches && evt.touches.length > 1) return;
+        const touch = evt.touches ? evt.touches[0] : null;
+        if (!touch) return;
+        this.clearSwipeResetTimer();
+        this.swipeTracking = true;
+        this.swipeEligible = false;
+        this.swipeDirection = null;
+        this.swipeProgress = 0;
+        this.swipeCanTrigger = false;
+        this.swipeResetting = false;
+        this.swipeStartX = touch.clientX;
+        this.swipeStartY = touch.clientY;
+      },
+      onListSwipeMove(evt) {
+        if (!this.swipeTracking || this.showFavorites || !this.swipeEnabled) return;
+        if (!evt.touches || evt.touches.length > 1) {
+          this.resetSwipeState(true);
+          return;
+        }
+        const touch = evt.touches[0];
+        const dx = touch.clientX - this.swipeStartX;
+        const dy = touch.clientY - this.swipeStartY;
+        if (!this.swipeDirection) {
+          if (Math.abs(dx) > 12 && Math.abs(dx) > Math.abs(dy)) {
+            this.swipeDirection = dx > 0 ? 'right' : 'left';
+            this.swipeEligible = true;
+          } else if (Math.abs(dy) > 12) {
+            this.resetSwipeState(true);
+            return;
+          } else {
+            return;
+          }
+        }
+        if (!this.swipeEligible) return;
+        const canTrigger = this.canSwipeList(this.swipeDirection);
+        this.swipeCanTrigger = canTrigger;
+        const absDx = Math.abs(dx);
+        const progress = Math.min(1, absDx / this.swipeTriggerDistance);
+        this.swipeProgress = progress;
+        const fadeFactor = 0.8; // 阈值时约20%不透明（80%透明）
+        this.swipeOpacity = Math.max(0.2, 1 - fadeFactor * progress);
+        if (Math.abs(dx) > Math.abs(dy) && evt.cancelable) evt.preventDefault();
+      },
+      onListSwipeEnd() {
+        if (!this.swipeTracking || !this.swipeEnabled) return;
+        const shouldTrigger = this.swipeEligible && this.swipeProgress >= 1 && this.swipeCanTrigger;
+        const direction = this.swipeDirection;
+        this.resetSwipeState(false, shouldTrigger ? 0.2 : 1);
+        if (shouldTrigger && direction) {
+          if (direction === 'left') this.nextPage();
+          else this.prevPage();
+        }
+      },
+      onListSwipeCancel() {
+        if (!this.swipeTracking || !this.swipeEnabled) return;
+        this.resetSwipeState(false);
       },
       // 菜单内长按拖拽
       startMenuItemPress(index, evt) {
@@ -1158,7 +1426,7 @@
         this.dragging = true;
         this.dragIndex = index;
         this.dragItem = { ...this.sortedFavorites[index] };
-        const list = this.$refs.favoritesList;
+        const list = this.favoritesListEl();
         if (!list) return;
         this.dragListRect = list.getBoundingClientRect();
         // 优先用列表中第 index 个真实项的矩形，避免占位符干扰
@@ -1175,6 +1443,12 @@
           else if (itemEls[0]) ph = itemEls[0].getBoundingClientRect().height || 0;
           if (ph) this.placeholderStyle = { height: ph + 'px' };
         } catch(e) { this.placeholderStyle = {}; }
+        // 进入拖拽时重置右滑删除与滚动检测状态
+        this.favActionId = null;
+        this.favSwipeActive = false;
+        this.favSwipeItemId = null;
+        this.favSwipeOffsetX = 0;
+        this.favListTouchScrolling = false;
         this.captureDragMetrics(itemEls, list);
         this.stopAutoScroll();
         this.attachDragListeners();
@@ -1211,7 +1485,7 @@
       },
       updatePlaceholderIndex() {
         if (!this.dragListRect) return;
-        const list = this.$refs.favoritesList;
+        const list = this.favoritesListEl();
         if (!list) return;
         if (!this.dragBoundaries.length) {
           const itemEls = Array.from(list.querySelectorAll('.favorites-item'));
@@ -1387,6 +1661,11 @@
 
       
       handleClick(attraction,index,event) {
+        if (this.showFavorites || this.clickGuard) {
+          if (event && typeof event.preventDefault === 'function') event.preventDefault();
+          if (event && typeof event.stopPropagation === 'function') event.stopPropagation();
+          return;
+        }
         event.preventDefault();
         // 若触摸发生了滑动，则不触发点击导航
         if (this.cardTouchMoved) {
@@ -1548,6 +1827,7 @@
       },
 
       nextPage() {
+      this.resetSwipeState(true);
       if (this.page < this.totalPages) {
         this.page++;
         localStorage.setItem('attractionsPage', this.page); // 保存当前页数到localStorage
@@ -1559,6 +1839,7 @@
     },
 
       prevPage() {
+        this.resetSwipeState(true);
         if (this.page > 1) {
           this.page--;
           localStorage.setItem('attractionsPage', this.page); // 保存当前页数到localStorage
@@ -1800,6 +2081,15 @@
   -ms-user-select: none;
   -moz-user-select: none;
   -webkit-touch-callout: none; /* 禁止长按弹出菜单（iOS Safari） */
+}
+.favorites-backdrop {
+  position: fixed;
+  left: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  background: transparent;
+  z-index: 999;
 }
 .favorites-menu h4 {
   margin: 0 0 8px;
