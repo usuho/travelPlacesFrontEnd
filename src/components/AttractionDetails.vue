@@ -9,9 +9,19 @@
           返回
         </button>
         <div class="header-content">
-          <h1 class="attraction-title">
-            <span v-if="isFavorited" class="fav-badge" title="已收藏">★</span>
-            {{ attraction ? attraction.name : '景点详情' }}
+          <h1 class="attraction-title title-with-star">
+            <button
+              class="star-btn"
+              :class="{ favorited: isFavorited }"
+              @click="toggleFavoriteDetail"
+              :title="isFavorited ? '取消收藏' : '加入收藏'"
+              aria-label="收藏"
+            >
+              <svg viewBox="0 0 24 24" class="star-icon" aria-hidden="true">
+                <path d="M12 2.5l2.95 5.98 6.6.96-4.78 4.66 1.13 6.57L12 17.77l-5.9 3.1 1.13-6.57L2.45 9.44l6.6-.96L12 2.5z"/>
+              </svg>
+            </button>
+            <span class="title-text">{{ attraction ? attraction.name : '景点详情' }}</span>
           </h1>
           <div v-if="attraction" class="rating-section">
             <div class="rating-badge" :style="{ background: ratingBackgroundColor }">
@@ -276,6 +286,53 @@
           this.isFavorited = !!found;
         } catch(e) {
           this.isFavorited = false;
+        }
+      },
+      // ===== 收藏（与列表同步：使用 favorites_all） =====
+      getFavoritesStorageKey() {
+        return 'favorites_all';
+      },
+      loadFavoritesList() {
+        try {
+          const raw = localStorage.getItem(this.getFavoritesStorageKey());
+          const list = raw ? JSON.parse(raw) : [];
+          return Array.isArray(list) ? list : [];
+        } catch (e) { return []; }
+      },
+      saveFavoritesList(list) {
+        try {
+          localStorage.setItem(this.getFavoritesStorageKey(), JSON.stringify(list || []));
+        } catch(e) {}
+      },
+      normalizeFavoritesOrder(list) {
+        return (list || [])
+          .sort((a,b)=>(a.order||0)-(b.order||0))
+          .map((x, i) => ({ ...x, order: i + 1 }));
+      },
+      toggleFavoriteDetail() {
+        if (!this.attraction) return;
+        const id = this.attraction.id || this.id;
+        const country = this.country;
+        let list = this.loadFavoritesList();
+        const idx = list.findIndex(f => String(f.id) === String(id) && String(f.country||'') === String(country||''));
+        if (idx >= 0) {
+          list.splice(idx, 1);
+          list = this.normalizeFavoritesOrder(list);
+          this.saveFavoritesList(list);
+          this.isFavorited = false;
+        } else {
+          const nextOrder = (list && list.length ? list.length : 0) + 1;
+          list.push({
+            id,
+            name: this.attraction.name,
+            region: this.attraction.region,
+            rating: this.attraction.rating,
+            county: this.attraction.county,
+            country,
+            order: nextOrder,
+          });
+          this.saveFavoritesList(list);
+          this.isFavorited = true;
         }
       },
 
@@ -603,6 +660,35 @@
 .attraction-title {
   margin: 0;
   margin-bottom: 32px;
+}
+.title-with-star {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px; /* 与标题更贴近 */
+}
+.title-with-star .title-text { display: inline-block; }
+.star-btn {
+  appearance: none;
+  border: none;
+  background: transparent;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+.star-btn .star-icon {
+  width: 20px;
+  height: 20px;
+  fill: transparent;
+  stroke: #111;
+  stroke-width: 1.6;
+}
+.star-btn.favorited {
+}
+.star-btn.favorited .star-icon {
+  fill: #ffd700; /* 金色实心 */
+  stroke: #d4af37;
 }
 
 .back-button {

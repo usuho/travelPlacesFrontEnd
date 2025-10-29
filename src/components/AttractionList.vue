@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="container fade-in">
     <!-- 固定顶部区域（标题 + 筛选器） -->
     <div class="fixed-header">
@@ -195,7 +195,7 @@
               >
                 <span class="label-desktop">收藏列表</span>
                 <span class="label-mobile">收藏</span>
-                <span v-if="favorites.length">（{{ favorites.length }}）</span>
+                <span v-if="favorites.length">{{'('+ favorites.length+')' }}</span>
               </button>
             </div>
           </div>
@@ -335,9 +335,11 @@
             @mousedown.prevent="startCardPress(attraction, $event)"
             @mouseup.prevent="endCardPress"
             @mouseleave="cancelCardPress"
-            @touchstart.prevent="startCardPress(attraction, $event)"
-            @touchend.prevent="endCardPress"
-            @touchcancel.prevent="cancelCardPress"
+            @touchstart="startCardPress(attraction, $event)"
+            @touchmove="onCardTouchMove"
+            @touchend="endCardPress"
+            @touchcancel="cancelCardPress"
+            @contextmenu.prevent
           >
             <div class="attraction-image-wrapper attraction-content-desktop">
               <div v-if="!attraction.image1" class="image-placeholder shimmer"></div>
@@ -450,42 +452,61 @@
         ref="favoritesMenu"
         class="favorites-menu"
         :style="favoritesMenuStyle"
+        @contextmenu.prevent
       >
         <h4>收藏列表</h4>
-        <div ref="favoritesList" class="favorites-list">
+        <div ref="favoritesList" class="favorites-list" :style="favoritesListStyle">
           <template v-for="(f, i) in sortedFavorites" :key="f.country + '-' + f.id">
             <div
               class="favorites-placeholder"
               v-if="dragging && placeholderIndex === i && dragIndex !== i"
+              :style="placeholderStyle"
             ></div>
             <div
               class="favorites-item"
               :class="{ 'dragging-shadow': dragging && dragIndex === i }"
               @mousedown.prevent="startMenuItemPress(i, $event)"
-              @touchstart.prevent="startMenuItemPress(i, $event)"
+              @touchstart="startMenuItemPress(i, $event); onFavTouchStart(f, i, $event)"
+              @touchmove="onFavTouchMove($event)"
+              @touchend="onFavTouchEnd(f, i, $event)"
               @click.stop="handleMenuItemClick(f, i, $event)"
             >
-              <span class="fav-index">{{ f.order }}</span>
-              <div class="fav-thumb-wrap">
-                <img
-                  v-if="favThumbs[thumbKey(f)]"
-                  :src="favThumbs[thumbKey(f)]"
-                  alt="缩略图"
-                  class="fav-thumb"
-                />
-                <div v-else class="fav-thumb thumb-placeholder"></div>
+              <div :class="['fav-left-actions', { visible: isFavActionsVisible(f) }]">
+                <button class="fav-delete" @click.stop="removeFavorite(f)">删除</button>
               </div>
-              <div class="fav-main">
-                <span class="fav-name">{{ f.name }}</span>
-                <span class="fav-meta">{{ f.region }}</span>
+              <div class="fav-content" :style="{ transform: `translateX(${getFavSwipeOffset(f)}px)` }">
+                <span class="fav-index">{{ f.order }}</span>
+                <div class="fav-thumb-wrap">
+                  <img
+                    v-if="favThumbs[thumbKey(f)]"
+                    :src="favThumbs[thumbKey(f)]"
+                    alt="缩略图"
+                    class="fav-thumb"
+                  />
+                  <div v-else class="fav-thumb thumb-placeholder"></div>
+                </div>
+                <div class="fav-main">
+                  <span class="fav-name">{{ f.name }}</span>
+                  <span class="fav-meta">{{ f.region }}</span>
+                </div>
+                <span class="fav-rating" :style="{ backgroundColor: getRatingColor(f.rating) }">{{ f.rating }}</span>
               </div>
-              <span class="fav-rating" :style="{ backgroundColor: getRatingColor(f.rating) }">{{ f.rating }}</span>
             </div>
           </template>
           <div
             class="favorites-placeholder"
             v-if="dragging && placeholderIndex === sortedFavorites.length"
+            :style="placeholderStyle"
           ></div>
+        </div>
+        <!-- 清空收藏列表操作 -->
+        <div
+          v-if="sortedFavorites.length"
+          class="favorites-clear"
+          @click="promptClearFavorites"
+          :aria-disabled="!sortedFavorites.length"
+        >
+          🗑️ 清空收藏列表
         </div>
         <!-- 跟随手指/鼠标的拖拽项 -->
         <div
@@ -522,6 +543,7 @@
           favorites: [],
           showFavorites: false,
           favoritesMenuStyle: {},
+          favoritesListStyle: {},
           favThumbs: {},
         // 长按相关（卡片）
         pressTimer: null,
@@ -534,9 +556,29 @@
         dragY: 0,
         dragOffsetY: 0,
         dragListRect: null,
+        dragBoundaries: [],
+        placeholderStyle: {},
         placeholderIndex: null,
         moveListener: null,
         upListener: null,
+        autoScrollFrame: null,
+        autoScrollVelocity: 0,
+        dragHysteresis: 6,
+        dragTouchTolerance: 8,
+        // 收藏项右滑删除
+        favActionId: null,
+        favSwipeItemId: null,
+        favSwipeStartX: 0,
+        favSwipeStartY: 0,
+        favSwipeActive: false,
+        favSwipeThreshold: 24,
+        favSwipeOffsetX: 0,
+        favSwipeMaxReveal: 56,
+        // 卡片触摸相关
+        cardTouchStartX: 0,
+        cardTouchStartY: 0,
+        cardTouchMoved: false,
+        cardTouchTolerance: 8,
         mobileCountyDropdownStyle: {},
         mobileRegionDropdownStyle: {},
         mobileAttractionDropdownStyle: {},
@@ -652,6 +694,26 @@
         this.fetchAttractions(true);
         this.fetchAllAttractions();},
 
+      favorites: {
+        handler() {
+          if (this.showFavorites) {
+            this.updateFavoritesListScroll();
+          }
+        },
+        deep: true,
+      },
+
+      showFavorites(val) {
+        if (val) {
+          this.$nextTick(() => {
+            this.updateFavoritesListScroll();
+          });
+        } else {
+          this.stopAutoScroll();
+          this.favoritesListStyle = {};
+        }
+      },
+
 
     },
 
@@ -659,6 +721,15 @@
       openMapMode() {
         // 预留地图模式入口（目前仅占位）
         try { console.log('打开地图模式', this.country); } catch(e) {}
+      },
+      promptClearFavorites() {
+        try {
+          if (!this.sortedFavorites.length) return;
+          const ok = window.confirm('确定要清空所有收藏吗？此操作不可恢复。');
+          if (!ok) return;
+          this.favorites = [];
+          this.saveFavorites();
+        } catch (e) {}
       },
 
       // ========= 收藏相关 =========
@@ -722,10 +793,26 @@
       // 卡片长按处理
       startCardPress(attraction, evt) {
         this.cancelCardPress();
+        if (evt && evt.touches && evt.touches[0]) {
+          this.cardTouchStartX = evt.touches[0].clientX;
+          this.cardTouchStartY = evt.touches[0].clientY;
+          this.cardTouchMoved = false;
+        }
         this.pressTimer = setTimeout(() => {
           this.toggleFavorite(attraction);
           this.suppressNextClick = true;
         }, this.longPressThreshold);
+      },
+      onCardTouchMove(evt) {
+        if (!this.pressTimer) return;
+        if (!evt || !evt.touches || !evt.touches[0]) return;
+        const t = evt.touches[0];
+        const dx = t.clientX - this.cardTouchStartX;
+        const dy = t.clientY - this.cardTouchStartY;
+        if (Math.hypot(dx, dy) > this.cardTouchTolerance) {
+          this.cardTouchMoved = true;
+          this.cancelCardPress();
+        }
       },
       cancelCardPress() {
         if (this.pressTimer) {
@@ -735,6 +822,8 @@
       },
       endCardPress() {
         this.cancelCardPress();
+        // 触摸结束后重置移动标记
+        this.cardTouchMoved = false;
       },
       // 收藏菜单按钮与弹层
       toggleFavoritesMenu() {
@@ -742,6 +831,7 @@
         if (this.showFavorites) {
           this.updateFavoritesMenuPosition();
           this.$nextTick(() => {
+            this.updateFavoritesListScroll();
             document.addEventListener('mousedown', this.onOutsideClick, { capture: true });
             document.addEventListener('touchstart', this.onOutsideClick, { capture: true });
             window.addEventListener('resize', this.updateFavoritesMenuPosition, { passive: true });
@@ -750,6 +840,8 @@
             try { this.sortedFavorites.forEach(f => this.ensureFavThumb(f)); } catch(e) {}
           });
         } else {
+          this.stopAutoScroll();
+          this.dragBoundaries = [];
           document.removeEventListener('mousedown', this.onOutsideClick, { capture: true });
           document.removeEventListener('touchstart', this.onOutsideClick, { capture: true });
           window.removeEventListener('resize', this.updateFavoritesMenuPosition);
@@ -811,10 +903,219 @@
           };
         });
       },
+      updateFavoritesListScroll() {
+        if (!this.showFavorites) return;
+        this.$nextTick(() => {
+          const list = this.$refs.favoritesList;
+          if (!list) return;
+          const items = Array.from(list.querySelectorAll('.favorites-item'));
+          if (items.length <= 7) {
+            this.favoritesListStyle = {};
+          } else {
+            const measureItems = items.slice(0, 7);
+            let totalHeight = 0;
+            measureItems.forEach(el => {
+              const rect = el.getBoundingClientRect();
+              totalHeight += rect.height;
+            });
+            let gap = 0;
+            if (measureItems.length > 1) {
+              const firstRect = measureItems[0].getBoundingClientRect();
+              const secondRect = measureItems[1].getBoundingClientRect();
+              const computedGap = secondRect.top - firstRect.bottom;
+              gap = computedGap > 0 ? computedGap : 0;
+            } else {
+              const styles = window.getComputedStyle(list);
+              const rawGap = parseFloat(styles.rowGap || styles.gap || '0');
+              gap = Number.isFinite(rawGap) ? rawGap : 0;
+            }
+            totalHeight += gap * (measureItems.length - 1);
+            const maxHeight = Math.ceil(totalHeight);
+            const needsScroll = list.scrollHeight > maxHeight + 1;
+            this.favoritesListStyle = {
+              maxHeight: `${maxHeight}px`,
+              overflowY: 'auto',
+              WebkitOverflowScrolling: 'touch',
+              paddingRight: needsScroll ? '6px' : '',
+            };
+          }
+          if (this.dragging) {
+            const itemEls = Array.from(list.querySelectorAll('.favorites-item'));
+            this.captureDragMetrics(itemEls, list);
+          }
+        });
+      },
+      // 收藏项右滑删除的触摸处理
+      onFavTouchStart(f, idx, evt) {
+        if (evt && evt.touches && evt.touches[0]) {
+          const t = evt.touches[0];
+          this.favSwipeStartX = t.clientX;
+          this.favSwipeStartY = t.clientY;
+          this.favSwipeActive = true;
+          this.favSwipeItemId = f.id;
+        }
+      },
+      onFavTouchMove(evt) {
+        if (!this.favSwipeActive || !evt || !evt.touches || !evt.touches[0]) return;
+        const t = evt.touches[0];
+        const dx = t.clientX - this.favSwipeStartX;
+        const dy = t.clientY - this.favSwipeStartY;
+        if (Math.abs(dx) > Math.abs(dy)) {
+          // 往左滑回去：立即收起并隐藏，且无动画
+          if (dx <= 0) {
+            this.favActionId = null;
+            this.favSwipeOffsetX = 0;
+            return;
+          }
+          // 水平滑动：推动内容右移，露出左侧删除按钮
+          const offset = Math.max(0, Math.min(this.favSwipeMaxReveal, dx));
+          this.favSwipeOffsetX = offset;
+          if (evt.cancelable) evt.preventDefault();
+        }
+      },
+      onFavTouchEnd(f, idx, evt) {
+        // 松手：超过阈值则保持展开，否则收起
+        if (this.favSwipeOffsetX >= this.favSwipeThreshold) {
+          this.favActionId = this.favSwipeItemId;
+          this.favSwipeOffsetX = this.favSwipeMaxReveal;
+        } else {
+          this.favActionId = null;
+          this.favSwipeOffsetX = 0;
+        }
+        this.favSwipeActive = false;
+        this.favSwipeItemId = null;
+      },
+      removeFavorite(f) {
+        if (!f) return;
+        const idx = this.favorites.findIndex(x => x.id === f.id && x.country === f.country);
+        if (idx >= 0) {
+          this.favorites.splice(idx, 1);
+          this.normalizeFavoritesOrder();
+          this.saveFavorites();
+        }
+        if (this.favActionId === f.id) this.favActionId = null;
+        this.favSwipeOffsetX = 0;
+        this.$nextTick(() => this.updateFavoritesListScroll());
+      },
+      isFavActionsVisible(f) {
+        if (!f) return false;
+        if (this.favActionId === f.id) return true; // 固定展开
+        // 右滑进行中且已位移 > 0 时显示
+        if (this.favSwipeItemId === f.id && (this.favSwipeOffsetX || 0) > 0) return true;
+        return false;
+      },
+      getFavSwipeOffset(f) {
+        if (this.favSwipeItemId === f.id) return this.favSwipeOffsetX || 0;
+        if (this.favActionId === f.id) return this.favSwipeMaxReveal;
+        return 0;
+      },
+      captureDragMetrics(itemEls, list) {
+        const targetList = list || this.$refs.favoritesList;
+        if (!targetList) {
+          this.dragBoundaries = [];
+          return;
+        }
+        const elements = (itemEls && itemEls.length)
+          ? itemEls
+          : Array.from(targetList.querySelectorAll('.favorites-item'));
+        if (!elements.length) {
+          this.dragBoundaries = [];
+          return;
+        }
+        const listRect = this.dragListRect || targetList.getBoundingClientRect();
+        const baseTop = listRect.top;
+        const scrollTop = targetList.scrollTop;
+        this.dragBoundaries = elements.map(el => {
+          const rect = el.getBoundingClientRect();
+          const start = rect.top - baseTop + scrollTop;
+          const end = rect.bottom - baseTop + scrollTop;
+          return {
+            start,
+            end,
+            mid: (start + end) / 2,
+          };
+        });
+      },
+      maybeAutoScroll() {
+        if (!this.dragging) return;
+        const list = this.$refs.favoritesList;
+        if (!list) return;
+        if (list.scrollHeight <= list.clientHeight + 1) {
+          this.stopAutoScroll();
+          return;
+        }
+        const rect = list.getBoundingClientRect();
+        const threshold = Math.min(80, rect.height / 2);
+        let velocity = 0;
+        if (this.dragY < rect.top + threshold) {
+          const distance = this.dragY - (rect.top + threshold);
+          velocity = Math.max(-12, (distance / threshold) * 12);
+        } else if (this.dragY > rect.bottom - threshold) {
+          const distance = this.dragY - (rect.bottom - threshold);
+          velocity = Math.min(12, (distance / threshold) * 12);
+        }
+        if (velocity !== 0) {
+          this.autoScrollVelocity = velocity;
+          if (!this.autoScrollFrame) {
+            this.runAutoScrollLoop();
+          }
+        } else {
+          this.stopAutoScroll();
+        }
+      },
+      runAutoScrollLoop() {
+        if (this.autoScrollFrame) {
+          window.cancelAnimationFrame(this.autoScrollFrame);
+        }
+        const step = () => {
+          if (!this.dragging) {
+            this.stopAutoScroll();
+            return;
+          }
+          const list = this.$refs.favoritesList;
+          if (!list) {
+            this.stopAutoScroll();
+            return;
+          }
+          if (Math.abs(this.autoScrollVelocity) < 0.5) {
+            this.stopAutoScroll();
+            return;
+          }
+          const maxScroll = list.scrollHeight - list.clientHeight;
+          let nextScroll = list.scrollTop + this.autoScrollVelocity;
+          if (nextScroll < 0) nextScroll = 0;
+          if (nextScroll > maxScroll) nextScroll = maxScroll;
+          if (nextScroll !== list.scrollTop) {
+            list.scrollTop = nextScroll;
+            const itemEls = Array.from(list.querySelectorAll('.favorites-item'));
+            this.captureDragMetrics(itemEls, list);
+            this.updatePlaceholderIndex(true);
+            this.maybeAutoScroll();
+            if (Math.abs(this.autoScrollVelocity) < 0.5) {
+              this.stopAutoScroll();
+              return;
+            }
+          } else {
+            this.stopAutoScroll();
+            return;
+          }
+          this.autoScrollFrame = window.requestAnimationFrame(step);
+        };
+        this.autoScrollFrame = window.requestAnimationFrame(step);
+      },
+      stopAutoScroll() {
+        if (this.autoScrollFrame) {
+          window.cancelAnimationFrame(this.autoScrollFrame);
+          this.autoScrollFrame = null;
+        }
+        this.autoScrollVelocity = 0;
+      },
       // 菜单内长按拖拽
       startMenuItemPress(index, evt) {
         const e = evt.touches ? evt.touches[0] : evt;
+        const startX = e.clientX;
         const startY = e.clientY;
+        const touchId = evt.touches ? evt.touches[0].identifier : null;
         // 记录起始元素的位置信息，避免占位符插入后索引错位
         const originEl = (evt.currentTarget && evt.currentTarget.closest)
           ? evt.currentTarget.closest('.favorites-item')
@@ -832,7 +1133,22 @@
           window.removeEventListener('touchmove', preventScroll, { passive: false });
         };
         const preventScroll = (ev) => {
-          if (!triggered) ev.preventDefault();
+          const point = ev.touches
+            ? Array.from(ev.touches).find(t => touchId === null || t.identifier === touchId)
+            : ev;
+          if (!point) return;
+          const dx = point.clientX - startX;
+          const dy = point.clientY - startY;
+          const distance = Math.hypot(dx, dy);
+          if (triggered) {
+            if (ev.cancelable) ev.preventDefault();
+            return;
+          }
+          if (distance > this.dragTouchTolerance) {
+            cancel();
+            return;
+          }
+          if (ev.cancelable) ev.preventDefault();
         };
         window.addEventListener('mouseup', cancel, true);
         window.addEventListener('touchend', cancel, true);
@@ -846,19 +1162,30 @@
         if (!list) return;
         this.dragListRect = list.getBoundingClientRect();
         // 优先用列表中第 index 个真实项的矩形，避免占位符干扰
-        const itemEls = Array.from(list.children).filter(el => el.classList && el.classList.contains('favorites-item'));
+        const itemEls = Array.from(list.querySelectorAll('.favorites-item'));
         const elRect = (itemEls[index] && itemEls[index].getBoundingClientRect) ? itemEls[index].getBoundingClientRect() : null;
         const baseRect = elRect || originRect || this.dragListRect;
         this.dragOffsetY = startClientY - baseRect.top;
         this.dragY = startClientY;
         this.placeholderIndex = index;
+        // 记录占位框与项同高
+        try {
+          let ph = 0;
+          if (elRect && elRect.height) ph = elRect.height;
+          else if (itemEls[0]) ph = itemEls[0].getBoundingClientRect().height || 0;
+          if (ph) this.placeholderStyle = { height: ph + 'px' };
+        } catch(e) { this.placeholderStyle = {}; }
+        this.captureDragMetrics(itemEls, list);
+        this.stopAutoScroll();
         this.attachDragListeners();
       },
       attachDragListeners() {
         this.moveListener = (evt) => {
           const e = evt.touches ? evt.touches[0] : evt;
+          if (evt.cancelable) evt.preventDefault();
           this.dragY = e.clientY;
           this.updatePlaceholderIndex();
+          this.maybeAutoScroll();
         };
         this.upListener = (evt) => {
           this.finishDrag(evt);
@@ -879,22 +1206,38 @@
           window.removeEventListener('touchend', this.upListener, true);
           this.upListener = null;
         }
+        this.stopAutoScroll();
+        this.dragBoundaries = [];
       },
       updatePlaceholderIndex() {
         if (!this.dragListRect) return;
-        const y = this.dragY;
         const list = this.$refs.favoritesList;
-        if (!list || !list.children.length) return;
-        let target = 0;
-        for (let i = 0; i < list.children.length; i++) {
-          const el = list.children[i];
-          if (!el.classList.contains('favorites-item')) continue;
-          const r = el.getBoundingClientRect();
-          if (y < (r.top + r.height / 2)) {
+        if (!list) return;
+        if (!this.dragBoundaries.length) {
+          const itemEls = Array.from(list.querySelectorAll('.favorites-item'));
+          this.captureDragMetrics(itemEls, list);
+        }
+        if (!this.dragBoundaries.length) return;
+        const scrollTop = list.scrollTop;
+        const relativeY = this.dragY - this.dragListRect.top + scrollTop;
+        let target = this.dragBoundaries.length;
+        for (let i = 0; i < this.dragBoundaries.length; i++) {
+          if (relativeY < this.dragBoundaries[i].mid) {
             target = i;
             break;
           }
-          target = i + 1;
+        }
+        const current = this.placeholderIndex != null ? this.placeholderIndex : this.dragIndex;
+        if (current != null && target !== current && this.dragBoundaries.length) {
+          const idx = Math.min(current, this.dragBoundaries.length - 1);
+          const boundary = this.dragBoundaries[idx];
+          if (boundary) {
+            if (target < current && relativeY > boundary.start + this.dragHysteresis) {
+              target = current;
+            } else if (target > current && relativeY < boundary.end - this.dragHysteresis) {
+              target = current;
+            }
+          }
         }
         this.placeholderIndex = Math.max(0, Math.min(target, this.sortedFavorites.length));
       },
@@ -936,6 +1279,7 @@
         this.dragItem = null;
         this.placeholderIndex = null;
         this.dragListRect = null;
+        this.placeholderStyle = {};
         this.detachDragListeners();
       },
 
@@ -1044,6 +1388,11 @@
       
       handleClick(attraction,index,event) {
         event.preventDefault();
+        // 若触摸发生了滑动，则不触发点击导航
+        if (this.cardTouchMoved) {
+          this.cardTouchMoved = false;
+          return;
+        }
         if (this.suppressNextClick) {
           this.suppressNextClick = false;
           return;
@@ -1446,6 +1795,11 @@
   padding: 12px;
   max-height: 60vh;
   overflow: auto;
+  user-select: none;
+  -webkit-user-select: none;
+  -ms-user-select: none;
+  -moz-user-select: none;
+  -webkit-touch-callout: none; /* 禁止长按弹出菜单（iOS Safari） */
 }
 .favorites-menu h4 {
   margin: 0 0 8px;
@@ -1455,17 +1809,44 @@
   display: flex;
   flex-direction: column;
   gap: 8px;
+  user-select: none;
+  -webkit-user-select: none;
+  -ms-user-select: none;
+  -moz-user-select: none;
+  -webkit-touch-callout: none;
+}
+.favorites-clear {
+  margin-top: 10px;
+  padding: 10px 12px;
+  border: 1px solid rgba(255, 0, 0, 0.15);
+  border-radius: 10px;
+  color: #c0392b;
+  text-align: center;
+  font-weight: 700;
+  background: rgba(255, 0, 0, 0.06);
+  cursor: pointer;
+  user-select: none;
+}
+.favorites-clear[aria-disabled="true"] {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.favorites-clear:not([aria-disabled="true"]):hover {
+  background: rgba(255, 0, 0, 0.1);
 }
 .favorites-item {
   display: flex;
   align-items: center;
   justify-content: space-between; /* 左侧（序号+图片+文本）靠左，评分在最右 */
   gap: 12px;
+  min-height: 56px; /* 恢复较高的行高，提升可触性 */
   padding: 8px 10px;
   border-radius: 10px;
   border: 1px solid rgba(0,0,0,0.06);
   background: rgba(250,250,250,0.95);
   user-select: none;
+  position: relative; /* 用于放置右侧动作按钮 */
+  overflow: hidden;    /* 隐藏右移时超出的内容 */
 }
 .favorites-item .fav-index {
   flex: 0 0 auto;
@@ -1526,9 +1907,49 @@
   box-shadow: 0 10px 24px rgba(0,0,0,0.2);
 }
 .favorites-placeholder {
-  height: 40px;
+  min-height: 56px; /* 与 .favorites-item 行高一致 */
+  padding: 8px 10px; /* 与 .favorites-item 一致的内边距，便于匹配视觉高度 */
   border: 2px dashed #ffd700;
   border-radius: 10px;
+}
+.fav-left-actions {
+  position: absolute;
+  top: 50%;
+  left: 8px;
+  transform: translateY(-50%);
+  width: 56px; /* 与最大展开一致 */
+  display: flex;
+  justify-content: flex-start;
+  z-index: 1;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+.fav-left-actions.visible {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+  transition: opacity 0.18s ease; /* 仅淡入，去除淡出动画 */
+}
+.fav-delete {
+  padding: 4px 8px; /* 稍小 */
+  border-radius: 8px;
+  border: 1px solid rgba(255,0,0,0.25);
+  background: rgba(255,0,0,0.10);
+  color: #c0392b;
+  font-weight: 700;
+  font-size: 12px;
+}
+.fav-delete:active { transform: scale(0.98); }
+.fav-content {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  will-change: transform;
+  transition: transform 0.15s ease;
+  position: relative;
+  z-index: 2; /* 内容在上方，未右滑时遮住左侧按钮 */
 }
 
 /* 过渡动画：列表项位置变化时平滑移动，避免“跳动” */
@@ -1850,12 +2271,30 @@
   border: 1px solid rgba(255, 255, 255, 0.2);
   transition: all 0.3s ease;
   cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+  -ms-user-select: none;
+  -moz-user-select: none;
+  -webkit-touch-callout: none; /* iOS Safari 禁止长按菜单 */
 }
 
 .attraction-item:hover {
   transform: translateY(-4px);
   box-shadow: 0 12px 30px rgba(0, 0, 0, 0.15);
   background: rgba(255, 255, 255, 1);
+}
+
+/* 收藏后，悬浮/聚焦/按下与静止状态保持一致的金色样式 */
+.attraction-item.favorited:hover,
+.attraction-item.favorited:focus,
+.attraction-item.favorited:active {
+  background: linear-gradient(180deg, rgba(255,215,0,0.45), rgba(255,215,0,0.25));
+  border: 2px solid rgba(255, 215, 0, 0.95);
+  transform: translateY(-10px) scale(1.12);
+  box-shadow:
+    0 26px 60px rgba(0,0,0,0.28),
+    0 0 0 5px rgba(255,215,0,0.55),
+    0 0 0 6px rgba(255,215,0,0.28) inset;
 }
 
 .attraction-image-wrapper {
