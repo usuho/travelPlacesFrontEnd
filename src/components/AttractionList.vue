@@ -12,6 +12,7 @@
         </div>
       </header>
 
+
       <div class="filters-section card desktop-filters">
         
         <!-- 这里是你原来的筛选器内容 -->
@@ -60,7 +61,25 @@
 
         <!-- 第二行：仅放两个搜索框，与上面列对齐 -->
         <div class="filters-grid" style="margin-top: 12px;">
-          <div class="filter-group"></div>
+          <div class="filter-group">
+            <!-- 桌面：第二行第一列，左右平分按钮 -->
+            <div class="button-pair">
+              <button class="map-button" @click="openMapMode">
+                <span class="label-desktop">地图模式</span>
+                <span class="label-mobile">地图</span>
+              </button>
+              <button
+                ref="favoritesButtonDesktop"
+                class="favorites-button"
+                @click="toggleFavoritesMenu"
+                title="查看收藏列表"
+              >
+                <span class="label-desktop">收藏列表</span>
+                <span class="label-mobile">收藏</span>
+                <span v-if="favorites.length">（{{ favorites.length }}）</span>
+              </button>
+            </div>
+          </div>
 
           <!-- ✅ 新增：景点搜索框 -->
           <div class="filter-group">
@@ -160,8 +179,25 @@
           <!-- 第一行：最小评论数 -->
           <div class="mobile-filter-row">
             <span class="filter-label">最小评论数</span>
+            <!-- 移动：第一行第二列放置最小评论数输入 -->
             <input type="number" v-model.number="minReviews" @keyup.enter="validateInputmin" @blur="validateInputmin" min="0" placeholder="0" />
-            <div></div>
+            <!-- 移动：第一行第三列放置按钮对（左右平分） -->
+            <div class="button-pair">
+              <button class="map-button" @click="openMapMode">
+                <span class="label-desktop">地图模式</span>
+                <span class="label-mobile">地图</span>
+              </button>
+              <button
+                ref="favoritesButtonMobile"
+                class="favorites-button"
+                @click="toggleFavoritesMenu"
+                title="查看收藏列表"
+              >
+                <span class="label-desktop">收藏列表</span>
+                <span class="label-mobile">收藏</span>
+                <span v-if="favorites.length">（{{ favorites.length }}）</span>
+              </button>
+            </div>
           </div>
 
           <!-- 第二行：排序方式 + 景点搜索 -->
@@ -290,7 +326,19 @@
         </div>
         
         <div v-else class="attractions-list attractions-list-desktop" v-fly-in>
-          <div v-for="(attraction, index) in attractions" :key="attraction.id" class="attraction-item" @click="handleClick(attraction,index,$event)">
+          <div
+            v-for="(attraction, index) in attractions"
+            :key="attraction.id"
+            class="attraction-item"
+            :class="{ favorited: isFavorited(attraction.id) }"
+            @click="handleClick(attraction,index,$event)"
+            @mousedown.prevent="startCardPress(attraction, $event)"
+            @mouseup.prevent="endCardPress"
+            @mouseleave="cancelCardPress"
+            @touchstart.prevent="startCardPress(attraction, $event)"
+            @touchend.prevent="endCardPress"
+            @touchcancel.prevent="cancelCardPress"
+          >
             <div class="attraction-image-wrapper attraction-content-desktop">
               <div v-if="!attraction.image1" class="image-placeholder shimmer"></div>
               <img v-fade-in
@@ -395,6 +443,72 @@
         </div>
       </div>
     </div>
+    <!-- 收藏菜单（浮层） -->
+    <teleport to="body">
+      <div
+        v-if="showFavorites"
+        ref="favoritesMenu"
+        class="favorites-menu"
+        :style="favoritesMenuStyle"
+      >
+        <h4>收藏列表</h4>
+        <div ref="favoritesList" class="favorites-list">
+          <template v-for="(f, i) in sortedFavorites" :key="f.country + '-' + f.id">
+            <div
+              class="favorites-placeholder"
+              v-if="dragging && placeholderIndex === i && dragIndex !== i"
+            ></div>
+            <div
+              class="favorites-item"
+              :class="{ 'dragging-shadow': dragging && dragIndex === i }"
+              @mousedown.prevent="startMenuItemPress(i, $event)"
+              @touchstart.prevent="startMenuItemPress(i, $event)"
+              @click.stop="handleMenuItemClick(f, i, $event)"
+            >
+              <span class="fav-index">{{ f.order }}</span>
+              <div class="fav-thumb-wrap">
+                <img
+                  v-if="favThumbs[thumbKey(f)]"
+                  :src="favThumbs[thumbKey(f)]"
+                  alt="缩略图"
+                  class="fav-thumb"
+                />
+                <div v-else class="fav-thumb thumb-placeholder"></div>
+              </div>
+              <div class="fav-main">
+                <span class="fav-name">{{ f.name }}</span>
+                <span class="fav-meta">{{ f.region }}</span>
+              </div>
+              <span class="fav-rating" :style="{ backgroundColor: getRatingColor(f.rating) }">{{ f.rating }}</span>
+            </div>
+          </template>
+          <div
+            class="favorites-placeholder"
+            v-if="dragging && placeholderIndex === sortedFavorites.length"
+          ></div>
+        </div>
+        <!-- 跟随手指/鼠标的拖拽项 -->
+        <div
+          v-if="dragging && dragItem"
+          :style="{
+            position: 'fixed',
+            top: (dragY - dragOffsetY) + 'px',
+            left: (favoritesMenuStyle.left || '0'),
+            width: favoritesMenuStyle.width || '320px',
+            pointerEvents: 'none',
+            zIndex: 1001,
+          }"
+        >
+          <div class="favorites-item dragging-shadow">
+            <div class="fav-main">
+              <span class="fav-name">{{ dragItem.name }}</span>
+              <span class="fav-meta">{{ dragItem.region }}</span>
+            </div>
+            <span class="fav-rating" :style="{ backgroundColor: getRatingColor(dragItem.rating) }">{{ dragItem.rating }}</span>
+          </div>
+        </div>
+      </div>
+    </teleport>
   </div>
 </template>
   
@@ -403,7 +517,26 @@
 
   export default {
     data() {
-      return {
+        return {
+          // 收藏相关
+          favorites: [],
+          showFavorites: false,
+          favoritesMenuStyle: {},
+          favThumbs: {},
+        // 长按相关（卡片）
+        pressTimer: null,
+        longPressThreshold: 500,
+        suppressNextClick: false,
+        // 拖拽相关（收藏菜单内）
+        dragging: false,
+        dragIndex: null,
+        dragItem: null,
+        dragY: 0,
+        dragOffsetY: 0,
+        dragListRect: null,
+        placeholderIndex: null,
+        moveListener: null,
+        upListener: null,
         mobileCountyDropdownStyle: {},
         mobileRegionDropdownStyle: {},
         mobileAttractionDropdownStyle: {},
@@ -470,6 +603,10 @@
       totalPages() {
         return Math.ceil(this.total / this.limit);
       },
+      sortedFavorites() {
+        return [...this.favorites].sort((a, b) => (a.order || 0) - (b.order || 0));
+      },
+      
       countySuggestions() {
         if (!this.countySearch.trim()) return [];
         const q = this.countySearch.toLowerCase();
@@ -486,6 +623,7 @@
       this.fetchRegions();
       this.fetchCountis();
       this.fetchAllAttractions();
+      this.loadFavorites();
     },
 
     watch: {
@@ -518,6 +656,288 @@
     },
 
     methods: {
+      openMapMode() {
+        // 预留地图模式入口（目前仅占位）
+        try { console.log('打开地图模式', this.country); } catch(e) {}
+      },
+
+      // ========= 收藏相关 =========
+      loadFavorites() {
+        try {
+          const key = this.getFavoritesStorageKey();
+          const raw = localStorage.getItem(key);
+          this.favorites = raw ? JSON.parse(raw) : [];
+          this.normalizeFavoritesOrder();
+        } catch (e) {
+          this.favorites = [];
+        }
+      },
+      saveFavorites() {
+        const key = this.getFavoritesStorageKey();
+        localStorage.setItem(key, JSON.stringify(this.favorites));
+      },
+      getFavoritesStorageKey() {
+        // 跨国家共用收藏
+        return `favorites_all`;
+      },
+      normalizeFavoritesOrder() {
+        this.favorites
+          .sort((a, b) => (a.order || 0) - (b.order || 0))
+          .forEach((item, idx) => (item.order = idx + 1));
+      },
+      isFavorited(id) {
+        return this.favorites.some(f => f.id === id && f.country === this.country);
+      },
+      toggleFavorite(attraction) {
+        const idx = this.favorites.findIndex(f => f.id === attraction.id && f.country === this.country);
+        if (idx >= 0) {
+          this.favorites.splice(idx, 1);
+          this.normalizeFavoritesOrder();
+        } else {
+          const nextOrder = this.favorites.length + 1;
+          this.favorites.push({
+            id: attraction.id,
+            name: attraction.name,
+            region: attraction.region,
+            rating: attraction.rating,
+            county: attraction.county,
+            country: this.country,
+            order: nextOrder,
+          });
+        }
+        this.saveFavorites();
+      },
+      // 点击收藏菜单中的项：跳转详情并以收藏顺序驱动导航
+      handleMenuItemClick(f, idx, evt) {
+        if (this.dragging) return;
+        try {
+          const color = this.getRatingColor(f.rating);
+          localStorage.setItem('selectedAttractionRatingColor', color);
+        } catch(e) {}
+        const nav = this.sortedFavorites.map(x => ({ country: x.country, id: x.id }));
+        localStorage.setItem('favNav', JSON.stringify(nav));
+        localStorage.setItem('favIndex', String(idx));
+        this.$router.push(`/attraction/${f.country}/${f.id}?from=favorites`);
+      },
+      // 卡片长按处理
+      startCardPress(attraction, evt) {
+        this.cancelCardPress();
+        this.pressTimer = setTimeout(() => {
+          this.toggleFavorite(attraction);
+          this.suppressNextClick = true;
+        }, this.longPressThreshold);
+      },
+      cancelCardPress() {
+        if (this.pressTimer) {
+          clearTimeout(this.pressTimer);
+          this.pressTimer = null;
+        }
+      },
+      endCardPress() {
+        this.cancelCardPress();
+      },
+      // 收藏菜单按钮与弹层
+      toggleFavoritesMenu() {
+        this.showFavorites = !this.showFavorites;
+        if (this.showFavorites) {
+          this.updateFavoritesMenuPosition();
+          this.$nextTick(() => {
+            document.addEventListener('mousedown', this.onOutsideClick, { capture: true });
+            document.addEventListener('touchstart', this.onOutsideClick, { capture: true });
+            window.addEventListener('resize', this.updateFavoritesMenuPosition, { passive: true });
+            window.addEventListener('scroll', this.updateFavoritesMenuPosition, { passive: true });
+            // 预加载收藏缩略图
+            try { this.sortedFavorites.forEach(f => this.ensureFavThumb(f)); } catch(e) {}
+          });
+        } else {
+          document.removeEventListener('mousedown', this.onOutsideClick, { capture: true });
+          document.removeEventListener('touchstart', this.onOutsideClick, { capture: true });
+          window.removeEventListener('resize', this.updateFavoritesMenuPosition);
+          window.removeEventListener('scroll', this.updateFavoritesMenuPosition);
+        }
+      },
+      thumbKey(f) {
+        return `${f.country}-${f.id}`;
+      },
+      async ensureFavThumb(f) {
+        const key = this.thumbKey(f);
+        if (this.favThumbs[key]) return;
+        try {
+          const res = await fetch(`https://juseaxerf.com/api/attraction-image/${f.country}/${f.id}/1`);
+          if (!res.ok) return;
+          const blob = await res.blob();
+          const url = URL.createObjectURL(blob);
+          this.$set ? this.$set(this.favThumbs, key, url) : (this.favThumbs[key] = url);
+        } catch (e) {}
+      },
+      onOutsideClick(e) {
+        const menu = this.$refs.favoritesMenu;
+        const btns = [
+          this.$refs.favoritesButtonDesktop,
+          this.$refs.favoritesButtonMobile,
+        ].filter(Boolean);
+        if (!menu || !btns.length) return;
+        const t = e.target;
+        const inAnyBtn = btns.some(b => b && b.contains && b.contains(t));
+        if (!menu.contains(t) && !inAnyBtn) {
+          this.showFavorites = false;
+          document.removeEventListener('mousedown', this.onOutsideClick, { capture: true });
+          document.removeEventListener('touchstart', this.onOutsideClick, { capture: true });
+        }
+      },
+      updateFavoritesMenuPosition() {
+        this.$nextTick(() => {
+          const candidates = [
+            this.$refs.favoritesButtonDesktop,
+            this.$refs.favoritesButtonMobile,
+          ].filter(Boolean);
+          // 选择实际可见按钮：有布局盒且尺寸>0
+          const btn = candidates.find(el => {
+            if (!el) return false;
+            const rects = el.getClientRects ? el.getClientRects() : null;
+            return rects && rects.length > 0 && el.offsetWidth > 0 && el.offsetHeight > 0;
+          });
+          if (!btn) return; // 未找到可见按钮，不定位
+          const rect = btn.getBoundingClientRect();
+          const width = 320;
+          const vw = window.innerWidth || document.documentElement.clientWidth || 0;
+          const left = Math.min(Math.max(12, rect.left), Math.max(12, vw - width - 12));
+          this.favoritesMenuStyle = {
+            top: `${rect.bottom + 6}px`,
+            left: `${left}px`,
+            width: `${width}px`,
+            position: 'fixed',
+            zIndex: 1000,
+          };
+        });
+      },
+      // 菜单内长按拖拽
+      startMenuItemPress(index, evt) {
+        const e = evt.touches ? evt.touches[0] : evt;
+        const startY = e.clientY;
+        // 记录起始元素的位置信息，避免占位符插入后索引错位
+        const originEl = (evt.currentTarget && evt.currentTarget.closest)
+          ? evt.currentTarget.closest('.favorites-item')
+          : null;
+        const originRect = originEl ? originEl.getBoundingClientRect() : null;
+        let triggered = false;
+        const timer = setTimeout(() => {
+          triggered = true;
+          this.beginDrag(index, startY, originRect);
+        }, this.longPressThreshold);
+        const cancel = () => {
+          clearTimeout(timer);
+          window.removeEventListener('mouseup', cancel, true);
+          window.removeEventListener('touchend', cancel, true);
+          window.removeEventListener('touchmove', preventScroll, { passive: false });
+        };
+        const preventScroll = (ev) => {
+          if (!triggered) ev.preventDefault();
+        };
+        window.addEventListener('mouseup', cancel, true);
+        window.addEventListener('touchend', cancel, true);
+        window.addEventListener('touchmove', preventScroll, { passive: false });
+      },
+      beginDrag(index, startClientY, originRect) {
+        this.dragging = true;
+        this.dragIndex = index;
+        this.dragItem = { ...this.sortedFavorites[index] };
+        const list = this.$refs.favoritesList;
+        if (!list) return;
+        this.dragListRect = list.getBoundingClientRect();
+        // 优先用列表中第 index 个真实项的矩形，避免占位符干扰
+        const itemEls = Array.from(list.children).filter(el => el.classList && el.classList.contains('favorites-item'));
+        const elRect = (itemEls[index] && itemEls[index].getBoundingClientRect) ? itemEls[index].getBoundingClientRect() : null;
+        const baseRect = elRect || originRect || this.dragListRect;
+        this.dragOffsetY = startClientY - baseRect.top;
+        this.dragY = startClientY;
+        this.placeholderIndex = index;
+        this.attachDragListeners();
+      },
+      attachDragListeners() {
+        this.moveListener = (evt) => {
+          const e = evt.touches ? evt.touches[0] : evt;
+          this.dragY = e.clientY;
+          this.updatePlaceholderIndex();
+        };
+        this.upListener = (evt) => {
+          this.finishDrag(evt);
+        };
+        window.addEventListener('mousemove', this.moveListener, true);
+        window.addEventListener('touchmove', this.moveListener, { passive: false, capture: true });
+        window.addEventListener('mouseup', this.upListener, true);
+        window.addEventListener('touchend', this.upListener, true);
+      },
+      detachDragListeners() {
+        if (this.moveListener) {
+          window.removeEventListener('mousemove', this.moveListener, true);
+          window.removeEventListener('touchmove', this.moveListener, { capture: true });
+          this.moveListener = null;
+        }
+        if (this.upListener) {
+          window.removeEventListener('mouseup', this.upListener, true);
+          window.removeEventListener('touchend', this.upListener, true);
+          this.upListener = null;
+        }
+      },
+      updatePlaceholderIndex() {
+        if (!this.dragListRect) return;
+        const y = this.dragY;
+        const list = this.$refs.favoritesList;
+        if (!list || !list.children.length) return;
+        let target = 0;
+        for (let i = 0; i < list.children.length; i++) {
+          const el = list.children[i];
+          if (!el.classList.contains('favorites-item')) continue;
+          const r = el.getBoundingClientRect();
+          if (y < (r.top + r.height / 2)) {
+            target = i;
+            break;
+          }
+          target = i + 1;
+        }
+        this.placeholderIndex = Math.max(0, Math.min(target, this.sortedFavorites.length));
+      },
+      finishDrag(evt) {
+        const e = evt.changedTouches ? evt.changedTouches[0] : evt;
+        const dropX = e.clientX;
+        const dropY = e.clientY;
+        const menu = this.$refs.favoritesMenu;
+        const inside = menu && (() => {
+          const r = menu.getBoundingClientRect();
+          return dropX >= r.left && dropX <= r.right && dropY >= r.top && dropY <= r.bottom;
+        })();
+        if (!inside) {
+          const id = this.dragItem.id;
+          const idx = this.favorites.findIndex(f => f.id === id);
+          if (idx >= 0) {
+            this.favorites.splice(idx, 1);
+            this.normalizeFavoritesOrder();
+            this.saveFavorites();
+          }
+        } else {
+          const from = this.dragIndex;
+          let to = this.placeholderIndex;
+          if (to > this.sortedFavorites.length - 1) to = this.sortedFavorites.length - 1;
+          if (from !== to && from >= 0 && to >= 0) {
+            const ordered = [...this.sortedFavorites];
+            const [moved] = ordered.splice(from, 1);
+            ordered.splice(to, 0, moved);
+            ordered.forEach((item, i) => {
+              const f = this.favorites.find(x => x.id === item.id);
+              if (f) f.order = i + 1;
+            });
+            this.normalizeFavoritesOrder();
+            this.saveFavorites();
+          }
+        }
+        this.dragging = false;
+        this.dragIndex = null;
+        this.dragItem = null;
+        this.placeholderIndex = null;
+        this.dragListRect = null;
+        this.detachDragListeners();
+      },
 
       updateMobileAttractionDropdownPosition() {
         this.$nextTick(() => {
@@ -624,6 +1044,10 @@
       
       handleClick(attraction,index,event) {
         event.preventDefault();
+        if (this.suppressNextClick) {
+          this.suppressNextClick = false;
+          return;
+        }
         const ids=[];
         localStorage.setItem('attractionIndex',index);
         for (let i = 0; i<this.attractions.length;i++) {
@@ -915,10 +1339,10 @@
             };
           }
         });
-      }
     }
-  };
-  </script>
+  }
+};
+</script>
 
 
 <style scoped>
@@ -988,7 +1412,138 @@
   position: sticky;
   top: 0;
   z-index: 20;
-  padding: 20px 20px 0;
+  padding: 10px 20px 0; /* 原 20px 的一半 */
+}
+
+/* 收藏按钮 */
+.filters-toolbar {
+  max-width: 1000px;
+  margin: 0 auto;
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  margin-top: 8px;
+  margin-bottom: 6px;
+}
+.favorites-button {
+  position: static;
+  padding: 8px 12px;
+  background: linear-gradient(135deg, #ffd700 0%, #ffb700 100%);
+  color: #5a4100;
+  border: none;
+  border-radius: 16px;
+  font-weight: 700;
+  cursor: pointer;
+  box-shadow: 0 4px 12px rgba(255, 183, 0, 0.35);
+}
+
+/* 收藏菜单 */
+.favorites-menu {
+  position: fixed;
+  background: #fff;
+  border-radius: 12px;
+  box-shadow: 0 12px 30px rgba(0,0,0,0.2);
+  padding: 12px;
+  max-height: 60vh;
+  overflow: auto;
+}
+.favorites-menu h4 {
+  margin: 0 0 8px;
+}
+.favorites-menu .favorites-list { counter-reset: fav; }
+.favorites-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.favorites-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between; /* 左侧（序号+图片+文本）靠左，评分在最右 */
+  gap: 12px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  border: 1px solid rgba(0,0,0,0.06);
+  background: rgba(250,250,250,0.95);
+  user-select: none;
+}
+.favorites-item .fav-index {
+  flex: 0 0 auto;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: #f1f3f5;
+  color: #333;
+  font-weight: 800;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.favorites-item .fav-thumb-wrap {
+  flex: 0 0 auto;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  overflow: hidden;
+}
+.favorites-item .fav-thumb {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.favorites-item .thumb-placeholder {
+  width: 100%;
+  height: 100%;
+  background: #e9ecef;
+}
+.favorites-item .fav-main {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start; /* 文本块靠左对齐 */
+  flex: 1;               /* 占据剩余空间用于省略号 */
+  min-width: 0;          /* 允许子元素正确计算省略号 */
+}
+.favorites-item .fav-name {
+  font-weight: 700;
+  display: block;
+  white-space: nowrap;       /* 不换行 */
+  overflow: hidden;          /* 超出隐藏 */
+  text-overflow: ellipsis;   /* 超出显示省略号 */
+  max-width: 100%;
+}
+.favorites-item .fav-meta {
+  font-size: 12px;
+  color: #666;
+}
+.favorites-item .fav-rating {
+  color: #fff;
+  font-weight: 800;
+  padding: 2px 6px;
+  border-radius: 6px;
+}
+.favorites-item.dragging-shadow {
+  box-shadow: 0 10px 24px rgba(0,0,0,0.2);
+}
+.favorites-placeholder {
+  height: 40px;
+  border: 2px dashed #ffd700;
+  border-radius: 10px;
+}
+
+/* 过渡动画：列表项位置变化时平滑移动，避免“跳动” */
+/* 移除过渡动画（恢复原生位置变化） */
+
+/* 收藏态卡片效果 */
+.attraction-item.favorited {
+  background: linear-gradient(180deg, rgba(255,215,0,0.45), rgba(255,215,0,0.25));
+  border: 2px solid rgba(255, 215, 0, 0.95);
+  transform: translateY(-10px) scale(1.12);
+  box-shadow:
+    0 26px 60px rgba(0,0,0,0.28),
+    0 0 0 5px rgba(255,215,0,0.55), /* 外环，增强金色边缘存在感 */
+    0 0 0 6px rgba(255,215,0,0.28) inset; /* 内环，增加层次 */
+  z-index: 6;
 }
 
 /* 滚动内容部分 */
@@ -1113,12 +1668,64 @@
   background: rgba(255, 255, 255, 0.95);
   backdrop-filter: blur(10px);
   max-width: 1000px; 
+  position: relative; /* 以便右上角收藏按钮绝对定位 */
 }
 .filters-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
   gap: 24px;
+  align-items: stretch; /* 让同一行的项目（含按钮容器）等高 */
+}
+
+.button-pair {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  align-items: stretch; /* 两个按钮等高，拉伸填满单元格高度 */
+}
+.button-pair > button { width: 100%; min-width: 0; }
+
+.map-button {
+  padding: 10px 12px;
+  border: none;
+  border-radius: 12px;
+  font-weight: 700;
+  color: #fff;
+  background: linear-gradient(135deg, #0a84ff 0%, #0066cc 100%);
+  box-shadow: 0 4px 12px rgba(0, 102, 204, 0.35);
+  cursor: pointer;
+}
+.favorites-button {
+  display: inline-flex;
   align-items: center;
+  justify-content: center;
+}
+.map-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* 强制桌面/移动端仅显示一种文案，避免同时出现 */
+@media (min-width: 769px) {
+  .label-desktop { display: inline !important; }
+  .label-mobile { display: none !important; }
+}
+@media (max-width: 768px) {
+  .label-desktop { display: none !important; }
+  .label-mobile { display: inline !important; }
+}
+
+/* 桌面：按钮高度与输入框一致（对齐 .filter-group input/select 的视觉高度） */
+.filters-section .button-pair .map-button,
+.filters-section .button-pair .favorites-button {
+  padding: 12px 12px;  /* 与输入框同等的垂直内边距，提高高度一致性 */
+  font-size: 12px;     /* 更小字体，保证“收藏列表（数字）”可显示 */
+  border-radius: 8px;
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .filter-group {
@@ -1711,7 +2318,7 @@
   }
 
   .fixed-header {
-    padding: 12px 16px 0; /* 缩小上下左右间距 */
+    padding: 6px 16px 0; /* 移动端：原 12px 的一半 */
   }
 
   .desktop-filters {
@@ -1743,10 +2350,30 @@
     box-shadow: 0 4px 15px rgba(0,0,0,0.1);
     max-width: 100%;
     box-sizing: border-box; /* 确保 padding 包含在宽度内 */
-    overflow: hidden;
+    overflow: visible; /* 让上方绝对定位的收藏按钮可见 */
     display: grid;
     gap: 8px;
   }
+
+  .favorites-button,
+  .map-button {
+    padding: 0 10px; /* 由父网格行控制高度 */
+    font-size: 12px; /* 移动更小字体 */
+    height: 100%;    /* 与同列输入同高 */
+    line-height: 1.2;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .label-desktop { display: none; }
+  .label-mobile { display: inline; }
+  .mobile-filter-row > .button-pair { display: grid !important; width: 100%; }
+  .button-pair {
+    align-items: stretch; /* 子按钮拉伸至与输入相同高度 */
+  }
+  .label-desktop { display: none; }
+  .label-mobile { display: inline; }
+  .mobile-filter-row > .button-pair { display: grid !important; width: 100%; }
 
   .mobile-left-column,
   .mobile-right-column {
@@ -1769,4 +2396,15 @@
   }
 }
 
+/* 桌面端：压缩固定区垂直占用（半高） */
+@media (min-width: 1024px) {
+  .page-header { margin-bottom: 30px; } /* 原 60px 的一半 */
+  .scroll-content { padding-top: 20px; } /* 原 40px 的一半 */
+  .filters-section { padding: 16px; } /* 原 32px 的一半 */
+  .filters-grid { gap: 12px; } /* 原 24px 的一半 */
+}
+
 </style>
+/* 文案显示：桌面显示完整，移动显示简写 */
+.label-desktop { display: inline; }
+.label-mobile { display: none; }

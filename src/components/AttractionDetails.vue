@@ -33,10 +33,10 @@
       </div>
 
       <!-- 景点详情内容 -->
-      <div v-else class="attraction-details fade-in">
+      <div v-else class="attraction-details fade-in" :key="detailAnimKey">
 
         <!-- 图片展示区域 -->
-        <section class="images-section">
+        <section class="images-section" :key="imageAnimKey">
           <!-- 主图 -->
           <div class="main-image-container" @click="openFullscreen(image1)">
             <div v-if="!image1&&attraction.hasImage1" class="image-skeleton main-image-skeleton"></div>
@@ -71,8 +71,8 @@
 
         <!-- 景点信息 -->
         <section class="info-section">
-          <div class="info-grid" v-fly-in>
-            <div class="info-card card">
+          <div class="info-grid" v-fly-in :key="infoAnimKey">
+            <div class="info-card card info-card-location">
               <div class="info-header">
                 <span class="info-icon">📍</span>
                 <h3>位置信息</h3>
@@ -93,7 +93,7 @@
               </div>
             </div>
 
-            <div class="info-card card">
+            <div class="info-card card info-card-visit">
               <div class="info-header">
                 <span class="info-icon">⏰</span>
                 <h3>游览信息</h3>
@@ -110,17 +110,7 @@
               </div>
             </div>
 
-            <div class="info-card card info-card-wide">
-              <div class="info-header">
-                <span class="info-icon">📖</span>
-                <h3>详细介绍</h3>
-              </div>
-              <div class="info-content">
-                <p class="details-text">{{ attraction.overview }}</p>
-              </div>
-            </div>
-
-            <div v-if="attraction.website" class="info-card card">
+            <div v-if="attraction.website" class="info-card card info-card-website">
               <div class="info-header">
                 <span class="info-icon">🌐</span>
                 <h3>网址</h3>
@@ -132,6 +122,16 @@
                 </a>
               </div>
             </div>
+
+            <div class="info-card card info-card-wide">
+              <div class="info-header">
+                <span class="info-icon">📖</span>
+                <h3>详细介绍</h3>
+              </div>
+              <div class="info-content">
+                <p class="details-text">{{ attraction.overview }}</p>
+              </div>
+            </div>
           </div>
         </section>
 
@@ -141,11 +141,11 @@
             <button @click="goBack" class="back-button bottom-back-button">
               返回
             </button>
-            <button @click="prevPage" :disabled="fromSearch || index === 0"  class="nav-button">
+            <button @click="prevPage" :disabled="isFavoritesMode ? favIndex === 0 : (fromSearch || index === 0)"  class="nav-button">
               <span class="nav-icon">←</span>
               上一个景点
             </button>
-            <button @click="nextPage" :disabled="fromSearch || index === 19" class="nav-button">
+            <button @click="nextPage" :disabled="isFavoritesMode ? favIndex >= favNav.length - 1 : (fromSearch || index === 19)" class="nav-button">
               下一个景点
               <span class="nav-icon">→</span>
             </button>
@@ -164,6 +164,7 @@
     data() {
       return {
         fromSearch: this.$route.query.from === 'search',
+        fromFavorites: this.$route.query.from === 'favorites',
         loading: true,
         country: this.$route.params.country,
         id: this.$route.params.id,
@@ -173,6 +174,8 @@
         image3: null,
         index:parseInt(localStorage.getItem('attractionIndex')) || 0,
         ids: localStorage.getItem('ids') ? localStorage.getItem('ids').split(',').map(Number) : [] || null,
+        favIndex: parseInt(localStorage.getItem('favIndex')) || 0,
+        favNav: (() => { try { return JSON.parse(localStorage.getItem('favNav')||'[]'); } catch(e) { return []; } })(),
         fullscreenImage: null,
         imageScale: 1,
         imageTranslateX: 0,
@@ -181,6 +184,10 @@
         hasDragged: false,
         lastTouchDistance: 0,
         lastTouchCenter: { x: 0, y: 0 },
+        // 动画 key（当路由或数据变化时强制触发飞入动画）
+        detailAnimKey: 0,
+        imageAnimKey: 0,
+        infoAnimKey: 0,
 
         countyTranslations: {
           japan: '都/道/府/县',
@@ -193,9 +200,28 @@
       };
     },
     async created() {
+      // 初始化收藏导航（若来自收藏）
+      this.reloadFavState();
+      this.bumpAnimKeys();
       await this.fetchAttractionDetails();
     },
+    watch: {
+      '$route'(to) {
+        // 路由变化（国家或ID或query）都更新并重载详情
+        this.country = to.params.country;
+        this.id = to.params.id;
+        this.reloadFavState();
+        // 重置数据与动画，确保飞入效果触发
+        this.attraction = null;
+        for (let i = 1; i <= 3; i++) this[`image${i}`] = null;
+        this.bumpAnimKeys();
+        this.fetchAttractionDetails();
+      }
+    },
   computed: {
+    isFavoritesMode() {
+      return this.$route.query.from === 'favorites';
+    },
     ratingBackgroundColor() {
       // 优先使用从列表页传递过来的颜色，确保一致
       const stored = localStorage.getItem('selectedAttractionRatingColor');
@@ -205,6 +231,23 @@
     }
   },
     methods: {
+      bumpAnimKeys() {
+        const tick = Date.now();
+        this.detailAnimKey = `${this.country}-${this.id}-${tick}`;
+        this.imageAnimKey = `${this.country}-${this.id}-img-${tick}`;
+        this.infoAnimKey = `${this.country}-${this.id}-info-${tick}`;
+      },
+      reloadFavState() {
+        try {
+          const nav = JSON.parse(localStorage.getItem('favNav') || '[]');
+          const idx = parseInt(localStorage.getItem('favIndex')) || 0;
+          if (Array.isArray(nav)) this.favNav = nav; else this.favNav = [];
+          this.favIndex = Number.isInteger(idx) ? idx : 0;
+        } catch(e) {
+          this.favNav = [];
+          this.favIndex = 0;
+        }
+      },
 
       translateCounty(country) {
         return this.countyTranslations[country] || '省份';
@@ -238,7 +281,16 @@
       },
 
       async nextPage() {
-      localStorage.setItem('attractionIndex', this.index + 1);
+        if (this.isFavoritesMode && this.favNav.length > 0) {
+          if (this.favIndex < this.favNav.length - 1) {
+            this.favIndex++;
+            localStorage.setItem('favIndex', String(this.favIndex));
+            const target = this.favNav[this.favIndex];
+            this.$router.push(`/attraction/${target.country}/${target.id}?from=favorites`);
+          }
+          return;
+        }
+        localStorage.setItem('attractionIndex', this.index + 1);
         if (this.index < 19) {
           this.attraction = null; // 显示加载状态
 
@@ -277,6 +329,15 @@
       },
 
       async prevPage() {
+        if (this.isFavoritesMode && this.favNav.length > 0) {
+          if (this.favIndex > 0) {
+            this.favIndex--;
+            localStorage.setItem('favIndex', String(this.favIndex));
+            const target = this.favNav[this.favIndex];
+            this.$router.push(`/attraction/${target.country}/${target.id}?from=favorites`);
+          }
+          return;
+        }
         localStorage.setItem('attractionIndex', this.index - 1);
         if (this.index > 0) {
           this.attraction = null; // 显示加载状态
@@ -469,7 +530,7 @@
   top: 0;
   z-index: 20;
   background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
-  padding: 20px 20px 0;
+  padding: 10px 20px 0; /* 原 20px 的一半 */
   box-shadow: 0 2px 6px rgba(0,0,0,0.1);
 }
 
@@ -497,7 +558,7 @@
 
 /* 页面头部 */
 .page-header {
-  padding: 40px 20px;
+  padding: 6px;
   background: rgba(255, 255, 255, 0.95);
   backdrop-filter: blur(10px);
   border-bottom: 1px solid rgba(255, 255, 255, 0.2);
@@ -638,9 +699,9 @@
 
 /* 图片展示区域 */
 .images-section {
-  padding: 30px 20px;
-  padding-bottom: 30px;
-  max-width: 1400px;
+  padding: 0px;
+  padding-bottom: 0px;
+  max-width: 1350px;
   margin: 0 auto;
 }
 
@@ -674,7 +735,7 @@
 
 .main-image {
   width: 100%;
-  height: 500px;
+  height: 333px; /* 默认高度（移动端优先），桌面端下面用比例覆盖 */
   object-fit: cover;
   transition: transform 0.3s ease;
 }
@@ -686,7 +747,7 @@
 .secondary-images {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-  gap: 24px;
+  gap: 16px; /* 原 24px 的 2/3 */
 }
 
 .secondary-image-container {
@@ -729,7 +790,7 @@
 
 /* 信息区域 */
 .info-section {
-  padding: 60px 20px;
+  padding: 30px 20px;
   padding-top: 15px;
   max-width: 1400px;
   margin: 0 auto;
@@ -737,8 +798,13 @@
 
 .info-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
-  gap: 32px;
+  grid-template-columns: 1fr; /* 移动端单列 */
+  gap: 21px; /* 原 32px 的 2/3 */
+  grid-template-areas:
+    'loc'
+    'visit'
+    'details'
+    'web'; /* 网址放在移动端最底部 */
 }
 
 .info-card {
@@ -750,6 +816,85 @@
 
 .info-card-wide {
   grid-column: 1 / -1;
+  grid-area: details;
+}
+.info-card-location { grid-area: loc; }
+.info-card-visit { grid-area: visit; }
+.info-card-website { grid-area: web; }
+
+/* 桌面端：三列平分，让“位置信息 / 游览信息 / 网址”在同一行等宽显示 */
+@media (min-width: 1024px) {
+  .info-grid {
+    grid-template-columns: repeat(3, 1fr);
+    grid-template-areas:
+      'loc visit web'
+      'details details details';
+    gap: 16px; /* 桌面：信息卡片间隙为原始 32px 的一半 */
+  }
+  .info-card { grid-column: auto; }
+  .info-card-wide { grid-column: 1 / -1; }
+
+  /* 桌面：标题进一步上移，贴近顶部（保留少量缝隙） */
+  .fixed-header { padding-top: 6px; } /* 更贴近顶部 */
+  .page-header { padding-top: 6px; }
+
+  /* 桌面：主图与次图之间的间隙为原来的 1/2（原 32px） */
+  .main-image-container { margin-bottom: 16px; }
+
+  /* 桌面：所有图片缩小为当前的二分之一（居中显示） */
+  .main-image-container {
+    width: 50%;
+    margin-left: auto;
+    margin-right: auto;
+  }
+  .secondary-images {
+    width: 50%;
+    margin-left: auto;
+    margin-right: auto;
+    grid-template-columns: 1fr 1fr; /* 在半宽下保持两列布局 */
+  }
+
+  /* 桌面：图片区域与信息区域等宽，且保持当前高度不变 */
+  .main-image-container {
+    width: 100%;           /* 延展至与信息区域一致 */
+    margin-left: auto;
+    margin-right: auto;
+    aspect-ratio: auto;    /* 取消比例约束，保持高度 */
+  }
+  .main-image {
+    width: 100%;
+    height: 333px;         /* 保持当前主图高度 */
+    object-fit: cover;
+  }
+
+  .secondary-images {
+    width: 100%;           /* 延展至与信息区域一致 */
+    margin-left: auto;
+    margin-right: auto;
+  }
+  .secondary-image-container {
+    aspect-ratio: auto;    /* 取消比例约束，保持高度 */
+  }
+  .secondary-image {
+    width: 100%;
+    height: 250px;         /* 保持当前次要图片高度 */
+    object-fit: cover;
+  }
+
+  /* 桌面：图片区域与信息区域之间的间隙为原来的 2/3（原 30px -> 20px） */
+  .images-section { padding-bottom: 0; }
+
+  /* 桌面：次要图片网格的间隙为原来的 1/2（原 24px） */
+  .secondary-images { gap: 12px; }
+
+  /* 桌面：固定部分下面的 padding（滚动区域内边距）为原来的 1/2（原 20px） */
+  .scroll-content { padding: 20px; }
+}
+
+/* 桌面端专属：缩小标题离顶部的距离为原来的 1/3 */
+@media (min-width: 1024px) {
+  .page-header { padding-top: 6px; }
+  .header-content { margin-top: 0; }
 }
 
 .info-header {
