@@ -569,6 +569,19 @@
           <div class="favorites-add" @click.stop="showCreateModal = true" title="创建景点">
             <div class="plus-circle">+</div>
           </div>
+          <!-- 新增：导入/导出按钮行（位于 + 项下方，清空收藏上方） -->
+          <div class="favorites-actions-row">
+            <button class="favorites-action-btn" @click.stop="onImportClick">读取</button>
+            <button class="favorites-action-btn primary" @click.stop="exportActiveFavorites">保存</button>
+            <!-- 隐藏的文件输入用于读取 -->
+            <input
+              ref="importFileInput"
+              type="file"
+              accept="application/json,.json"
+              class="hidden-file-input"
+              @change="handleImportFile"
+            />
+          </div>
         </transition-group>
         <!-- 清空收藏列表操作 -->
         <div
@@ -613,6 +626,25 @@
     </teleport>
     <!-- 创建自创景点弹窗 -->
     <CreateAttractionModal v-model="showCreateModal" :county-label="translateCounty(country)" @created="onCustomCreated" />
+
+    <!-- 导出回退弹窗（适配部分移动端浏览器如锤子浏览器） -->
+    <teleport to="body">
+      <div v-if="showExportModal" class="confirm-backdrop" @click="closeExportFallback">
+        <div class="confirm-dialog" @click.stop>
+          <div class="confirm-message">
+            某些浏览器不支持直接保存文件。你可以复制内容或在新页面打开后通过“分享/保存到文件”。
+          </div>
+          <div class="export-area-wrap">
+            <textarea ref="exportArea" class="export-textarea" readonly :value="exportJsonText"></textarea>
+          </div>
+          <div class="confirm-actions">
+            <button class="btn-cancel" @click="closeExportFallback">关闭</button>
+            <button class="btn-danger" @click="copyExportJson">复制内容</button>
+            <button class="btn-primary" @click="openExportDataUrl">在新页面打开</button>
+          </div>
+        </div>
+      </div>
+    </teleport>
 
     <!-- Delete Tab Confirm Dialog -->
     <teleport to="body">
@@ -699,7 +731,12 @@
           favoritesListStyle: {},
           favThumbs: {},
           // 自创景点弹窗
-          showCreateModal: false,
+        showCreateModal: false,
+        // 导出回退（适配部分移动端如锤子浏览器）
+        showExportModal: false,
+        exportJsonText: '',
+        exportFileName: '',
+        exportDataUrl: '',
         // 长按相关（卡片）
         pressTimer: null,
         longPressThreshold: 500,
@@ -814,7 +851,7 @@
         showAttractionSuggestions: false,
         attractionDropdownStyle: {},
         allAttractions: [],
-        attractionSuggestions: []
+      attractionSuggestions: []
       };
     },
 
@@ -971,6 +1008,188 @@
           this.favorites = [];
           this.saveFavorites();
         } catch (e) {}
+      },
+      // 导入/导出收藏列表
+      onImportClick() {
+        try {
+          const input = this.$refs.importFileInput;
+          if (input && input.click) input.click();
+        } catch (e) {}
+      },
+      async exportActiveFavorites() {
+        try {
+          const active = this.favoriteTabs.find(t => t.id === this.activeTabId);
+          const items = Array.isArray(this.favorites) ? [...this.favorites] : [];
+          const payload = {
+            version: 1,
+            type: 'favorites-export',
+            tabName: active ? (active.name || '新的收藏') : '新的收藏',
+            exportedAt: new Date().toISOString(),
+            items: items.map(it => {
+              if (String(it.country) === 'custom') {
+                const full = findCustomAttractionById(it.id) || null;
+                return { kind: 'custom', data: full };
+              }
+              return { kind: 'ref', data: {
+                id: it.id,
+                name: it.name,
+                region: it.region,
+                county: it.county,
+                country: it.country,
+                rating: it.rating
+              }};
+            })
+          };
+          const jsonText = JSON.stringify(payload, null, 2);
+          const blob = new Blob([jsonText], { type: 'application/json;charset=utf-8' });
+          const fileName = (payload.tabName || '收藏')
+            .replace(/\s+/g, '_')
+            .replace(/[^\w\u4e00-\u9fa5\-_]/g, '') + '_favorites.json';
+          // 优先使用 Web Share（移动端更友好）
+          try {
+            const file = new File([blob], fileName, { type: 'application/json' });
+            if (navigator.canShare && navigator.canShare({ files: [file] })) {
+              await navigator.share({ files: [file], title: fileName });
+              return;
+            }
+          } catch (eShare) {}
+          // 其次尝试 a[download]
+          try {
+            const a = document.createElement('a');
+            if ('download' in a) {
+              const url = URL.createObjectURL(blob);
+              a.href = url;
+              a.download = fileName;
+              document.body.appendChild(a);
+              a.click();
+              setTimeout(() => {
+                try { document.body.removeChild(a); } catch(e) {}
+                try { URL.revokeObjectURL(url); } catch(e) {}
+              }, 0);
+              return;
+            }
+          } catch (eDL) {}
+          // 再次回退：打开新标签页预览（iOS Safari 不支持 download）
+          try {
+            const url = URL.createObjectURL(blob);
+            window.open(url, '_blank', 'noopener');
+            // 给出提示：在新页面通过分享/保存
+            try { alert('已在新页面打开导出的数据，可通过分享或“保存到文件”进行保存。'); } catch(e) {}
+            // 稍后释放 URL
+            setTimeout(() => { try { URL.revokeObjectURL(url); } catch(e) {} }, 4000);
+            return;
+          } catch (eOpen) {}
+          // 最后回退：复制到剪贴板
+          try {
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+              await navigator.clipboard.writeText(jsonText);
+              alert('已复制导出数据到剪贴板，请粘贴保存。');
+              return;
+            }
+          } catch (eClip) {}
+          // 若以上方案均受限，显示回退弹窗以便复制/手动保存
+          this.openExportFallback(jsonText, fileName);
+        } catch (e) {}
+      },
+      openExportFallback(jsonText, fileName) {
+        try {
+          this.exportJsonText = jsonText || '';
+          this.exportFileName = fileName || 'favorites.json';
+          this.exportDataUrl = 'data:application/json;charset=utf-8,' + encodeURIComponent(this.exportJsonText);
+          this.showExportModal = true;
+        } catch (e) {
+          this.showExportModal = true;
+        }
+      },
+      closeExportFallback() { this.showExportModal = false; },
+      async copyExportJson() {
+        const text = this.exportJsonText || '';
+        try {
+          if (navigator.clipboard && navigator.clipboard.writeText) {
+            await navigator.clipboard.writeText(text);
+            alert('已复制到剪贴板');
+            return;
+          }
+        } catch (e) {}
+        try {
+          // 旧兼容：选中文本复制
+          const area = this.$refs.exportArea;
+          if (area && area.select) {
+            area.select();
+            document.execCommand && document.execCommand('copy');
+            alert('已复制到剪贴板');
+          }
+        } catch (e2) {}
+      },
+      openExportDataUrl() {
+        try { window.open(this.exportDataUrl, '_blank', 'noopener'); } catch (e) {}
+      },
+      async handleImportFile(evt) {
+        try {
+          const file = evt && evt.target && evt.target.files && evt.target.files[0];
+          if (!file) return;
+          const text = await file.text();
+          const data = JSON.parse(text);
+          if (!data || data.type !== 'favorites-export' || !Array.isArray(data.items)) return;
+          const newTab = { id: this.uid(), name: data.tabName || '导入的收藏', items: [], order: (this.favoriteTabs.reduce((m, t) => Math.max(m, t.order || 0), 0) + 1) };
+          // 先处理自创景点，避免ID冲突
+          const items = [];
+          for (const entry of data.items) {
+            if (!entry || !entry.kind) continue;
+            if (entry.kind === 'custom' && entry.data) {
+              let custom = entry.data;
+              // 确保有ID
+              if (!custom.id) custom.id = 'custom_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
+              // 若ID已存在且不同内容，则生成新ID
+              const existed = findCustomAttractionById(custom.id);
+              if (existed && JSON.stringify(existed) !== JSON.stringify(custom)) {
+                custom = { ...custom, id: 'custom_' + Date.now() + '_' + Math.random().toString(36).slice(2, 5) };
+              }
+              // 写入/更新本地自创库
+              try {
+                const allRaw = localStorage.getItem('customAttractions');
+                const all = allRaw ? (JSON.parse(allRaw) || []) : [];
+                const idx = all.findIndex(a => String(a.id) === String(custom.id));
+                if (idx >= 0) all[idx] = custom; else all.push(custom);
+                localStorage.setItem('customAttractions', JSON.stringify(all));
+              } catch (e) {}
+              // 推入收藏项（自创）
+              items.push({
+                id: custom.id,
+                name: custom.name,
+                region: custom.region,
+                county: custom.county,
+                country: 'custom'
+              });
+            } else if (entry.kind === 'ref' && entry.data) {
+              const it = entry.data;
+              items.push({
+                id: it.id,
+                name: it.name,
+                region: it.region,
+                county: it.county,
+                country: it.country,
+                rating: it.rating
+              });
+            }
+          }
+          // 设置顺序
+          items.forEach((it, idx) => (it.order = idx + 1));
+          newTab.items = items;
+          this.favoriteTabs.push(newTab);
+          this.normalizeTabsOrder();
+          this.saveFavorites();
+          // 激活新标签
+          this.setActiveTab(newTab.id);
+          // 清空文件输入
+          try { evt.target.value = ''; } catch (e) {}
+          // 预加载缩略图
+          this.$nextTick(() => {
+            try { this.sortedFavorites.forEach(f => this.ensureFavThumb(f)); } catch(e) {}
+          });
+        } catch (e) {
+          try { evt && evt.target && (evt.target.value = ''); } catch (e2) {}
+        }
       },
 
       // ========= 收藏 Tabs 相关 =========
@@ -2751,6 +2970,11 @@
 .favorites-add { display: flex; justify-content: center; align-items: center; padding: 2px 0; cursor: pointer; }
 .favorites-add .plus-circle { width: 30px; height: 30px; border-radius: 50%; background: #f3f6fb; color: #334155; font-size: 20px; font-weight: 700; line-height: 30px; text-align: center; transition: transform .1s ease, background .2s ease; }
 .favorites-add .plus-circle:hover { background: #e6ebf5; transform: scale(1.04); }
+.favorites-actions-row { display: flex; gap: 10px; margin-top: 10px; }
+.favorites-action-btn { flex: 1 1 0; padding: 8px 10px; border-radius: 10px; border: 1px solid #d8dee9; background: #f8fafc; color: #334155; font-weight: 700; cursor: pointer; }
+.favorites-action-btn.primary { background: #3b82f6; color: #fff; border-color: #3b82f6; }
+.favorites-action-btn:hover { filter: brightness(0.98); }
+.hidden-file-input { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); border: 0; }
 .favorites-backdrop {
   position: fixed;
   left: 0;
@@ -3027,6 +3251,10 @@
   position: relative;
   z-index: 2; /* 内容在上方，未右滑时遮住左侧按钮 */
 }
+.export-area-wrap { margin: 8px 0 10px; }
+.export-textarea { width: 68vw; max-width: 720px; height: 220px; max-height: 50vh; border: 1px solid #e5e9f2; border-radius: 8px; padding: 10px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace; font-size: 12px; color: #111827; box-sizing: border-box; }
+.btn-primary { background: #3b82f6; color: #fff; border: none; padding: 6px 12px; border-radius: 8px; cursor: pointer; }
+.btn-primary:hover { filter: brightness(0.96); }
 
 /* 过渡动画：列表项位置变化时平滑移动，避免“跳动” */
 /* 移除过渡动画（恢复原生位置变化） */
