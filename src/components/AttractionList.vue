@@ -552,7 +552,11 @@
                   <span class="fav-name">{{ f.name }}</span>
                   <span class="fav-meta">{{ f.region }}</span>
                 </div>
-                <span class="fav-rating" :style="{ backgroundColor: getRatingColor(f.rating) }">{{ f.rating }}</span>
+                <span
+                  v-if="String(f.country) !== 'custom' && f.rating !== undefined && f.rating !== null && f.rating !== ''"
+                  class="fav-rating"
+                  :style="{ backgroundColor: getRatingColor(f.rating) }"
+                >{{ f.rating }}</span>
               </div>
             </div>
           </template>
@@ -561,6 +565,10 @@
             v-if="dragging && placeholderIndex === sortedFavorites.length"
             :style="placeholderStyle"
           ></div>
+          <!-- 新增：创建自创景点的 + 项（位于清空收藏上方） -->
+          <div class="favorites-add" @click.stop="showCreateModal = true" title="创建景点">
+            <div class="plus-circle">+</div>
+          </div>
         </transition-group>
         <!-- 清空收藏列表操作 -->
         <div
@@ -588,7 +596,11 @@
               <span class="fav-name">{{ dragItem.name }}</span>
               <span class="fav-meta">{{ dragItem.region }}</span>
             </div>
-            <span class="fav-rating" :style="{ backgroundColor: getRatingColor(dragItem.rating) }">{{ dragItem.rating }}</span>
+            <span
+              v-if="String(dragItem.country) !== 'custom' && dragItem && dragItem.rating !== undefined && dragItem.rating !== null && dragItem.rating !== ''"
+              class="fav-rating"
+              :style="{ backgroundColor: getRatingColor(dragItem.rating) }"
+            >{{ dragItem.rating }}</span>
           </div>
         </div>
       </div>
@@ -599,6 +611,8 @@
         @touchstart.prevent.stop="onFavoritesBackdropClick"
       ></div>
     </teleport>
+    <!-- 创建自创景点弹窗 -->
+    <CreateAttractionModal v-model="showCreateModal" :county-label="translateCounty(country)" @created="onCustomCreated" />
 
     <!-- Delete Tab Confirm Dialog -->
     <teleport to="body">
@@ -614,13 +628,30 @@
         </div>
       </div>
     </teleport>
+    <!-- Delete Custom Favorite Item Confirm Dialog -->
+    <teleport to="body">
+      <div v-if="itemDeleteConfirmVisible" class="confirm-backdrop" @click="cancelDeleteItem">
+        <div class="confirm-dialog" @click.stop>
+          <div class="confirm-message">
+            确定要<span class="danger-word">删除</span>该自创景点吗？
+          </div>
+          <div class="confirm-actions">
+            <button class="btn-cancel" @click="cancelDeleteItem">取消</button>
+            <button class="btn-danger" @click="performDeleteItem">删除</button>
+          </div>
+        </div>
+      </div>
+    </teleport>
   </div>
 </template>
   
   <script>
   import { openDB } from 'idb';
+  import CreateAttractionModal from './CreateAttractionModal.vue'
+  import { findCustomAttractionById, deleteCustomAttraction } from '../utils/customAttractions.js'
 
   export default {
+    components: { CreateAttractionModal },
     data() {
         return {
           // 收藏相关
@@ -653,10 +684,15 @@
           tabStartScrollLeft: 0,
           tabDeleteConfirmVisible: false,
           tabDeleteTargetId: null,
+          // 自创景点删除确认（收藏项）
+          itemDeleteConfirmVisible: false,
+          itemDeleteTarget: null,
           showFavorites: false,
           favoritesMenuStyle: {},
           favoritesListStyle: {},
           favThumbs: {},
+          // 自创景点弹窗
+          showCreateModal: false,
         // 长按相关（卡片）
         pressTimer: null,
         longPressThreshold: 500,
@@ -899,6 +935,23 @@
     },
 
     methods: {
+      onCustomCreated(attraction) {
+        if (!attraction || !attraction.id) return;
+        const nextOrder = (this.favorites?.length || 0) + 1;
+        this.favorites.push({
+          id: String(attraction.id),
+          name: attraction.name || '未命名景点',
+          region: attraction.region || '',
+          rating: Number.isFinite(attraction.rating) ? attraction.rating : 0,
+          county: attraction.county || '',
+          country: 'custom',
+          order: nextOrder,
+        });
+        this.normalizeFavoritesOrder();
+        this.saveFavorites();
+        // 预加载缩略图
+        try { this.ensureFavThumb({ id: attraction.id, country: 'custom' }); } catch (e) {}
+      },
       openMapMode() {
         // 预留地图模式入口（目前仅占位）
         try { console.log('打开地图模式', this.country); } catch(e) {}
@@ -1436,6 +1489,8 @@
           const color = this.getRatingColor(f.rating);
           localStorage.setItem('selectedAttractionRatingColor', color);
         } catch(e) {}
+        // 记录返回目标：当前列表页完整路径（包含筛选与页码）
+        try { localStorage.setItem('lastAttractionsRoute', this.$route.fullPath || ''); } catch(e) {}
         const nav = this.sortedFavorites.map(x => ({ country: x.country, id: x.id }));
         localStorage.setItem('favNav', JSON.stringify(nav));
         localStorage.setItem('favIndex', String(idx));
@@ -1522,6 +1577,14 @@
         const key = this.thumbKey(f);
         if (this.favThumbs[key]) return;
         try {
+          if (String(f.country) === 'custom') {
+            const a = findCustomAttractionById(f.id);
+            const url = a && a.images && a.images.main ? a.images.main : '';
+            if (url) {
+              this.$set ? this.$set(this.favThumbs, key, url) : (this.favThumbs[key] = url);
+            }
+            return;
+          }
           const res = await fetch(`https://juseaxerf.com/api/attraction-image/${f.country}/${f.id}/1`);
           if (!res.ok) return;
           const blob = await res.blob();
@@ -1530,6 +1593,8 @@
         } catch (e) {}
       },
       onOutsideClick(e) {
+        // 当创建自创景点弹窗打开时，保持收藏菜单不自动关闭
+        if (this.showCreateModal) return;
         const menu = this.$refs.favoritesMenu;
         const btns = [
           this.$refs.favoritesButtonDesktop,
@@ -1686,6 +1751,11 @@
       },
       removeFavorite(f) {
         if (!f) return;
+        if (String(f.country) === 'custom') {
+          this.itemDeleteTarget = { ...f };
+          this.itemDeleteConfirmVisible = true;
+          return;
+        }
         const idx = this.favorites.findIndex(x => x.id === f.id && x.country === f.country);
         if (idx >= 0) {
           this.favorites.splice(idx, 1);
@@ -1694,6 +1764,35 @@
         }
         if (this.favActionId === f.id) this.favActionId = null;
         this.favSwipeOffsetX = 0;
+        this.$nextTick(() => this.updateFavoritesListScroll());
+      },
+      cancelDeleteItem() {
+        this.itemDeleteConfirmVisible = false;
+        this.itemDeleteTarget = null;
+      },
+      performDeleteItem() {
+        const t = this.itemDeleteTarget;
+        if (!t) return;
+        // 从所有收藏 tab 中移除该项
+        try {
+          this.favoriteTabs.forEach(tab => {
+            if (Array.isArray(tab.items)) {
+              const idx = tab.items.findIndex(x => String(x.id) === String(t.id) && String(x.country||'') === String(t.country||''));
+              if (idx >= 0) tab.items.splice(idx, 1);
+            }
+          });
+          this.normalizeFavoritesOrder();
+          this.saveFavorites();
+        } catch (e) {}
+        // 清除自创景点缓存
+        if (String(t.country) === 'custom') {
+          try { deleteCustomAttraction(t.id); } catch (e) {}
+          // 清理缩略图缓存
+          const key = this.thumbKey(t);
+          if (this.favThumbs[key]) { try { URL.revokeObjectURL(this.favThumbs[key]); } catch(e){}; this.$delete ? this.$delete(this.favThumbs, key) : delete this.favThumbs[key]; }
+        }
+        this.itemDeleteConfirmVisible = false;
+        this.itemDeleteTarget = null;
         this.$nextTick(() => this.updateFavoritesListScroll());
       },
       isFavActionsVisible(f) {
@@ -2093,11 +2192,18 @@
         })();
         if (!inside) {
           const id = this.dragItem.id;
-          const idx = this.favorites.findIndex(f => f.id === id);
-          if (idx >= 0) {
-            this.favorites.splice(idx, 1);
-            this.normalizeFavoritesOrder();
-            this.saveFavorites();
+          const fi = this.favorites.find(f => f.id === id);
+          if (fi && String(fi.country) === 'custom') {
+            // 自创景点拖到外部：弹出确认
+            this.itemDeleteTarget = { ...fi };
+            this.itemDeleteConfirmVisible = true;
+          } else {
+            const idx = this.favorites.findIndex(f => f.id === id);
+            if (idx >= 0) {
+              this.favorites.splice(idx, 1);
+              this.normalizeFavoritesOrder();
+              this.saveFavorites();
+            }
           }
         } else {
           const from = this.dragIndex;
@@ -2649,6 +2755,10 @@
   -moz-user-select: none;
   -webkit-touch-callout: none; /* 禁止长按弹出菜单（iOS Safari） */
 }
+/* 自创景点 + 项样式 */
+.favorites-add { display: flex; justify-content: center; align-items: center; padding: 2px 0; cursor: pointer; }
+.favorites-add .plus-circle { width: 30px; height: 30px; border-radius: 50%; background: #f3f6fb; color: #334155; font-size: 20px; font-weight: 700; line-height: 30px; text-align: center; transition: transform .1s ease, background .2s ease; }
+.favorites-add .plus-circle:hover { background: #e6ebf5; transform: scale(1.04); }
 .favorites-backdrop {
   position: fixed;
   left: 0;

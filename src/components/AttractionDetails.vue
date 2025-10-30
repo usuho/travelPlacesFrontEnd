@@ -24,7 +24,7 @@
             </button>
             <span class="title-text">{{ attraction ? attraction.name : '' }}</span>
           </h1>
-          <div v-if="attraction" class="rating-section">
+          <div v-if="attraction && showStats" class="rating-section">
             <div class="rating-badge" :style="{ background: ratingBackgroundColor }">
               <span class="rating-label">好评率</span>
               <span class="rating-text">{{ attraction.rating }}</span>
@@ -174,12 +174,25 @@
         </section>
       </div>
     </div>
+    <!-- 自创景点删除确认 -->
+    <div v-if="customDeleteConfirmVisible" class="confirm-backdrop" @click="cancelDeleteCustom">
+      <div class="confirm-dialog" @click.stop>
+        <div class="confirm-message">
+          确定要<span class="danger-word">删除</span>该自创景点吗？
+        </div>
+        <div class="confirm-actions">
+          <button class="btn-cancel" @click="cancelDeleteCustom">取消</button>
+          <button class="btn-danger" @click="performDeleteCustom">删除</button>
+        </div>
+      </div>
+    </div>
     
   </div>
 </template>
   
   <script>
   import { openDB } from 'idb';
+  import { findCustomAttractionById, deleteCustomAttraction } from '../utils/customAttractions.js'
 
   export default {
     data() {
@@ -198,6 +211,7 @@
         favIndex: parseInt(localStorage.getItem('favIndex')) || 0,
         favNav: (() => { try { return JSON.parse(localStorage.getItem('favNav')||'[]'); } catch(e) { return []; } })(),
         isFavorited: false,
+        customDeleteConfirmVisible: false,
         fullscreenImage: null,
         imageScale: 1,
         imageTranslateX: 0,
@@ -272,6 +286,9 @@
       // 兜底本地计算
       return this.getRatingColor(this.attraction?.rating);
     },
+    showStats() {
+      return String(this.country) !== 'custom';
+    },
     detailSwipeStyle() {
       return {
         opacity: this.detailSwipeOpacity,
@@ -279,7 +296,7 @@
       };
     }
   },
-    methods: {
+  methods: {
       isMobileViewport() {
         try { return (window.innerWidth || document.documentElement.clientWidth || 0) < 1024; } catch(e) { return false; }
       },
@@ -310,29 +327,41 @@
       },
       updateIsFavorited() {
         try {
-          // 优先使用跨国家收藏
-          const rawAll = localStorage.getItem('favorites_all');
-          let list = [];
-          if (rawAll) list = JSON.parse(rawAll) || [];
-          // 兼容旧的按国家存储
-          if (!Array.isArray(list) || list.length === 0) {
-            const rawCountry = localStorage.getItem(`favorites_${this.country}`);
-            if (rawCountry) list = JSON.parse(rawCountry) || [];
+          // 先检查多标签收藏结构
+          let found = false;
+          try {
+            const rawTabs = localStorage.getItem('favoriteTabs_all');
+            if (rawTabs) {
+              const tabs = JSON.parse(rawTabs) || [];
+              for (const t of (Array.isArray(tabs) ? tabs : [])) {
+                const items = Array.isArray(t?.items) ? t.items : [];
+                if (items.some(x => String(x.id) === String(this.id) && String(x.country||'') === String(this.country||''))) {
+                  found = true; break;
+                }
+              }
+            }
+          } catch (e) {}
+          if (!found) {
+            // 兼容旧的 favorites_all
+            const rawAll = localStorage.getItem('favorites_all');
+            let list = rawAll ? JSON.parse(rawAll) : [];
+            if (!Array.isArray(list) || list.length === 0) {
+              const rawCountry = localStorage.getItem(`favorites_${this.country}`);
+              if (rawCountry) list = JSON.parse(rawCountry) || [];
+            }
+            found = Array.isArray(list) && list.some(f => String(f?.id) === String(this.id) && String(f?.country||'') === String(this.country||''));
           }
-          const found = Array.isArray(list) && list.some(f => {
-            if (!f) return false;
-            const fid = typeof f.id === 'string' ? f.id : Number(f.id);
-            const curId = typeof this.id === 'string' ? this.id : Number(this.id);
-            const sameId = String(fid) === String(curId);
-            const sameCountry = f.country ? String(f.country) === String(this.country) : true;
-            return sameId && sameCountry;
-          });
-          this.isFavorited = !!found;
+          if (String(this.country) === 'custom') {
+            // 自创景点默认视为已收藏
+            this.isFavorited = true;
+          } else {
+            this.isFavorited = !!found;
+          }
         } catch(e) {
           this.isFavorited = false;
         }
       },
-      // ===== 收藏（与列表同步：使用 favorites_all） =====
+      // ===== 收藏（与列表同步：支持 favoriteTabs_all 与 favorites_all） =====
       getFavoritesStorageKey() {
         return 'favorites_all';
       },
@@ -353,31 +382,93 @@
           .sort((a,b)=>(a.order||0)-(b.order||0))
           .map((x, i) => ({ ...x, order: i + 1 }));
       },
+      // --- Tabs helpers ---
+      loadFavoriteTabs() {
+        try { const raw = localStorage.getItem('favoriteTabs_all'); return raw ? (JSON.parse(raw) || []) : []; } catch(e) { return []; }
+      },
+      saveFavoriteTabs(tabs) {
+        try { localStorage.setItem('favoriteTabs_all', JSON.stringify(tabs || [])); } catch(e) {}
+      },
+      normalizeTabItemsOrder(items) {
+        (items || []).sort((a,b)=>(a.order||0)-(b.order||0)).forEach((it, idx)=> it.order = idx + 1);
+      },
+      addToFavoriteTabs(item) {
+        const tabs = this.loadFavoriteTabs();
+        if (!tabs.length) { tabs.push({ id: 't' + Math.random().toString(36).slice(2,9), name: '新的收藏', items: [], order: 1 }); }
+        let activeId = null; try { activeId = localStorage.getItem('favoriteTabs_activeId'); } catch(e) {}
+        let tab = tabs.find(t => t.id === activeId) || tabs[0];
+        if (!Array.isArray(tab.items)) tab.items = [];
+        const exists = tab.items.find(x => String(x.id) === String(item.id) && String(x.country||'') === String(item.country||''));
+        if (!exists) {
+          const nextOrder = tab.items.length + 1;
+          tab.items.push({ ...item, order: nextOrder });
+          this.normalizeTabItemsOrder(tab.items);
+          this.saveFavoriteTabs(tabs);
+        }
+      },
+      removeFromFavoriteTabs(id, country) {
+        const tabs = this.loadFavoriteTabs();
+        let changed = false;
+        tabs.forEach(t => {
+          if (Array.isArray(t.items)) {
+            const idx = t.items.findIndex(x => String(x.id) === String(id) && String(x.country||'') === String(country||''));
+            if (idx >= 0) { t.items.splice(idx, 1); this.normalizeTabItemsOrder(t.items); changed = true; }
+          }
+        });
+        if (changed) this.saveFavoriteTabs(tabs);
+      },
       toggleFavoriteDetail() {
         if (!this.attraction) return;
         const id = this.attraction.id || this.id;
-        const country = this.country;
+        const country = String(this.country);
+        if (country === 'custom') {
+          // 自创景点：取消收藏即删除，先确认
+          this.customDeleteConfirmVisible = true;
+          return;
+        }
+        // 同步到 tabs 结构与旧 favorites_all
         let list = this.loadFavoritesList();
         const idx = list.findIndex(f => String(f.id) === String(id) && String(f.country||'') === String(country||''));
         if (idx >= 0) {
           list.splice(idx, 1);
           list = this.normalizeFavoritesOrder(list);
           this.saveFavoritesList(list);
+          this.removeFromFavoriteTabs(id, country);
           this.isFavorited = false;
         } else {
           const nextOrder = (list && list.length ? list.length : 0) + 1;
-          list.push({
-            id,
-            name: this.attraction.name,
-            region: this.attraction.region,
-            rating: this.attraction.rating,
-            county: this.attraction.county,
-            country,
-            order: nextOrder,
-          });
+          const item = { id, name: this.attraction.name, region: this.attraction.region, rating: this.attraction.rating, county: this.attraction.county, country, order: nextOrder };
+          list.push(item);
           this.saveFavoritesList(list);
+          this.addToFavoriteTabs(item);
           this.isFavorited = true;
         }
+      },
+      cancelDeleteCustom() {
+        this.customDeleteConfirmVisible = false;
+      },
+      performDeleteCustom() {
+        const id = this.attraction?.id || this.id;
+        // 从自创景点存储中删除
+        try { deleteCustomAttraction(id); } catch(e) {}
+        // 从收藏 tabs 中移除
+        try {
+          const rawTabs = localStorage.getItem('favoriteTabs_all');
+          if (rawTabs) {
+            const tabs = JSON.parse(rawTabs) || [];
+            tabs.forEach(t => {
+              if (Array.isArray(t.items)) {
+                const idx = t.items.findIndex(x => String(x.id) === String(id) && String(x.country||'') === 'custom');
+                if (idx >= 0) t.items.splice(idx, 1);
+              }
+            });
+            localStorage.setItem('favoriteTabs_all', JSON.stringify(tabs));
+          }
+        } catch(e) {}
+        this.customDeleteConfirmVisible = false;
+        this.isFavorited = false;
+        // 删除后返回到之前的景点列表
+        this.goBack();
       },
       // 横向滑动翻页（详情页）
       clearDetailSwipeResetTimer() {
@@ -486,7 +577,30 @@
       },
 
       async fetchAttractionDetails() {
-        // 1️⃣ 拉取 JSON 数据
+        // 自创景点：从本地缓存读取并展示
+        if (String(this.country) === 'custom') {
+          const a = findCustomAttractionById(this.id)
+          if (a) {
+            this.attraction = a
+            this.loading = false
+            this.image1 = a?.images?.main || null
+            this.image2 = (a?.images?.secondary && a.images.secondary[0]) ? a.images.secondary[0] : null
+            this.image3 = (a?.images?.secondary && a.images.secondary[1]) ? a.images.secondary[1] : null
+            return
+          } else {
+            // 未找到：给出占位，避免空白
+            this.attraction = {
+              name: '未找到的自创景点',
+              rating: 0,
+              total_reviews: 0,
+              positive_reviews: 0,
+              region: '', county: '', position: '', duration: '', details: '', overview: ''
+            }
+            this.loading = false
+            return
+          }
+        }
+        // 1️⃣ 拉取 JSON 数据（平台景点）
         const response = await fetch(`https://juseaxerf.com/api/attraction/${this.country}/${this.id}`);
         const data = await response.json();
 
@@ -509,9 +623,9 @@
               });
           }
         }
-      }
-      },
-
+    }
+  },
+  
       async nextPage() {
         this.resetDetailSwipeState(true);
         if (this.isFavoritesMode && this.favNav.length > 0) {
@@ -611,7 +725,11 @@
       },
 
       goBack() {
-        const page = localStorage.getItem('attractionsPage') || 1; // 重点：从localStorage获取当前页数
+        if (String(this.country) === 'custom') {
+          const last = localStorage.getItem('lastAttractionsRoute');
+          if (last) { this.$router.push(last); return; }
+        }
+        const page = localStorage.getItem('attractionsPage') || 1;
         this.$router.push(`/attractions/${this.country}?page=${page}`);
       },
 
@@ -857,6 +975,15 @@
   overflow: hidden;
   clip-path: polygon(20px 0, 100% 0, 100% 100%, 20px 100%, 0 50%);
 }
+
+/* 删除确认样式（与收藏选项卡删除一致风格） */
+.confirm-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,.35); display: flex; align-items: center; justify-content: center; z-index: 3000; }
+.confirm-dialog { display: inline-block; width: auto; max-width: 90vw; background: #fff; border-radius: 12px; box-shadow: 0 12px 24px rgba(0,0,0,.2); overflow: hidden; }
+.confirm-message { padding: 10px 12px; font-size: 14px; color: #111827; border-bottom: 1px solid #eef0f3; text-align: center; }
+.danger-word { color: #e11d48; font-weight: 700; font-size: 18px; }
+.confirm-actions { display: flex; justify-content: flex-end; gap: 8px; padding: 8px 12px; }
+.btn-cancel { background: #fff; border: 1px solid #cfd6e4; color: #334155; padding: 8px 14px; border-radius: 8px; cursor: pointer; }
+.btn-danger { background: #ef4444; border: 1px solid #dc2626; color: #fff; padding: 8px 14px; border-radius: 8px; cursor: pointer; }
 
 .back-button::before {
   content: '';
