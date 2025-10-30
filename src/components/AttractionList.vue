@@ -628,16 +628,23 @@
         </div>
       </div>
     </teleport>
-    <!-- Delete Custom Favorite Item Confirm Dialog -->
+    <!-- Delete Favorite Item Confirm Dialog -->
     <teleport to="body">
       <div v-if="itemDeleteConfirmVisible" class="confirm-backdrop" @click="cancelDeleteItem">
         <div class="confirm-dialog" @click.stop>
           <div class="confirm-message">
-            确定要<span class="danger-word">删除</span>该自创景点吗？
+            <template v-if="itemDeleteTarget && String(itemDeleteTarget.country) === 'custom'">
+              确定要<span class="danger-word">删除</span>该自创景点吗？
+            </template>
+            <template v-else>
+              确定要移除该景点吗？
+            </template>
           </div>
           <div class="confirm-actions">
             <button class="btn-cancel" @click="cancelDeleteItem">取消</button>
-            <button class="btn-danger" @click="performDeleteItem">删除</button>
+            <button class="btn-danger" @click="performDeleteItem">
+              {{ (itemDeleteTarget && String(itemDeleteTarget.country) === 'custom') ? '删除' : '移除' }}
+            </button>
           </div>
         </div>
       </div>
@@ -1751,24 +1758,16 @@
       },
       removeFavorite(f) {
         if (!f) return;
-        if (String(f.country) === 'custom') {
-          this.itemDeleteTarget = { ...f };
-          this.itemDeleteConfirmVisible = true;
-          return;
-        }
-        const idx = this.favorites.findIndex(x => x.id === f.id && x.country === f.country);
-        if (idx >= 0) {
-          this.favorites.splice(idx, 1);
-          this.normalizeFavoritesOrder();
-          this.saveFavorites();
-        }
-        if (this.favActionId === f.id) this.favActionId = null;
-        this.favSwipeOffsetX = 0;
-        this.$nextTick(() => this.updateFavoritesListScroll());
+        // 任何收藏（含非自创）都弹确认
+        this.itemDeleteTarget = { ...f };
+        this.itemDeleteConfirmVisible = true;
       },
       cancelDeleteItem() {
         this.itemDeleteConfirmVisible = false;
         this.itemDeleteTarget = null;
+        // 重置右滑展开状态
+        if (this.favActionId) this.favActionId = null;
+        this.favSwipeOffsetX = 0;
       },
       performDeleteItem() {
         const t = this.itemDeleteTarget;
@@ -1784,13 +1783,13 @@
           this.normalizeFavoritesOrder();
           this.saveFavorites();
         } catch (e) {}
-        // 清除自创景点缓存
+        // 清除自创景点缓存（若为自创）
         if (String(t.country) === 'custom') {
           try { deleteCustomAttraction(t.id); } catch (e) {}
-          // 清理缩略图缓存
-          const key = this.thumbKey(t);
-          if (this.favThumbs[key]) { try { URL.revokeObjectURL(this.favThumbs[key]); } catch(e){}; this.$delete ? this.$delete(this.favThumbs, key) : delete this.favThumbs[key]; }
         }
+        // 清理缩略图缓存（统一处理）
+        const key = this.thumbKey(t);
+        if (this.favThumbs[key]) { try { URL.revokeObjectURL(this.favThumbs[key]); } catch(e){}; this.$delete ? this.$delete(this.favThumbs, key) : delete this.favThumbs[key]; }
         this.itemDeleteConfirmVisible = false;
         this.itemDeleteTarget = null;
         this.$nextTick(() => this.updateFavoritesListScroll());
@@ -2193,17 +2192,10 @@
         if (!inside) {
           const id = this.dragItem.id;
           const fi = this.favorites.find(f => f.id === id);
-          if (fi && String(fi.country) === 'custom') {
-            // 自创景点拖到外部：弹出确认
+          if (fi) {
+            // 任何收藏（含非自创）拖出菜单都弹确认
             this.itemDeleteTarget = { ...fi };
             this.itemDeleteConfirmVisible = true;
-          } else {
-            const idx = this.favorites.findIndex(f => f.id === id);
-            if (idx >= 0) {
-              this.favorites.splice(idx, 1);
-              this.normalizeFavoritesOrder();
-              this.saveFavorites();
-            }
           }
         } else {
           const from = this.dragIndex;
