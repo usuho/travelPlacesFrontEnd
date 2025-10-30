@@ -577,7 +577,7 @@
           @click="promptClearFavorites"
           :aria-disabled="!sortedFavorites.length"
         >
-          🗑️ 清空收藏列表
+          🗑️ 清空收藏
         </div>
         <!-- 跟随手指/鼠标的拖拽项 -->
         <div
@@ -966,7 +966,7 @@
       promptClearFavorites() {
         try {
           if (!this.sortedFavorites.length) return;
-          const ok = window.confirm('确定要清空所有收藏吗？此操作不可恢复。');
+          const ok = window.confirm('确定要清空此收藏吗？此操作不可恢复。');
           if (!ok) return;
           this.favorites = [];
           this.saveFavorites();
