@@ -864,6 +864,7 @@
         if (val) {
           this.$nextTick(() => {
             this.updateFavoritesListScroll();
+            this.scrollActiveTabIntoCenter(); // 打开时自动居中激活tab
           });
         } else {
           this.stopAutoScroll();
@@ -913,6 +914,29 @@
       },
 
       // ========= 收藏 Tabs 相关 =========
+
+      scrollActiveTabIntoCenter() {
+        this.$nextTick(() => {
+          const tabs = this.$refs.favTabs;
+          const wrap = this.$refs.favTabsWrap;
+          if (!tabs || !wrap) return;
+
+          const activeTab = tabs.querySelector('.fav-tab.active');
+          if (!activeTab) return;
+
+          const wrapRect = wrap.getBoundingClientRect();
+          const tabRect = activeTab.getBoundingClientRect();
+
+          // 计算目标 scrollLeft，使激活tab居中
+          const activeCenter = tabRect.left - wrapRect.left + tabRect.width / 2;
+          const targetScrollLeft = tabs.scrollLeft + (activeCenter - wrapRect.width / 2);
+
+          // 去掉动画（立即跳过去）
+          tabs.scrollLeft = targetScrollLeft;
+        });
+      },
+
+      
       loadFavorites() {
         try {
           const tabsKey = this.getFavoritesStorageKey();
@@ -938,9 +962,16 @@
             this.favoriteTabs = [{ id: this.uid(), name: '新的收藏', items: [], order: 1 }];
           }
           // Set active tab
-          if (!this.activeTabId || !this.favoriteTabs.find(t => t.id === this.activeTabId)) {
+          // 从localStorage恢复上次激活的tab
+          let savedActive = null;
+          try { savedActive = localStorage.getItem('favoriteTabs_activeId'); } catch(e) {}
+
+          if (savedActive && this.favoriteTabs.find(t => t.id === savedActive)) {
+            this.activeTabId = savedActive;
+          } else if (!this.activeTabId || !this.favoriteTabs.find(t => t.id === this.activeTabId)) {
             this.activeTabId = this.favoriteTabs[0].id;
           }
+
           // Bind favorites reference to active tab items
           const at = this.favoriteTabs.find(t => t.id === this.activeTabId);
           this.favorites = at ? at.items : [];
@@ -1015,14 +1046,20 @@
       },
       setActiveTab(id) {
         this.activeTabId = id;
+        // 记忆选中的tab
+        try { localStorage.setItem('favoriteTabs_activeId', id); } catch(e) {}
+
         const at = this.favoriteTabs.find(t => t.id === id);
         this.favorites = at ? at.items : [];
         this.normalizeFavoritesOrder();
-        // prefetch thumbs for visible list
+        // 滚动到激活tab居中
+        this.scrollActiveTabIntoCenter();
+        // 预加载缩略图
         this.$nextTick(() => {
           try { this.sortedFavorites.forEach(f => this.ensureFavThumb(f)); } catch(e) {}
         });
       },
+
       startEditTab(tab) {
         this.editingTabId = tab.id;
         this.editingTabName = tab.name || '';
@@ -1067,6 +1104,7 @@
         this.normalizeTabsOrder();
         this.saveFavorites();
         this.setActiveTab(tab.id);
+        this.scrollActiveTabIntoCenter();
         // 可选：进入重命名
         // this.startEditTab(tab);
       },
