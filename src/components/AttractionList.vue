@@ -463,7 +463,52 @@
         :style="favoritesMenuStyle"
         @contextmenu.prevent
       >
-        <h4>收藏列表</h4>
+        <!-- Tabs: replace plain title with horizontally scrollable tabs -->
+        <div class="fav-tabs-wrap" ref="favTabsWrap">
+          <div class="fav-tabs" ref="favTabs" @wheel.prevent="onTabsWheel">
+            <template v-for="(tab, ti) in sortedTabs" :key="tab.id">
+              <div
+                v-if="tabDragging && tabPlaceholderIndex === ti"
+                class="tab-placeholder"
+                :style="{ width: getDraggedTabWidth() + 'px', minWidth: getDraggedTabWidth() + 'px' }"
+              ></div>
+              <div
+                class="fav-tab"
+                :class="{ active: tab.id === activeTabId, dragging: tabDragging && tabDragIndex === ti }"
+                :style="tabDragging && tabFixedWidths[ti] ? { width: tabFixedWidths[ti] + 'px' } : {}"
+                @mousedown.prevent="onTabPressStart(ti, $event)"
+                @touchstart.passive="onTabPressStart(ti, $event)"
+                @click.stop="onTabClick(tab, ti, $event)"
+              >
+                <template v-if="editingTabId === tab.id">
+                  <span
+                    class="tab-editable"
+                    :ref="'tabEdit_'+tab.id"
+                    contenteditable="true"
+                    spellcheck="false"
+                    @keydown.enter.prevent="finishEditTab(true)"
+                    @keydown.esc.prevent="finishEditTab(false)"
+                    @blur="finishEditTab(true)"
+                  >{{ editingTabName }}</span>
+                </template>
+                <template v-else>
+                  {{ tab.name }}
+                </template>
+              </div>
+            </template>
+            <div
+              v-if="tabDragging && tabPlaceholderIndex === sortedTabs.length"
+              class="tab-placeholder"
+              :style="{ width: getDraggedTabWidth() + 'px', minWidth: getDraggedTabWidth() + 'px' }"
+            ></div>
+            <div class="tab-plus" @click.stop="addNewTab" title="新增收藏列表">+</div>
+          </div>
+        </div>
+        <!-- Tab drag ghost -->
+        <div v-if="tabDragging && tabDragItem" class="tab-ghost"
+             :style="{ position: 'fixed', top: (tabGhostTop) + 'px', left: (tabGhostLeft) + 'px', width: (tabGhostWidth || 40) + 'px' }">
+          {{ tabDragItem.name }}
+        </div>
         <transition-group
           ref="favoritesList"
           name="fav-move"
@@ -554,6 +599,21 @@
         @touchstart.prevent.stop="onFavoritesBackdropClick"
       ></div>
     </teleport>
+
+    <!-- Delete Tab Confirm Dialog -->
+    <teleport to="body">
+      <div v-if="tabDeleteConfirmVisible" class="confirm-backdrop" @click="cancelDeleteTab">
+        <div class="confirm-dialog" @click.stop>
+          <div class="confirm-message">
+            确定要<span class="danger-word">删除</span>该收藏吗？
+          </div>
+          <div class="confirm-actions">
+            <button class="btn-cancel" @click="cancelDeleteTab">取消</button>
+            <button class="btn-danger" @click="performDeleteTab">删除</button>
+          </div>
+        </div>
+      </div>
+    </teleport>
   </div>
 </template>
   
@@ -564,7 +624,35 @@
     data() {
         return {
           // 收藏相关
-          favorites: [],
+          favorites: [], // points to active tab's items
+          // Tabs for 收藏列表
+          favoriteTabs: [],
+          activeTabId: null,
+          editingTabId: null,
+          editingTabName: '',
+          // Tab drag state
+          tabPressTimer: null,
+          tabLongPressThreshold: 300,
+          tabDragging: false,
+          tabDragIndex: null,
+          tabDragItem: null,
+          tabDragX: 0,
+          tabOffsetX: 0,
+          tabPlaceholderIndex: null,
+          tabPlaceholderWidth: 0,
+          tabFixedWidths: [],
+          tabMoveListener: null,
+          tabUpListener: null,
+          tabGhostTop: 0,
+          tabGhostLeft: 0,
+          tabGhostWidth: 0,
+          tabGhostHeight: 0,
+          // Tabs auto-scroll during drag
+          tabAutoScrollFrame: null,
+          tabAutoScrollVelocity: 0,
+          tabStartScrollLeft: 0,
+          tabDeleteConfirmVisible: false,
+          tabDeleteTargetId: null,
           showFavorites: false,
           favoritesMenuStyle: {},
           favoritesListStyle: {},
@@ -691,6 +779,9 @@
       totalPages() {
         return Math.ceil(this.total / this.limit);
       },
+      sortedTabs() {
+        return [...this.favoriteTabs].sort((a, b) => (a.order || 0) - (b.order || 0));
+      },
       sortedFavorites() {
         return [...this.favorites].sort((a, b) => (a.order || 0) - (b.order || 0));
       },
@@ -762,6 +853,11 @@
         },
         deep: true,
       },
+      activeTabId() {
+        const at = this.favoriteTabs.find(t => t.id === this.activeTabId);
+        this.favorites = at ? at.items : [];
+        this.normalizeFavoritesOrder();
+      },
 
       showFavorites(val) {
         this.resetSwipeState(true);
@@ -816,24 +912,60 @@
         } catch (e) {}
       },
 
-      // ========= 收藏相关 =========
+      // ========= 收藏 Tabs 相关 =========
       loadFavorites() {
         try {
-          const key = this.getFavoritesStorageKey();
-          const raw = localStorage.getItem(key);
-          this.favorites = raw ? JSON.parse(raw) : [];
+          const tabsKey = this.getFavoritesStorageKey();
+          const rawTabs = localStorage.getItem(tabsKey);
+          if (rawTabs) {
+            const parsed = JSON.parse(rawTabs) || [];
+            this.favoriteTabs = Array.isArray(parsed) ? parsed : [];
+          } else {
+            // migrate from old single list
+            const old = localStorage.getItem('favorites_all');
+            const items = old ? (JSON.parse(old) || []) : [];
+            const firstTab = {
+              id: this.uid(),
+              name: '新的收藏',
+              items: Array.isArray(items) ? items : [],
+              order: 1,
+            };
+            this.favoriteTabs = [firstTab];
+          }
+          // Normalize tabs
+          this.normalizeTabsOrder();
+          if (!this.favoriteTabs.length) {
+            this.favoriteTabs = [{ id: this.uid(), name: '新的收藏', items: [], order: 1 }];
+          }
+          // Set active tab
+          if (!this.activeTabId || !this.favoriteTabs.find(t => t.id === this.activeTabId)) {
+            this.activeTabId = this.favoriteTabs[0].id;
+          }
+          // Bind favorites reference to active tab items
+          const at = this.favoriteTabs.find(t => t.id === this.activeTabId);
+          this.favorites = at ? at.items : [];
           this.normalizeFavoritesOrder();
         } catch (e) {
-          this.favorites = [];
+          this.favoriteTabs = [{ id: this.uid(), name: '新的收藏', items: [], order: 1 }];
+          this.activeTabId = this.favoriteTabs[0].id;
+          this.favorites = this.favoriteTabs[0].items;
         }
       },
       saveFavorites() {
+        // Persist entire tabs structure
         const key = this.getFavoritesStorageKey();
-        localStorage.setItem(key, JSON.stringify(this.favorites));
+        try {
+          localStorage.setItem(key, JSON.stringify(this.favoriteTabs));
+        } catch(e) {}
       },
       getFavoritesStorageKey() {
-        // 跨国家共用收藏
-        return `favorites_all`;
+        // 跨国家共用收藏（多选项卡）
+        return `favoriteTabs_all`;
+      },
+      normalizeTabsOrder() {
+        this.favoriteTabs
+          .sort((a, b) => (a.order || 0) - (b.order || 0))
+          .forEach((t, idx) => (t.order = idx + 1));
       },
       normalizeFavoritesOrder() {
         this.favorites
@@ -860,7 +992,404 @@
             order: nextOrder,
           });
         }
+        // ensure active tab keeps array reference (safety)
+        const at = this.favoriteTabs.find(t => t.id === this.activeTabId);
+        if (at && at.items !== this.favorites) {
+          at.items = this.favorites;
+        }
         this.saveFavorites();
+      },
+      // ===== Tabs actions =====
+      uid() {
+        return 't' + Math.random().toString(36).slice(2, 9);
+      },
+      onTabClick(tab, index, evt) {
+        if (this.tabDragging) return;
+        if (this.editingTabId && this.editingTabId === tab.id) return;
+        if (tab.id === this.activeTabId) {
+          // rename on active tab click
+          this.startEditTab(tab);
+        } else {
+          this.setActiveTab(tab.id);
+        }
+      },
+      setActiveTab(id) {
+        this.activeTabId = id;
+        const at = this.favoriteTabs.find(t => t.id === id);
+        this.favorites = at ? at.items : [];
+        this.normalizeFavoritesOrder();
+        // prefetch thumbs for visible list
+        this.$nextTick(() => {
+          try { this.sortedFavorites.forEach(f => this.ensureFavThumb(f)); } catch(e) {}
+        });
+      },
+      startEditTab(tab) {
+        this.editingTabId = tab.id;
+        this.editingTabName = tab.name || '';
+        this.$nextTick(() => {
+          const refName = 'tabEdit_' + tab.id;
+          const el = this.$refs[refName] && (Array.isArray(this.$refs[refName]) ? this.$refs[refName][0] : this.$refs[refName]);
+          if (el) {
+            try {
+              el.focus();
+              // select all text
+              const range = document.createRange();
+              range.selectNodeContents(el);
+              const sel = window.getSelection();
+              sel.removeAllRanges();
+              sel.addRange(range);
+            } catch (e) {}
+          }
+          this.attachEditOutsideListeners(tab.id);
+        });
+      },
+      finishEditTab(commit) {
+        const id = this.editingTabId;
+        if (!id) return;
+        const tab = this.favoriteTabs.find(t => t.id === id);
+        if (tab && commit) {
+          // Read from DOM to ensure latest text
+          const refName = 'tabEdit_' + id;
+          const el = this.$refs[refName] && (Array.isArray(this.$refs[refName]) ? this.$refs[refName][0] : this.$refs[refName]);
+          const nameRaw = el ? (el.textContent || '') : this.editingTabName;
+          const name = (nameRaw || '').trim();
+          tab.name = name || '新的收藏';
+          this.saveFavorites();
+        }
+        this.editingTabId = null;
+        this.editingTabName = '';
+        this.detachEditOutsideListeners();
+      },
+      addNewTab() {
+        const maxOrder = this.favoriteTabs.reduce((m, t) => Math.max(m, t.order || 0), 0);
+        const tab = { id: this.uid(), name: '新的收藏', items: [], order: maxOrder + 1 };
+        this.favoriteTabs.push(tab);
+        this.normalizeTabsOrder();
+        this.saveFavorites();
+        this.setActiveTab(tab.id);
+        // 可选：进入重命名
+        // this.startEditTab(tab);
+      },
+      // Long-press to drag tabs
+      onTabPressStart(index, evt) {
+        if (!this.showFavorites) return; // within menu
+        if (this.editingTabId) return;
+        const isTouch = !!(evt && evt.touches && evt.touches[0]);
+        const tp = isTouch ? evt.touches[0] : evt;
+        const startX = tp.clientX;
+        const startY = tp.clientY;
+        const cancel = () => {
+          if (this.tabPressTimer) { clearTimeout(this.tabPressTimer); this.tabPressTimer = null; }
+          window.removeEventListener('mouseup', cancel, true);
+          window.removeEventListener('touchend', cancel, true);
+          window.removeEventListener('touchmove', onMove, { passive: false });
+        };
+        const onMove = (e) => {
+          const p = e.touches ? e.touches[0] : e;
+          if (!p) return;
+          const dx = Math.abs(p.clientX - startX);
+          const dy = Math.abs(p.clientY - startY);
+          if (dx > 6 || dy > 6) {
+            // cancel long press if moved
+            cancel();
+          }
+        };
+        this.tabPressTimer = setTimeout(() => {
+          this.beginTabDrag(index, startX, startY);
+          cancel();
+        }, this.tabLongPressThreshold);
+        window.addEventListener('mouseup', cancel, true);
+        window.addEventListener('touchend', cancel, true);
+        window.addEventListener('touchmove', onMove, { passive: false });
+      },
+      beginTabDrag(index, startX, startY) {
+        this.tabDragging = true;
+        this.tabDragIndex = index;
+        const tabs = this.$refs.favTabs;
+        const tabEls = tabs ? Array.from(tabs.querySelectorAll('.fav-tab')) : [];
+        this.tabStartScrollLeft = tabs ? tabs.scrollLeft : 0;
+        // capture widths to prevent jitter
+        this.tabFixedWidths = tabEls.map(el => Math.max(10, Math.round(el.getBoundingClientRect().width)));
+        const dragEl = tabEls[index];
+        const rect = dragEl ? dragEl.getBoundingClientRect() : null;
+        this.tabDragX = startX;
+        this.tabOffsetX = rect ? (startX - rect.left) : 0;
+        this.tabDragItem = this.sortedTabs[index];
+        this.tabPlaceholderIndex = index;
+        this.tabPlaceholderWidth = rect ? rect.width : (this.tabFixedWidths[index] || 40);
+        this.tabGhostTop = rect ? rect.top : 0;
+        this.tabGhostLeft = rect ? rect.left : 0;
+        this.tabGhostHeight = rect ? rect.height : 24;
+        // measure ghost width a bit larger than original, without wrapping
+        try {
+          const measured = dragEl ? Math.ceil(dragEl.scrollWidth || rect.width || 0) : (rect ? rect.width : 0);
+          // add some breathing room
+          const extra = 16;
+          const max = Math.min(window.innerWidth || 600, 480);
+          this.tabGhostWidth = Math.max(40, Math.min(measured + extra, max));
+        } catch (e) {
+          this.tabGhostWidth = rect ? rect.width : 80;
+        }
+        // attach move/up
+        this.attachTabDragListeners();
+        // restore scrollLeft after DOM updates to prevent jumping to the left
+        this.$nextTick(() => {
+          try { if (this.$refs.favTabs) this.$refs.favTabs.scrollLeft = this.tabStartScrollLeft; } catch(e) {}
+          // evaluate edge auto-scroll immediately based on start point
+          this.maybeTabAutoScroll({ clientX: startX });
+        });
+      },
+      attachTabDragListeners() {
+        this.tabMoveListener = (e) => this.onTabDragMove(e);
+        this.tabUpListener = (e) => this.finishTabDrag(e);
+        window.addEventListener('mousemove', this.tabMoveListener, true);
+        window.addEventListener('mouseup', this.tabUpListener, true);
+        window.addEventListener('touchmove', this.tabMoveListener, { passive: false });
+        window.addEventListener('touchend', this.tabUpListener, true);
+      },
+      detachTabDragListeners() {
+        try {
+          window.removeEventListener('mousemove', this.tabMoveListener, true);
+          window.removeEventListener('mouseup', this.tabUpListener, true);
+          window.removeEventListener('touchmove', this.tabMoveListener, true);
+          window.removeEventListener('touchend', this.tabUpListener, true);
+        } catch(e) {}
+        this.tabMoveListener = null;
+        this.tabUpListener = null;
+      },
+      onTabDragMove(evt) {
+        const p = evt.touches ? evt.touches[0] : evt;
+        if (!p) return;
+        this.tabDragX = p.clientX;
+        this.tabGhostLeft = p.clientX - this.tabOffsetX;
+        // update placeholder index by comparing midpoints
+        const tabs = this.$refs.favTabs;
+        const tabEls = tabs ? Array.from(tabs.querySelectorAll('.fav-tab')) : [];
+        const rects = tabEls.map(el => el.getBoundingClientRect());
+        const centers = rects.map(r => (r.left + r.right) / 2);
+        let target = centers.length; // default to end
+        for (let i = 0; i < centers.length; i++) {
+          if (this.tabDragX < centers[i]) { target = i; break; }
+        }
+        this.tabPlaceholderIndex = Math.max(0, Math.min(target, this.sortedTabs.length));
+        // maybe auto-scroll when near container edges
+        this.maybeTabAutoScroll(p);
+      },
+      finishTabDrag(evt) {
+        const p = evt.changedTouches ? evt.changedTouches[0] : evt;
+        const menu = this.$refs.favoritesMenu;
+        const from = this.tabDragIndex;
+        // Determine if the entire ghost is outside the menu (no intersection)
+        let deleteOutside = false;
+        if (menu) {
+          const r = menu.getBoundingClientRect();
+          const gLeft = this.tabGhostLeft;
+          const gTop = this.tabGhostTop;
+          const gRight = gLeft + (this.tabGhostWidth || 40);
+          const gBottom = gTop + (this.tabGhostHeight || 24);
+          const noIntersect = (gRight < r.left) || (gLeft > r.right) || (gBottom < r.top) || (gTop > r.bottom);
+          deleteOutside = noIntersect;
+        }
+        if (deleteOutside) {
+          const del = this.sortedTabs[from];
+          if (del) {
+            this.confirmDeleteTab(del.id);
+          }
+        } else {
+          // reorder
+          let to = this.tabPlaceholderIndex;
+          if (to > this.sortedTabs.length - 1) to = this.sortedTabs.length - 1;
+          if (from !== to && from >= 0 && to >= 0) {
+            const ordered = [...this.sortedTabs];
+            const [mvd] = ordered.splice(from, 1);
+            ordered.splice(to, 0, mvd);
+            ordered.forEach((t, i) => {
+              const real = this.favoriteTabs.find(x => x.id === t.id);
+              if (real) real.order = i + 1;
+            });
+            this.normalizeTabsOrder();
+            this.saveFavorites();
+          }
+        }
+        this.tabDragging = false;
+        this.tabDragIndex = null;
+        this.tabDragItem = null;
+        this.tabPlaceholderIndex = null;
+        this.tabPlaceholderWidth = 0;
+        this.tabFixedWidths = [];
+        this.tabGhostTop = 0;
+        this.tabGhostLeft = 0;
+        this.stopTabAutoScroll();
+        this.detachTabDragListeners();
+      },
+      maybeTabAutoScroll(point) {
+        const tabs = this.$refs.favTabs;
+        if (!tabs) { this.stopTabAutoScroll(); return; }
+        const r = tabs.getBoundingClientRect();
+        const x = point.clientX;
+        const threshold = Math.min(80, r.width / 3);
+        let velocity = 0;
+        if (x < r.left + threshold) {
+          const dist = x - (r.left + threshold);
+          velocity = Math.max(-12, (dist / threshold) * 12);
+        } else if (x > r.right - threshold) {
+          const dist = x - (r.right - threshold);
+          velocity = Math.min(12, (dist / threshold) * 12);
+        }
+        if (velocity !== 0) {
+          this.tabAutoScrollVelocity = velocity;
+          if (!this.tabAutoScrollFrame) this.runTabAutoScrollLoop();
+        } else {
+          this.stopTabAutoScroll();
+        }
+      },
+      runTabAutoScrollLoop() {
+        if (this.tabAutoScrollFrame) {
+          window.cancelAnimationFrame(this.tabAutoScrollFrame);
+        }
+        const step = () => {
+          if (!this.tabDragging) { this.stopTabAutoScroll(); return; }
+          const tabs = this.$refs.favTabs;
+          if (!tabs) { this.stopTabAutoScroll(); return; }
+          // Recompute velocity each frame based on current pointer and container rect
+          const r = tabs.getBoundingClientRect();
+          const x = this.tabDragX;
+          const threshold = Math.min(100, r.width / 3);
+          let v = 0;
+          if (x < r.left + threshold) {
+            const dist = x - (r.left + threshold);
+            v = Math.max(-14, (dist / threshold) * 14);
+          } else if (x > r.right - threshold) {
+            const dist = x - (r.right - threshold);
+            v = Math.min(14, (dist / threshold) * 14);
+          }
+          this.tabAutoScrollVelocity = v;
+          if (Math.abs(this.tabAutoScrollVelocity) < 0.5) { this.stopTabAutoScroll(); return; }
+          const maxScroll = tabs.scrollWidth - tabs.clientWidth;
+          let next = tabs.scrollLeft + this.tabAutoScrollVelocity;
+          if (next < 0) next = 0;
+          if (next > maxScroll) next = maxScroll;
+          if (next !== tabs.scrollLeft) {
+            tabs.scrollLeft = next;
+            // After scrolling, recompute placeholder index for accuracy
+            const tabEls = Array.from(tabs.querySelectorAll('.fav-tab'));
+            const rects = tabEls.map(el => el.getBoundingClientRect());
+            const centers = rects.map(r => (r.left + r.right) / 2);
+            let target = centers.length;
+            for (let i = 0; i < centers.length; i++) {
+              if (this.tabDragX < centers[i]) { target = i; break; }
+            }
+            this.tabPlaceholderIndex = Math.max(0, Math.min(target, this.sortedTabs.length));
+          } else {
+            this.stopTabAutoScroll();
+            return;
+          }
+          this.tabAutoScrollFrame = window.requestAnimationFrame(step);
+        };
+        this.tabAutoScrollFrame = window.requestAnimationFrame(step);
+      },
+      stopTabAutoScroll() {
+        if (this.tabAutoScrollFrame) {
+          window.cancelAnimationFrame(this.tabAutoScrollFrame);
+          this.tabAutoScrollFrame = null;
+        }
+        this.tabAutoScrollVelocity = 0;
+      },
+      onTabsWheel(evt) {
+        try {
+          const tabs = this.$refs.favTabs;
+          if (!tabs) return;
+          // Use vertical wheel to scroll horizontally
+          const dx = Math.abs(evt.deltaY) > Math.abs(evt.deltaX) ? evt.deltaY : evt.deltaX;
+          if (!dx) return;
+          const max = tabs.scrollWidth - tabs.clientWidth;
+          let next = tabs.scrollLeft + dx;
+          if (next < 0) next = 0;
+          if (next > max) next = max;
+          if (next !== tabs.scrollLeft) {
+            tabs.scrollLeft = next;
+            // If dragging, update placeholder based on new positions
+            if (this.tabDragging) {
+              const tabEls = Array.from(tabs.querySelectorAll('.fav-tab'));
+              const rects = tabEls.map(el => el.getBoundingClientRect());
+              const centers = rects.map(r => (r.left + r.right) / 2);
+              let target = centers.length;
+              for (let i = 0; i < centers.length; i++) {
+                if (this.tabDragX < centers[i]) { target = i; break; }
+              }
+              this.tabPlaceholderIndex = Math.max(0, Math.min(target, this.sortedTabs.length));
+            }
+          }
+        } catch (e) {}
+      },
+      getDraggedTabWidth() {
+        // Measure dragged tab DOM width to match exactly
+        try {
+          const tabs = this.$refs.favTabs;
+          const els = tabs ? Array.from(tabs.querySelectorAll('.fav-tab')) : [];
+          const dragEl = els[this.tabDragIndex];
+          if (dragEl) {
+            const rw = Math.round(dragEl.getBoundingClientRect().width);
+            if (rw && rw > 0) return rw;
+          }
+        } catch (e) {}
+        const dragW = (this.tabFixedWidths && typeof this.tabFixedWidths[this.tabDragIndex] === 'number') ? this.tabFixedWidths[this.tabDragIndex] : 0;
+        const guess = this.tabPlaceholderWidth || this.tabGhostWidth || dragW || 40;
+        return Math.max(10, Math.round(guess));
+      },
+      confirmDeleteTab(id) {
+        this.tabDeleteTargetId = id;
+        this.tabDeleteConfirmVisible = true;
+      },
+      cancelDeleteTab() {
+        this.tabDeleteConfirmVisible = false;
+        this.tabDeleteTargetId = null;
+      },
+      performDeleteTab() {
+        const id = this.tabDeleteTargetId;
+        if (!id) { this.cancelDeleteTab(); return; }
+        const idx = this.favoriteTabs.findIndex(t => t.id === id);
+        if (idx >= 0) {
+          this.favoriteTabs.splice(idx, 1);
+          this.normalizeTabsOrder();
+          if (!this.favoriteTabs.length) {
+            const t = { id: this.uid(), name: '新的收藏', items: [], order: 1 };
+            this.favoriteTabs.push(t);
+          }
+          if (!this.favoriteTabs.find(t => t.id === this.activeTabId)) {
+            this.activeTabId = this.favoriteTabs[0].id;
+          }
+          const at = this.favoriteTabs.find(t => t.id === this.activeTabId);
+          this.favorites = at ? at.items : [];
+          this.saveFavorites();
+        }
+        this.cancelDeleteTab();
+      },
+      attachEditOutsideListeners(editId) {
+        this._onEditOutside = (e) => {
+          try {
+            const refName = 'tabEdit_' + editId;
+            const el = this.$refs[refName] && (Array.isArray(this.$refs[refName]) ? this.$refs[refName][0] : this.$refs[refName]);
+            const t = e.target;
+            const inside = el && (el === t || (el.contains && el.contains(t)));
+            if (!inside) {
+              if (e && typeof e.preventDefault === 'function') e.preventDefault();
+              if (e && typeof e.stopPropagation === 'function') e.stopPropagation();
+              this.finishEditTab(true);
+            }
+          } catch (err) {
+            this.finishEditTab(true);
+          }
+        };
+        document.addEventListener('mousedown', this._onEditOutside, true);
+        document.addEventListener('touchstart', this._onEditOutside, true);
+      },
+      detachEditOutsideListeners() {
+        try {
+          document.removeEventListener('mousedown', this._onEditOutside, true);
+          document.removeEventListener('touchstart', this._onEditOutside, true);
+        } catch(e) {}
+        this._onEditOutside = null;
       },
       // 点击收藏菜单中的项：跳转详情并以收藏顺序驱动导航
       handleMenuItemClick(f, idx, evt) {
@@ -2094,6 +2623,123 @@
 .favorites-menu h4 {
   margin: 0 0 8px;
 }
+.fav-tabs-wrap { margin: 0 0 8px; overflow: hidden; }
+.fav-tabs {
+  display: flex; /* block-level for reliable scroll */
+  width: 100%;
+  align-items: center;
+  gap: 12px;
+  overflow-x: auto;
+  -ms-overflow-style: none; /* IE/Edge */
+  scrollbar-width: none; /* Firefox */
+}
+.fav-tabs::-webkit-scrollbar { display: none; }
+.fav-tab {
+  flex: 0 0 auto;
+  font-weight: 300;
+  cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+  color: #1d1d1f;
+}
+.fav-tab.active { font-weight: 700; }
+.tab-editable {
+  outline: none;
+  border: none;
+  display: inline-block;
+  min-width: 2em;
+  user-select: text;
+  -webkit-user-select: text;
+  -ms-user-select: text;
+  -moz-user-select: text;
+  caret-color: #1d1d1f;
+}
+.tab-plus {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: #f1f3f5;
+  color: #333;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+  font-weight: 700;
+  cursor: pointer;
+  user-select: none;
+}
+.tab-plus:hover { background: #e9ecef; }
+.tab-placeholder {
+  display: inline-block;
+  height: 1.2em;
+  border: 2px dashed #ffcd00; /* 黄色虚线框 */
+  background: transparent;    /* 不要填充色 */
+  border-radius: 4px;
+  flex: 0 0 auto; /* 避免被压缩到0宽 */
+}
+.tab-ghost {
+  pointer-events: none;
+  color: #1d1d1f;
+  font-weight: 700;
+  z-index: 1001;
+  background: #fff; /* 白色底 */
+  padding: 2px 6px;
+  border-radius: 4px;
+  white-space: nowrap; /* 不换行 */
+  box-sizing: border-box; /* 宽度包含内边距 */
+  display: inline-block;
+}
+
+/* Confirm dialog styles */
+.confirm-backdrop {
+  position: fixed;
+  left: 0; top: 0; right: 0; bottom: 0;
+  background: rgba(0,0,0,0.3);
+  z-index: 1100;
+}
+.confirm-dialog {
+  position: fixed;
+  left: 50%; top: 50%; transform: translate(-50%, -50%);
+  background: #fff;
+  border-radius: 12px;
+  padding: 16px 18px;
+  min-width: 260px;
+  box-shadow: 0 12px 30px rgba(0,0,0,0.2);
+  z-index: 1101;
+}
+.confirm-message {
+  margin-bottom: 12px;
+  font-size: 14px;
+  color: #1d1d1f;
+}
+.confirm-message .danger-word {
+  color: #c0392b; /* 红色 */
+  font-weight: 800; /* 加粗 */
+  font-size: 1.2em; /* 加大字号 */
+}
+.confirm-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.btn-cancel {
+  background: #27ae60; /* 绿色 */
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  padding: 6px 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.btn-danger {
+  background: #c0392b;
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  padding: 6px 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
 .favorites-menu .favorites-list { counter-reset: fav; }
 .favorites-list {
   display: flex;
@@ -3137,3 +3783,6 @@
 /* 文案显示：桌面显示完整，移动显示简写 */
 .label-desktop { display: inline; }
 .label-mobile { display: none; }
+
+
+

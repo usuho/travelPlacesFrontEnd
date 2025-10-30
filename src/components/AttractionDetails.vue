@@ -16,12 +16,13 @@
               @click="toggleFavoriteDetail"
               :title="isFavorited ? '取消收藏' : '加入收藏'"
               aria-label="收藏"
+              v-if="attraction && !loading"
             >
               <svg viewBox="0 0 24 24" class="star-icon" aria-hidden="true">
                 <path d="M12 2.5l2.95 5.98 6.6.96-4.78 4.66 1.13 6.57L12 17.77l-5.9 3.1 1.13-6.57L2.45 9.44l6.6-.96L12 2.5z"/>
               </svg>
             </button>
-            <span class="title-text">{{ attraction ? attraction.name : '景点详情' }}</span>
+            <span class="title-text">{{ attraction ? attraction.name : '' }}</span>
           </h1>
           <div v-if="attraction" class="rating-section">
             <div class="rating-badge" :style="{ background: ratingBackgroundColor }">
