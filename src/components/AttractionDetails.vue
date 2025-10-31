@@ -371,15 +371,15 @@
             const rawTabs = localStorage.getItem('favoriteTabs_all');
             if (rawTabs) {
               const tabs = JSON.parse(rawTabs) || [];
-              for (const t of (Array.isArray(tabs) ? tabs : [])) {
-                const items = Array.isArray(t?.items) ? t.items : [];
-                if (items.some(x => String(x.id) === String(this.id) && String(x.country||'') === String(this.country||''))) {
-                  found = true; break;
-                }
+              let activeId = null; try { activeId = localStorage.getItem('favoriteTabs_activeId'); } catch(e) {}
+              const t = (Array.isArray(tabs) ? tabs : []).find(x => x && x.id === activeId) || (Array.isArray(tabs) && tabs[0]);
+              const items = Array.isArray(t?.items) ? t.items : [];
+              if (items.some(x => String(x.id) === String(this.id) && String(x.country||'') === String(this.country||''))) {
+                found = true;
               }
             }
           } catch (e) {}
-          if (!found) {
+          if (false && !found) {
             // 兼容旧的 favorites_all
             const rawAll = localStorage.getItem('favorites_all');
             let list = rawAll ? JSON.parse(rawAll) : [];
@@ -404,16 +404,18 @@
         return 'favorites_all';
       },
       loadFavoritesList() {
+        // 返回“当前激活收藏列表”的条目副本，仅用于判断当前列表内状态
         try {
-          const raw = localStorage.getItem(this.getFavoritesStorageKey());
-          const list = raw ? JSON.parse(raw) : [];
-          return Array.isArray(list) ? list : [];
+          const tabs = this.loadFavoriteTabs();
+          let activeId = null; try { activeId = localStorage.getItem('favoriteTabs_activeId'); } catch(e) {}
+          const tab = (tabs || []).find(t => t && t.id === activeId) || (tabs && tabs[0]);
+          const items = tab && Array.isArray(tab.items) ? tab.items : [];
+          return items.slice();
         } catch (e) { return []; }
       },
       saveFavoritesList(list) {
-        try {
-          localStorage.setItem(this.getFavoritesStorageKey(), JSON.stringify(list || []));
-        } catch(e) {}
+        // 由 addToFavoriteTabs/removeFromFavoriteTabs 负责真实持久化；此处仅维护兼容性聚合
+        this.recomputeAndSaveFavoritesAllFromTabs();
       },
       normalizeFavoritesOrder(list) {
         return (list || [])
@@ -426,6 +428,44 @@
       },
       saveFavoriteTabs(tabs) {
         try { localStorage.setItem('favoriteTabs_all', JSON.stringify(tabs || [])); } catch(e) {}
+      },
+      // 将所有 tabs 的 items 合并为去重列表并写回旧的 favorites_all（仅用于兼容展示，不影响每个 tab 独立状态）
+      recomputeAndSaveFavoritesAllFromTabs() {
+        try {
+          const tabs = this.loadFavoriteTabs();
+          const map = new Map();
+          (tabs || []).forEach(t => {
+            (Array.isArray(t.items) ? t.items : []).forEach(it => {
+              const key = `${String(it.country||'')}:${String(it.id)}`;
+              if (!map.has(key)) {
+                map.set(key, {
+                  id: it.id,
+                  name: it.name,
+                  region: it.region,
+                  rating: it.rating,
+                  county: it.county,
+                  country: it.country,
+                });
+              }
+            });
+          });
+          const list = Array.from(map.values()).map((x, idx) => ({ ...x, order: idx + 1 }));
+          try { localStorage.setItem('favorites_all', JSON.stringify(list)); } catch(e) {}
+        } catch(e) {}
+      },
+      // 仅从“当前激活收藏列表”移除，不影响其他列表
+      removeFromActiveFavoriteTab(id, country) {
+        const tabs = this.loadFavoriteTabs();
+        let activeId = null; try { activeId = localStorage.getItem('favoriteTabs_activeId'); } catch(e) {}
+        const tab = (tabs || []).find(t => t && t.id === activeId) || (tabs && tabs[0]);
+        if (tab && Array.isArray(tab.items)) {
+          const idx = tab.items.findIndex(x => String(x.id) === String(id) && String(x.country||'') === String(country||''));
+          if (idx >= 0) {
+            tab.items.splice(idx, 1);
+            this.normalizeTabItemsOrder(tab.items);
+            this.saveFavoriteTabs(tabs);
+          }
+        }
       },
       normalizeTabItemsOrder(items) {
         (items || []).sort((a,b)=>(a.order||0)-(b.order||0)).forEach((it, idx)=> it.order = idx + 1);
@@ -442,18 +482,13 @@
           tab.items.push({ ...item, order: nextOrder });
           this.normalizeTabItemsOrder(tab.items);
           this.saveFavoriteTabs(tabs);
+          this.recomputeAndSaveFavoritesAllFromTabs();
         }
       },
       removeFromFavoriteTabs(id, country) {
-        const tabs = this.loadFavoriteTabs();
-        let changed = false;
-        tabs.forEach(t => {
-          if (Array.isArray(t.items)) {
-            const idx = t.items.findIndex(x => String(x.id) === String(id) && String(x.country||'') === String(country||''));
-            if (idx >= 0) { t.items.splice(idx, 1); this.normalizeTabItemsOrder(t.items); changed = true; }
-          }
-        });
-        if (changed) this.saveFavoriteTabs(tabs);
+        // 为兼容旧调用，此处改为仅从“当前激活收藏列表”移除
+        this.removeFromActiveFavoriteTab(id, country);
+        this.recomputeAndSaveFavoritesAllFromTabs();
       },
       toggleFavoriteDetail() {
         if (!this.attraction) return;
