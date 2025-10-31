@@ -286,6 +286,7 @@
           this.goBack();
         };
         window.addEventListener('popstate', this._onDetailsBack, { passive: true });
+        try { if (document && document.addEventListener) document.addEventListener('backbutton', this._onDetailsBack, false); } catch(e) {}
       } catch (e) {}
     },
     watch: {
@@ -304,9 +305,10 @@
       }
     },
 
-    beforeDestroy() {
+    beforeUnmount() {
       this.clearDetailSwipeResetTimer();
       try { if (this._onDetailsBack) window.removeEventListener('popstate', this._onDetailsBack); } catch(e) {}
+      try { if (document && document.removeEventListener && this._onDetailsBack) document.removeEventListener('backbutton', this._onDetailsBack, false); } catch(e) {}
     },
     
 

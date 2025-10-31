@@ -808,6 +808,8 @@
         country: this.$route.params.country,
         attractions: [],
         loading: true,
+        // 恢复本地状态的守护标志，避免 watch 在初始化时重置
+        isRestoring: false,
         minReviews: parseInt(localStorage.getItem('attractionMinReviews')) || null, 
         order: localStorage.getItem('attractionsOrder') ||'rating_desc', 
         page: parseInt(localStorage.getItem('attractionsPage')) || 1,
@@ -892,6 +894,15 @@
       }
     },
     async created() {
+      this.isRestoring = true;
+      // 进入列表页时再次从 localStorage 读取，避免 0 被默认值覆盖
+      try { const vMin = localStorage.getItem('attractionMinReviews'); if (vMin !== null && vMin !== '') { const n = parseInt(vMin, 10); if (Number.isFinite(n)) this.minReviews = n; } } catch (e) {}
+      try { const vOrder = localStorage.getItem('attractionsOrder'); if (vOrder !== null) this.order = vOrder; } catch (e) {}
+      try { const vRegion = localStorage.getItem('attractionsRegion'); if (vRegion !== null) this.selectedRegion = vRegion; } catch (e) {}
+      try { const vCounty = localStorage.getItem('attractionsCounty'); if (vCounty !== null) this.selectedCounty = vCounty; } catch (e) {}
+      try { const vPage = localStorage.getItem('attractionsPage'); const n = parseInt(vPage, 10); if (Number.isFinite(n) && n > 0) this.page = n; } catch (e) {}
+      try { const qp = this.$route && this.$route.query && this.$route.query.page; const n2 = parseInt(qp, 10); if (Number.isFinite(n2) && n2 > 0) this.page = n2; } catch (e) {}
+      this.isRestoring = false;
       this.fetchAttractions(false);
       this.fetchRegions();
       this.fetchCountis();
@@ -909,12 +920,14 @@
       } catch (e) {}
       // 浏览器/手机后退键与页面“返回”按钮一致：一律回到首页（国家选择）
       try {
-        history.pushState({ listBackGuard: true }, document.title, location.href);
+        // disabled: do not intercept browser/phone back on list page
+        // history.pushState({ listBackGuard: true }, document.title, location.href);
         this._onListBack = (evt) => {
           try { evt && evt.preventDefault && evt.preventDefault(); } catch(e) {}
           this.goBack();
         };
-        window.addEventListener('popstate', this._onListBack, { passive: true });
+        // disabled: do not add popstate interception on list page
+        // window.addEventListener('popstate', this._onListBack, { passive: true });
       } catch (e) {}
     },
 
@@ -922,12 +935,14 @@
       // 移除在输入时立即触发的行为
 
       order() {
+        if (this.isRestoring) return;
         localStorage.setItem('attractionsPage', this.page); // 保存当前页数到localStorage
         localStorage.setItem('attractionsOrder',this.order);
         this.fetchAttractions(false);}, // **新增的watch**
 
 
       selectedRegion() {
+        if (this.isRestoring) return;
         this.page = 1;
         localStorage.setItem('attractionsPage', this.page); 
         localStorage.setItem('attractionsRegion', this.selectedRegion);
@@ -935,6 +950,7 @@
         this.fetchAllAttractions();},
 
       selectedCounty() {
+        if (this.isRestoring) return;
         this.selectedRegion = ''; // 重置地区
         localStorage.setItem('attractionsRegion', ''); // 保存到 localStorage 
         this.fetchRegions();
