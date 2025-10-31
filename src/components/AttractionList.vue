@@ -339,7 +339,7 @@
             v-for="(attraction, index) in attractions"
             :key="attraction.id"
             class="attraction-item"
-            :class="{ favorited: isFavorited(attraction.id) }"
+            :class="{ favorited: isFavorited(attraction.id), pending: isPendingFavorite(attraction.id) }"
             tabindex="0"
             @click="handleClick(attraction,index,$event)"
             @mousedown.prevent="startCardPress(attraction, $event)"
@@ -1361,6 +1361,9 @@
       },
       isFavorited(id) {
         return this.favorites.some(f => f.id === id && f.country === this.country);
+      },
+      isPendingFavorite(id) {
+        return this.favorites.some(f => f.id === id && f.country === this.country && !!f.pending);
       },
       toggleFavorite(attraction) {
         const idx = this.favorites.findIndex(f => f.id === attraction.id && f.country === this.country);
@@ -3852,6 +3855,20 @@ const all = this.sortedFavorites || [];
     0 26px 60px rgba(0,0,0,0.28),
     0 0 0 5px rgba(255,215,0,0.55),
     0 0 0 6px rgba(255,215,0,0.28) inset;
+}
+
+/* 待定收藏在列表中的“银色”高亮（覆盖金色样式） */
+.attraction-item.favorited.pending,
+.attraction-item.favorited.pending:hover,
+.attraction-item.favorited.pending:focus,
+.attraction-item.favorited.pending:active {
+  background: linear-gradient(180deg, rgba(192,192,192,0.45), rgba(192,192,192,0.25));
+  border: 2px solid rgba(192, 192, 192, 0.95);
+  transform: translateY(-10px) scale(1.12);
+  box-shadow:
+    0 26px 60px rgba(0,0,0,0.28),
+    0 0 0 5px rgba(192,192,192,0.55),
+    0 0 0 6px rgba(192,192,192,0.28) inset;
 }
 
 .attraction-image-wrapper {
