@@ -487,7 +487,6 @@
                     :ref="'tabEdit_'+tab.id"
                     contenteditable="true"
                     spellcheck="false"
-                    @input="onTabNameInput(tab, $event)"
                     @keydown.enter.prevent="finishEditTab(true)"
                     @keydown.esc.prevent="finishEditTab(false)"
                     @blur="finishEditTab(true)"
@@ -529,21 +528,18 @@
             ></div>
             <div
               class="favorites-item"
-              :class="{ 'dragging-shadow': dragging && dragIndex === i, 'pending': !!f.pending }"
+              :class="{ 'dragging-shadow': dragging && dragIndex === i }"
               @mousedown.prevent="startMenuItemPress(i, $event)"
               @touchstart="startMenuItemPress(i, $event); onFavTouchStart(f, i, $event)"
               @touchmove="onFavTouchMove($event)"
               @touchend="onFavTouchEnd(f, i, $event)"
               @click.stop="handleMenuItemClick(f, i, $event)"
             >
-              <div :class="['fav-right-actions', { visible: isFavRightActionsVisible(f) }]">
-                <button class="fav-pending" :class="{ active: !!f.pending }" @click.stop="togglePending(f)">{{ f.pending ? "取消" : "待定" }}</button>
-              </div>
               <div :class="['fav-left-actions', { visible: isFavActionsVisible(f) }]">
-                <button class="fav-delete" @click.stop="removeFavorite(f)">{{ String(f.country) === 'custom' ? '删除' : '移除' }}</button>
+                <button class="fav-delete" @click.stop="removeFavorite(f)">移除</button>
               </div>
               <div class="fav-content" :style="{ transform: `translateX(${getFavSwipeOffset(f)}px)` }">
-                <span class="fav-index" v-if="!f.pending">{{ getNonPendingIndex(i) }}</span>
+                <span class="fav-index">{{ f.order }}</span>
                 <div class="fav-thumb-wrap">
                   <img
                     v-if="favThumbs[thumbKey(f)]"
@@ -575,7 +571,7 @@
             <div class="plus-circle">+</div>
           </div>
           <!-- 新增：导入/导出按钮行（位于 + 项下方，清空收藏上方）；当列表为空时隐藏 -->
-          <div class="favorites-actions-row">
+          <div class="favorites-actions-row" v-if="sortedFavorites.length">
             <button class="favorites-action-btn" @click.stop="onImportClick">导入</button>
             <button class="favorites-action-btn primary" @click.stop="exportActiveFavorites">导出</button>
             <!-- 隐藏的文件输入用于读取 -->
@@ -688,7 +684,7 @@
   import { openDB } from 'idb';
   import CreateAttractionModal from './CreateAttractionModal.vue'
   import { findCustomAttractionById, deleteCustomAttraction } from '../utils/customAttractions.js'
-  import { getImageUrl as getCustomImageUrl, deleteImagesForId as deleteCustomImagesForId, setImage as setCustomImage } from '../utils/customImageStore.js'
+  import { getImageUrl as getCustomImageUrl, deleteImagesForId as deleteCustomImagesForId } from '../utils/customImageStore.js'
 
   export default {
     components: { CreateAttractionModal },
@@ -767,12 +763,6 @@
         favSwipeThreshold: 24,
         favSwipeOffsetX: 0,
         favSwipeMaxReveal: 56,
-        // 收藏项左滑待定
-        favRightActionId: null,
-        favRightSwipeItemId: null,
-        favRightSwipeOffsetX: 0,
-        favRightSwipeThreshold: 24,
-        favRightSwipeMaxReveal: 56,
         // 收藏列表触摸滚动检测
         favListTouchStartX: 0,
         favListTouchStartY: 0,
@@ -782,7 +772,6 @@
         // 点击穿透保护（关闭收藏菜单后短时间屏蔽卡片点击）
         clickGuard: false,
         clickGuardTimer: null,
-        renameSaveTimer: null,
         // 页面横向滑动分页
         swipeStartX: 0,
         swipeStartY: 0,
@@ -972,10 +961,6 @@
           this.favSwipeActive = false;
           this.favSwipeItemId = null;
           this.favSwipeOffsetX = 0;
-          // 同步收起左滑待定
-          this.favRightActionId = null;
-          this.favRightSwipeItemId = null;
-          this.favRightSwipeOffsetX = 0;
           this.favListTouchScrolling = false;
           this.setClickGuard();
           try {
@@ -1003,42 +988,6 @@
     },
 
     methods: {
-      async getCustomImageData(id) {
-        try {
-          const d = await openDB('customAttractionsDB', 1);
-          const keys = [`${id}:main`, `${id}:sec0`, `${id}:sec1`];
-          const out = {};
-          for (const key of keys) {
-            try {
-              const blob = await d.get('images', key);
-              if (!blob) continue;
-              const dataUrl = await new Promise((resolve) => {
-                try {
-                  const fr = new FileReader();
-                  fr.onload = () => resolve(fr.result || '');
-                  fr.onerror = () => resolve('');
-                  fr.readAsDataURL(blob);
-                } catch (err) { resolve(''); }
-              });
-              if (dataUrl) out[key.split(':')[1]] = dataUrl;
-            } catch (e) {}
-          }
-          return out;
-        } catch (e) { return {}; }
-      },
-
-            onTabNameInput(tab, evt) {
-        try {
-          const el = evt && evt.target;
-          const nameRaw = el ? (el.textContent || '') : '';
-          this.editingTabName = nameRaw;
-          if (tab && tab.id) {
-            tab.name = nameRaw;
-          }
-          if (this.renameSaveTimer) { clearTimeout(this.renameSaveTimer); this.renameSaveTimer = null; }
-          this.renameSaveTimer = setTimeout(() => { try { this.saveFavorites(); } catch(e) {} }, 300);
-        } catch (e) {}
-      },
       onCustomCreated(attraction) {
         if (!attraction || !attraction.id) return;
         const nextOrder = (this.favorites?.length || 0) + 1;
@@ -1090,11 +1039,10 @@
             type: 'favorites-export',
             tabName: active ? (active.name || '新的收藏') : '新的收藏',
             exportedAt: new Date().toISOString(),
-            items: await Promise.all(items.map(async (it) => {
+            items: items.map(it => {
               if (String(it.country) === 'custom') {
                 const full = findCustomAttractionById(it.id) || null;
-                const images = await this.getCustomImageData(it.id);
-                return { kind: 'custom', data: full, images };
+                return { kind: 'custom', data: full };
               }
               return { kind: 'ref', data: {
                 id: it.id,
@@ -1104,7 +1052,7 @@
                 country: it.country,
                 rating: it.rating
               }};
-            }))
+            })
           };
           const jsonText = JSON.stringify(payload, null, 2);
           const blob = new Blob([jsonText], { type: 'application/json;charset=utf-8' });
@@ -1218,14 +1166,6 @@
                 const idx = all.findIndex(a => String(a.id) === String(custom.id));
                 if (idx >= 0) all[idx] = custom; else all.push(custom);
                 localStorage.setItem('customAttractions', JSON.stringify(all));
-              } catch (e) {}
-                            // 还原图片（如导出包含）
-              try {
-                if (entry.images && typeof entry.images === 'object') {
-                  if (entry.images.main) await setCustomImage(`${custom.id}:main`, entry.images.main);
-                  if (entry.images.sec0) await setCustomImage(`${custom.id}:sec0`, entry.images.sec0);
-                  if (entry.images.sec1) await setCustomImage(`${custom.id}:sec1`, entry.images.sec1);
-                }
               } catch (e) {}
               // 推入收藏项（自创）
               items.push({
@@ -1746,19 +1686,6 @@
       performDeleteTab() {
         const id = this.tabDeleteTargetId;
         if (!id) { this.cancelDeleteTab(); return; }
-                // 在删除整个收藏列表前，清理自创景点缓存与缩略图
-        try {
-          const tab = this.favoriteTabs.find(t => t.id === id);
-          const items = tab && Array.isArray(tab.items) ? tab.items : [];
-          items.forEach(it => {
-            if (String(it.country) === 'custom') {
-              try { deleteCustomAttraction(it.id); } catch(e) {}
-              try { deleteCustomImagesForId(it.id); } catch(e) {}
-            }
-            const key = this.thumbKey ? this.thumbKey(it) : (it.country + '-' + it.id);
-            if (this.favThumbs && this.favThumbs[key]) { try { URL.revokeObjectURL(this.favThumbs[key]); } catch(e){}; this.$delete ? this.$delete(this.favThumbs, key) : delete this.favThumbs[key]; }
-          });
-        } catch (e) {}
         const idx = this.favoriteTabs.findIndex(t => t.id === id);
         if (idx >= 0) {
           this.favoriteTabs.splice(idx, 1);
@@ -1811,25 +1738,12 @@
         } catch(e) {}
         // 记录返回目标：当前列表页完整路径（包含筛选与页码）
         try { localStorage.setItem('lastAttractionsRoute', this.$route.fullPath || ''); } catch(e) {}
-const all = this.sortedFavorites || [];
-        let nav = [];
-        let newIdx = 0;
-        if (f && !f.pending) {
-          const active = all.filter(x => !x.pending).map(x => ({ country: x.country, id: x.id }));
-          nav = active;
-          const findIdx = active.findIndex(x => String(x.id) === String(f.id) && String(x.country||'') === String(f.country||''));
-          newIdx = findIdx >= 0 ? findIdx : 0;
-        } else {
-          // 待定项：浏览队列仅包含自身
-          nav = [{ country: f.country, id: f.id }];
-          newIdx = 0;
-        }
+        const nav = this.sortedFavorites.map(x => ({ country: x.country, id: x.id }));
         localStorage.setItem('favNav', JSON.stringify(nav));
-        localStorage.setItem('favIndex', String(newIdx));
+        localStorage.setItem('favIndex', String(idx));
         this.setClickGuard();
         this.showFavorites = false;
-        const __q = (f && f.pending) ? "?from=favorites&pendingNav=1" : "?from=favorites";
-        this.$router.push(`/attraction/${f.country}/${f.id}${__q}`);
+        this.$router.push(`/attraction/${f.country}/${f.id}?from=favorites`);
       },
       // 卡片长按处理
       startCardPress(attraction, evt) {
@@ -1952,8 +1866,6 @@ const all = this.sortedFavorites || [];
         } catch (e) {}
       },
       onOutsideClick(e) {
-        // 当确认对话框/导出/创建弹窗打开时，保持收藏菜单不自动关闭
-        if (this.itemDeleteConfirmVisible || this.tabDeleteConfirmVisible || this.showCreateModal || this.showExportModal) return;
         // 当创建自创景点弹窗打开时，保持收藏菜单不自动关闭
         if (this.showCreateModal) return;
         const menu = this.$refs.favoritesMenu;
@@ -2076,7 +1988,6 @@ const all = this.sortedFavorites || [];
           this.favSwipeStartY = t.clientY;
           this.favSwipeActive = true;
           this.favSwipeItemId = f.id;
-          this.favRightSwipeItemId = f.id;
         }
       },
       onFavTouchMove(evt) {
@@ -2086,70 +1997,30 @@ const all = this.sortedFavorites || [];
         const dx = t.clientX - this.favSwipeStartX;
         const dy = t.clientY - this.favSwipeStartY;
         if (Math.abs(dx) > Math.abs(dy)) {
-          if (dx > 0) {
-            // 右滑
-            if (this.favRightActionId && this.favRightActionId === this.favRightSwipeItemId) {
-              // 已固定右侧“待定”时：右滑只用于关闭右侧，不允许露出左侧
-              const base = -this.favRightSwipeMaxReveal;
-              const offset = Math.min(0, base + dx);
-              this.favRightSwipeOffsetX = offset;
-              this.favActionId = null;
-              this.favSwipeOffsetX = 0;
-              if (evt.cancelable) evt.preventDefault();
-            } else {
-              // 正常露出左侧“移除”
-              this.favRightActionId = null;
-              this.favRightSwipeOffsetX = 0;
-              const offset = Math.max(0, Math.min(this.favSwipeMaxReveal, dx));
-              this.favSwipeOffsetX = offset;
-              if (evt.cancelable) evt.preventDefault();
-            }
-          } else if (dx < 0) {
-            // 左滑
-            if (this.favActionId && this.favActionId === this.favSwipeItemId) {
-              // 已固定左侧“移除”时：左滑只用于关闭左侧，不允许露出右侧
-              const base = this.favSwipeMaxReveal;
-              const offset = Math.max(0, base + dx);
-              this.favSwipeOffsetX = offset;
-              this.favRightActionId = null;
-              this.favRightSwipeOffsetX = 0;
-              if (evt.cancelable) evt.preventDefault();
-            } else {
-              // 正常露出右侧“待定”
-              this.favActionId = null;
-              this.favSwipeOffsetX = 0;
-              const offset = Math.min(0, Math.max(-this.favRightSwipeMaxReveal, dx));
-              this.favRightSwipeOffsetX = offset;
-              if (evt.cancelable) evt.preventDefault();
-            }
+          // 往左滑回去：立即收起并隐藏，且无动画
+          if (dx <= 0) {
+            this.favActionId = null;
+            this.favSwipeOffsetX = 0;
+            return;
           }
+          // 水平滑动：推动内容右移，露出左侧删除按钮
+          const offset = Math.max(0, Math.min(this.favSwipeMaxReveal, dx));
+          this.favSwipeOffsetX = offset;
+          if (evt.cancelable) evt.preventDefault();
         }
       },
       onFavTouchEnd(f, idx, evt) {
         if (this.dragging || this.favListTouchScrolling) { this.favSwipeActive = false; return; }
-        const keepRight = Math.abs(this.favRightSwipeOffsetX || 0) >= this.favRightSwipeThreshold;
-        const keepLeft = (this.favSwipeOffsetX || 0) >= this.favSwipeThreshold;
-        if (keepLeft) {
+        // 松手：超过阈值则保持展开，否则收起
+        if (this.favSwipeOffsetX >= this.favSwipeThreshold) {
           this.favActionId = this.favSwipeItemId;
           this.favSwipeOffsetX = this.favSwipeMaxReveal;
-          this.favRightActionId = null;
-          this.favRightSwipeOffsetX = 0;
         } else {
           this.favActionId = null;
           this.favSwipeOffsetX = 0;
         }
-        if (keepRight) {
-          this.favRightActionId = this.favRightSwipeItemId;
-          this.favRightSwipeOffsetX = -this.favRightSwipeMaxReveal;
-          this.favActionId = null;
-          this.favSwipeOffsetX = 0;
-        } else if (!keepLeft) {
-          this.favRightActionId = null;
-          this.favRightSwipeOffsetX = 0;
-        }
         this.favSwipeActive = false;
         this.favSwipeItemId = null;
-        this.favRightSwipeItemId = null;
       },
       removeFavorite(f) {
         if (!f) return;
@@ -2163,8 +2034,6 @@ const all = this.sortedFavorites || [];
         // 重置右滑展开状态
         if (this.favActionId) this.favActionId = null;
         this.favSwipeOffsetX = 0;
-        if (this.favRightActionId) this.favRightActionId = null;
-        this.favRightSwipeOffsetX = 0;
       },
       performDeleteItem() {
         const t = this.itemDeleteTarget;
@@ -2199,34 +2068,10 @@ const all = this.sortedFavorites || [];
         if (this.favSwipeItemId === f.id && (this.favSwipeOffsetX || 0) > 0) return true;
         return false;
       },
-      isFavRightActionsVisible(f) {
-        if (!f) return false;
-        if (this.favRightActionId === f.id) return true; // 固定展开
-        if (this.favRightSwipeItemId === f.id && (this.favRightSwipeOffsetX || 0) < 0) return true;
-        return false;
-      },
       getFavSwipeOffset(f) {
-        if (this.favSwipeItemId === f.id && (this.favSwipeOffsetX || 0) !== 0) return this.favSwipeOffsetX || 0;
+        if (this.favSwipeItemId === f.id) return this.favSwipeOffsetX || 0;
         if (this.favActionId === f.id) return this.favSwipeMaxReveal;
-        if (this.favRightSwipeItemId === f.id && (this.favRightSwipeOffsetX || 0) !== 0) return this.favRightSwipeOffsetX || 0;
-        if (this.favRightActionId === f.id) return -this.favRightSwipeMaxReveal;
         return 0;
-      },
-      togglePending(f) {
-        if (!f) return;
-        f.pending = !f.pending;
-        // 收起任意展开
-        this.favActionId = null;
-        this.favSwipeOffsetX = 0;
-        this.favRightActionId = null;
-        this.favRightSwipeOffsetX = 0;
-        this.saveFavorites();
-        this.$nextTick(() => this.updateFavoritesListScroll());
-      },
-      getNonPendingIndex(i) {
-        if (i == null || i < 0) return "";
-        const upto = this.sortedFavorites.slice(0, i + 1);
-        return upto.filter(x => !x.pending).length;
       },
       captureDragMetrics(itemEls, list) {
         const targetList = list || this.favoritesListEl();
@@ -2349,18 +2194,15 @@ const all = this.sortedFavorites || [];
         if (movedY || scrolled) {
           this.favListTouchScrolling = true;
           // 一旦判定为滚动，立即收起任何展开删除状态
-          if (this.favActionId || this.favSwipeOffsetX || this.favRightActionId || this.favRightSwipeOffsetX) {
+          if (this.favActionId || this.favSwipeOffsetX) {
             this.favActionId = null;
             this.favSwipeOffsetX = 0;
-            this.favRightActionId = null;
-            this.favRightSwipeOffsetX = 0;
           }
           this.favSwipeActive = false;
           this.favSwipeItemId = null;
-          this.favRightSwipeItemId = null;
         }
       },
-            onFavoritesListTouchEnd() {
+      onFavoritesListTouchEnd() {
         // 触摸结束后，短暂保留滚动判定，防止尾段抖动触发
         setTimeout(() => { this.favListTouchScrolling = false; }, 50);
       },
@@ -2538,9 +2380,6 @@ const all = this.sortedFavorites || [];
         this.favSwipeActive = false;
         this.favSwipeItemId = null;
         this.favSwipeOffsetX = 0;
-        this.favRightActionId = null;
-        this.favRightSwipeItemId = null;
-        this.favRightSwipeOffsetX = 0;
         this.favListTouchScrolling = false;
         this.captureDragMetrics(itemEls, list);
         this.stopAutoScroll();
@@ -3438,47 +3277,6 @@ const all = this.sortedFavorites || [];
   visibility: hidden;
   pointer-events: none;
 }
-.fav-right-actions {
-  position: absolute;
-  top: 50%;
-  right: 8px;
-  transform: translateY(-50%);
-  width: 56px;
-  display: flex;
-  justify-content: flex-end;
-  z-index: 1;
-  opacity: 0;
-  visibility: hidden;
-  pointer-events: none;
-}
-.fav-right-actions.visible {
-  opacity: 1;
-  visibility: visible;
-  pointer-events: auto;
-  transition: opacity 0.18s ease;
-}
-.fav-pending {
-  padding: 4px 8px;
-  border-radius: 8px;
-  border: 1px solid rgba(107,114,128,0.35);
-  background: rgba(107,114,128,0.12);
-  color: #374151;
-  font-weight: 700;
-  font-size: 12px;
-}
-.fav-pending.active {
-  border: 1px solid rgba(59,130,246,0.35);
-  background: rgba(59,130,246,0.12);
-  color: #1d4ed8;
-}
-.favorites-item.pending .fav-content {
-  filter: grayscale(100%);
-  opacity: 0.6;
-}
-.favorites-item.pending .fav-thumb {
-  filter: grayscale(100%);
-}
-
 .fav-left-actions.visible {
   opacity: 1;
   visibility: visible;
@@ -4414,20 +4212,6 @@ const all = this.sortedFavorites || [];
 /* 文案显示：桌面显示完整，移动显示简写 */
 .label-desktop { display: inline; }
 .label-mobile { display: none; }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 
