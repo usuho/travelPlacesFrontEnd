@@ -50,25 +50,25 @@
           <div class="full img-block">
             <div class="img-field">
               <span class="label-text">主图</span>
-              <label class="upload-button">
-                <input type="file" accept="image/*" @change="onMainImage" />
-                <span>选择图片</span>
+              <label class="upload-button" :class="{ danger: !!form.images.main }" @click="onMainButtonClick($event)">
+                <input v-if="!form.images.main" type="file" accept="image/*" @change="onMainImage" />
+                <span>{{ form.images.main ? '取消选择' : '选择图片' }}</span>
               </label>
               <img v-if="form.images.main" :src="form.images.main" alt="main" />
             </div>
             <div class="img-field">
               <span class="label-text">次图1</span>
-              <label class="upload-button">
-                <input type="file" accept="image/*" @change="e => onSecondaryImage(e, 0)" />
-                <span>选择图片</span>
+              <label class="upload-button" :class="{ danger: !!form.images.secondary[0] }" @click="onSecondaryButtonClick(0, $event)">
+                <input v-if="!form.images.secondary[0]" type="file" accept="image/*" @change="e => onSecondaryImage(e, 0)" />
+                <span>{{ form.images.secondary[0] ? '取消选择' : '选择图片' }}</span>
               </label>
               <img v-if="form.images.secondary[0]" :src="form.images.secondary[0]" alt="sec1" />
             </div>
             <div class="img-field">
               <span class="label-text">次图2</span>
-              <label class="upload-button">
-                <input type="file" accept="image/*" @change="e => onSecondaryImage(e, 1)" />
-                <span>选择图片</span>
+              <label class="upload-button" :class="{ danger: !!form.images.secondary[1] }" @click="onSecondaryButtonClick(1, $event)">
+                <input v-if="!form.images.secondary[1]" type="file" accept="image/*" @change="e => onSecondaryImage(e, 1)" />
+                <span>{{ form.images.secondary[1] ? '取消选择' : '选择图片' }}</span>
               </label>
               <img v-if="form.images.secondary[1]" :src="form.images.secondary[1]" alt="sec2" />
             </div>
@@ -87,7 +87,7 @@
 
 <script>
   import { addCustomAttraction } from '../utils/customAttractions.js'
-  import { getImageUrl as getCustomImageUrl, setImage as setCustomImage } from '../utils/customImageStore.js'
+  import { getImageUrl as getCustomImageUrl, setImage as setCustomImage, deleteImage as deleteCustomImage } from '../utils/customImageStore.js'
 
 export default {
   name: 'CreateAttractionModal',
@@ -119,44 +119,38 @@ export default {
     }
   },
   mounted() {
-    try {
-      if (this.mode === 'edit' && this.initial && this.modelValue) {
-        this.form.name = this.initial.name || ''
-        this.form.region = this.initial.region || ''
-        this.form.county = this.initial.county || ''
-        this.form.position = this.initial.position || ''
-        this.form.duration = this.initial.duration || ''
-        this.form.details = this.initial.details || ''
-        this.form.overview = this.initial.overview || ''
-        const id = this.initial.id
-        if (this.initial.hasImage1) {
-          getCustomImageUrl(`${id}:main`).then(u=>{ if(u) this.form.images.main = u })
-        }
-        if (this.initial.hasImage2) {
-          getCustomImageUrl(`${id}:sec0`).then(u=>{ if(u) this.form.images.secondary[0] = u })
-        }
-        if (this.initial.hasImage3) {
-          getCustomImageUrl(`${id}:sec1`).then(u=>{ if(u) this.form.images.secondary[1] = u })
-        }
-      }
-    } catch(e) {}
+    try { if (this.mode === 'edit' && this.initial && this.modelValue) { this.loadFromInitial() } } catch(e) {}
   },
   watch: {
     modelValue(val){
-      if (val && this.mode==='edit' && this.initial) {
-        // 打开时再同步一遍
-        this.form.name = this.initial.name || ''
-        this.form.region = this.initial.region || ''
-        this.form.county = this.initial.county || ''
-        this.form.position = this.initial.position || ''
-        this.form.duration = this.initial.duration || ''
-        this.form.details = this.initial.details || ''
-        this.form.overview = this.initial.overview || ''
-      }
+      if (val && this.mode==='edit' && this.initial) { this.loadFromInitial() }
     }
   },
   methods: {
     close() { this.$emit('update:modelValue', false) },
+    loadFromInitial() {
+      try {
+        // 文本类字段
+        this.form.name = this.initial.name || ''
+        this.form.region = this.initial.region || ''
+        this.form.county = this.initial.county || ''
+        this.form.position = this.initial.position || ''
+        this.form.duration = this.initial.duration || ''
+        this.form.details = this.initial.details || ''
+        this.form.overview = this.initial.overview || ''
+        // 图片：仅在当前未选择时加载已有缓存，避免覆盖用户刚刚选择的图
+        const id = this.initial.id
+        if (this.initial.hasImage1 && !this.form.images.main) {
+          getCustomImageUrl(`${id}:main`).then(u=>{ if(u) this.form.images.main = u })
+        }
+        if (this.initial.hasImage2 && !this.form.images.secondary[0]) {
+          getCustomImageUrl(`${id}:sec0`).then(u=>{ if(u) this.$set ? this.$set(this.form.images.secondary, 0, u) : (this.form.images.secondary[0] = u) })
+        }
+        if (this.initial.hasImage3 && !this.form.images.secondary[1]) {
+          getCustomImageUrl(`${id}:sec1`).then(u=>{ if(u) this.$set ? this.$set(this.form.images.secondary, 1, u) : (this.form.images.secondary[1] = u) })
+        }
+      } catch(e) {}
+    },
     readFileAsDataURL(file) {
       return new Promise((resolve, reject) => {
         const reader = new FileReader()
@@ -176,6 +170,28 @@ export default {
       const url = await this.readFileAsDataURL(file)
       this.$set ? this.$set(this.form.images.secondary, idx, url) : (this.form.images.secondary[idx] = url)
     },
+    onMainButtonClick(e){
+      if (this.form.images.main) {
+        try { e && e.preventDefault && e.preventDefault() } catch(_) {}
+        try { e && e.stopPropagation && e.stopPropagation() } catch(_) {}
+        this.clearMainImage()
+      }
+    },
+    onSecondaryButtonClick(idx, e){
+      if (this.form.images.secondary[idx]) {
+        try { e && e.preventDefault && e.preventDefault() } catch(_) {}
+        try { e && e.stopPropagation && e.stopPropagation() } catch(_) {}
+        this.clearSecondaryImage(idx)
+      }
+    },
+    clearMainImage() {
+      this.form.images.main = ''
+    },
+    clearSecondaryImage(idx) {
+      if (idx === 0 || idx === 1) {
+        this.$set ? this.$set(this.form.images.secondary, idx, '') : (this.form.images.secondary[idx] = '')
+      }
+    },
     async submit() {
       if (!this.canSubmit) return
       const id = (this.mode === 'edit' && this.initial && this.initial.id)
@@ -193,6 +209,18 @@ export default {
         if (this.form.images.secondary[1]) {
           await setCustomImage(`${id}:sec1`, this.form.images.secondary[1])
         }
+        // 编辑模式下，清理不再使用的图片缓存
+        if (this.mode === 'edit' && this.initial) {
+          if (this.initial.hasImage1 && !this.form.images.main) {
+            await deleteCustomImage(`${id}:main`)
+          }
+          if (this.initial.hasImage2 && !this.form.images.secondary[0]) {
+            await deleteCustomImage(`${id}:sec0`)
+          }
+          if (this.initial.hasImage3 && !this.form.images.secondary[1]) {
+            await deleteCustomImage(`${id}:sec1`)
+          }
+        }
       } catch (e) {}
 
       const attraction = {
@@ -205,10 +233,10 @@ export default {
         duration: this.form.duration,
         details: this.form.details,
         overview: this.form.overview,
-        // 仅保留是否存在图片的标记，实际图片存 IndexedDB；编辑未改图则沿用原有标记
-        hasImage1: !!this.form.images.main || !!(this.mode==='edit' && this.initial && this.initial.hasImage1),
-        hasImage2: !!this.form.images.secondary[0] || !!(this.mode==='edit' && this.initial && this.initial.hasImage2),
-        hasImage3: !!this.form.images.secondary[1] || !!(this.mode==='edit' && this.initial && this.initial.hasImage3),
+        // 是否存在图片：以当前表单为准，用户删除后为 false，避免详情页显示 skeleton
+        hasImage1: !!this.form.images.main,
+        hasImage2: !!this.form.images.secondary[0],
+        hasImage3: !!this.form.images.secondary[1],
         images: {
           main: '',
           secondary: []
@@ -254,6 +282,8 @@ label.full { grid-column: 1 / -1; }
 .upload-button span { pointer-events: none; }
 .upload-button:hover { background: #a7f3d0; }
 .upload-button:active { transform: translateY(1px); }
+.upload-button.danger { background: #fee2e2; color: #b91c1c; border-color: #fecaca; }
+.upload-button.danger:hover { background: #fecaca; }
 .img-field img { width: 100%; height: 140px; object-fit: cover; border-radius: 8px; border: 1px solid #e5e9f2; }
 
 @media (max-width: 768px) {

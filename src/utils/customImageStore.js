@@ -58,3 +58,10 @@ export async function deleteImagesForId(id) {
   } catch (e) {}
 }
 
+// 删除单个图片键（例如仅删除 main 或某个次图）
+export async function deleteImage(key) {
+  try {
+    const d = await db();
+    await d.delete(STORE, key);
+  } catch (e) {}
+}

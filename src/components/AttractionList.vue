@@ -1091,12 +1091,13 @@
             tabName: active ? (active.name || '新的收藏') : '新的收藏',
             exportedAt: new Date().toISOString(),
             items: await Promise.all(items.map(async (it) => {
+              const pending = !!it.pending;
               if (String(it.country) === 'custom') {
                 const full = findCustomAttractionById(it.id) || null;
                 const images = await this.getCustomImageData(it.id);
-                return { kind: 'custom', data: full, images };
+                return { kind: 'custom', pending, data: full, images };
               }
-              return { kind: 'ref', data: {
+              return { kind: 'ref', pending, data: {
                 id: it.id,
                 name: it.name,
                 region: it.region,
@@ -1233,7 +1234,8 @@
                 name: custom.name,
                 region: custom.region,
                 county: custom.county,
-                country: 'custom'
+                country: 'custom',
+                pending: !!entry.pending
               });
             } else if (entry.kind === 'ref' && entry.data) {
               const it = entry.data;
@@ -1243,7 +1245,8 @@
                 region: it.region,
                 county: it.county,
                 country: it.country,
-                rating: it.rating
+                rating: it.rating,
+                pending: !!entry.pending
               });
             }
           }
