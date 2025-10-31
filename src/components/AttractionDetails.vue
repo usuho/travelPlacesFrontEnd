@@ -9,7 +9,7 @@
           返回
         </button>
         <div class="header-content">
-          <h1 class="attraction-title title-with-star">
+          <h1 :key="titleAnimKey" class="attraction-title title-with-star title-hero">
             <button
               class="star-btn"
               :class="{ favorited: isFavorited }"
@@ -35,6 +35,12 @@
             </div>
           </div>
         </div>
+        <button
+          v-if="String(country)==='custom'"
+          class="edit-button"
+          @click="showEditModal = true"
+          title="编辑自创景点"
+        >编辑</button>
       </header>
     </div>
 
@@ -174,6 +180,15 @@
         </section>
       </div>
     </div>
+    <!-- 自创景点编辑弹窗 -->
+    <CreateAttractionModal
+      v-if="String(country)==='custom' && attraction"
+      v-model="showEditModal"
+      :county-label="translateCounty(country)"
+      mode="edit"
+      :initial="attraction"
+      @updated="onCustomUpdated"
+    />
     <!-- 自创景点删除确认 -->
     <div v-if="customDeleteConfirmVisible" class="confirm-backdrop" @click="cancelDeleteCustom">
       <div class="confirm-dialog" @click.stop>
@@ -193,8 +208,11 @@
   <script>
   import { openDB } from 'idb';
   import { findCustomAttractionById, deleteCustomAttraction } from '../utils/customAttractions.js'
+  import { getImageUrl as getCustomImageUrl, deleteImagesForId as deleteCustomImagesForId } from '../utils/customImageStore.js'
+  import CreateAttractionModal from './CreateAttractionModal.vue'
 
   export default {
+    components: { CreateAttractionModal },
     data() {
       return {
         fromSearch: this.$route.query.from === 'search',
@@ -220,10 +238,13 @@
         hasDragged: false,
         lastTouchDistance: 0,
         lastTouchCenter: { x: 0, y: 0 },
+        // 编辑自创景点
+        showEditModal: false,
         // 动画 key（当路由或数据变化时强制触发飞入动画）
         detailAnimKey: 0,
         imageAnimKey: 0,
         infoAnimKey: 0,
+        titleAnimKey: 0,
         // 横向滑动翻页（详情页）
         detailSwipeStartX: 0,
         detailSwipeStartY: 0,
@@ -255,6 +276,18 @@
       this.resetDetailSwipeState(true);
       await this.fetchAttractionDetails();
     },
+    mounted() {
+      // 浏览器/手机后退键与页面“返回”按钮一致：一律回到列表页（先退出全屏）
+      try {
+        history.pushState({ detailsBackGuard: true }, document.title, location.href);
+        this._onDetailsBack = (evt) => {
+          try { evt && evt.preventDefault && evt.preventDefault(); } catch(e) {}
+          if (this.fullscreenImage) { this.closeFullscreen(); return; }
+          this.goBack();
+        };
+        window.addEventListener('popstate', this._onDetailsBack, { passive: true });
+      } catch (e) {}
+    },
     watch: {
       '$route'(to) {
         // 路由变化（国家或ID或query）都更新并重载详情
@@ -273,7 +306,9 @@
 
     beforeDestroy() {
       this.clearDetailSwipeResetTimer();
+      try { if (this._onDetailsBack) window.removeEventListener('popstate', this._onDetailsBack); } catch(e) {}
     },
+    
 
   computed: {
     isFavoritesMode() {
@@ -313,6 +348,7 @@
         this.detailAnimKey = `${this.country}-${this.id}-${tick}`;
         this.imageAnimKey = `${this.country}-${this.id}-img-${tick}`;
         this.infoAnimKey = `${this.country}-${this.id}-info-${tick}`;
+        this.titleAnimKey = `${this.country}-${this.id}-title-${tick}`;
       },
       reloadFavState() {
         try {
@@ -451,6 +487,7 @@
         const id = this.attraction?.id || this.id;
         // 从自创景点存储中删除
         try { deleteCustomAttraction(id); } catch(e) {}
+        try { deleteCustomImagesForId(id); } catch(e) {}
         // 从收藏 tabs 中移除
         try {
           const rawTabs = localStorage.getItem('favoriteTabs_all');
@@ -586,6 +623,20 @@
             this.image1 = a?.images?.main || null
             this.image2 = (a?.images?.secondary && a.images.secondary[0]) ? a.images.secondary[0] : null
             this.image3 = (a?.images?.secondary && a.images.secondary[1]) ? a.images.secondary[1] : null
+            try {
+              if (!this.image1 && a.hasImage1) {
+                const u1 = await getCustomImageUrl(`${this.id}:main`)
+                if (u1) this.image1 = u1
+              }
+              if (!this.image2 && a.hasImage2) {
+                const u2 = await getCustomImageUrl(`${this.id}:sec0`)
+                if (u2) this.image2 = u2
+              }
+              if (!this.image3 && a.hasImage3) {
+                const u3 = await getCustomImageUrl(`${this.id}:sec1`)
+                if (u3) this.image3 = u3
+              }
+            } catch (e) {}
             return
           } else {
             // 未找到：给出占位，避免空白
@@ -725,10 +776,10 @@
       },
 
       goBack() {
-        if (String(this.country) === 'custom') {
-          const last = localStorage.getItem('lastAttractionsRoute');
-          if (last) { this.$router.push(last); return; }
-        }
+        if (this.fullscreenImage) { this.closeFullscreen(); return; }
+        // 一律回到列表页（与页面返回按钮一致）
+        const last = localStorage.getItem('lastAttractionsRoute');
+        if (last) { this.$router.push(last); return; }
         const page = localStorage.getItem('attractionsPage') || 1;
         this.$router.push(`/attractions/${this.country}?page=${page}`);
       },
@@ -749,6 +800,73 @@
         document.body.style.overflow = '';
         // 退出详情页或关闭全屏后，不再持有列表传来的颜色，避免污染下次进入
         try { localStorage.removeItem('selectedAttractionRatingColor'); } catch(e) {}
+      },
+      onCustomUpdated(saved) {
+        try {
+          // 刷新当前详情对象
+          const a = findCustomAttractionById(saved && saved.id ? saved.id : this.id);
+          if (a) {
+            this.attraction = a;
+            // 刷新图片（从 IndexedDB 取最新）
+            this.image1 = null; this.image2 = null; this.image3 = null;
+            this.$nextTick(async () => {
+              try { if (a.hasImage1) this.image1 = await getCustomImageUrl(`${a.id}:main`); } catch(e) {}
+              try { if (a.hasImage2) this.image2 = await getCustomImageUrl(`${a.id}:sec0`); } catch(e) {}
+              try { if (a.hasImage3) this.image3 = await getCustomImageUrl(`${a.id}:sec1`); } catch(e) {}
+            });
+          }
+        } catch (e) {}
+        // 同步更新收藏菜单中该自创景点的名称/地域信息
+        try {
+          const raw = localStorage.getItem('favoriteTabs_all');
+          if (raw) {
+            const tabs = JSON.parse(raw) || [];
+            const id = (saved && saved.id) ? String(saved.id) : String(this.id);
+            tabs.forEach(t => {
+              if (Array.isArray(t.items)) {
+                t.items.forEach(it => {
+                  if (String(it.id) === id && String(it.country||'') === 'custom') {
+                    if (saved && saved.name) it.name = saved.name;
+                    if (saved && saved.region !== undefined) it.region = saved.region;
+                    if (saved && saved.county !== undefined) it.county = saved.county;
+                  }
+                });
+              }
+            });
+            localStorage.setItem('favoriteTabs_all', JSON.stringify(tabs));
+          }
+        } catch (e) {}
+        // 兼容旧结构（如存在）
+        try {
+          const rawOld = localStorage.getItem('favorites_all');
+          if (rawOld) {
+            const list = JSON.parse(rawOld) || [];
+            const id = (saved && saved.id) ? String(saved.id) : String(this.id);
+            list.forEach(it => {
+              if (String(it.id) === id && String(it.country||'') === 'custom') {
+                if (saved && saved.name) it.name = saved.name;
+                if (saved && saved.region !== undefined) it.region = saved.region;
+                if (saved && saved.county !== undefined) it.county = saved.county;
+              }
+            });
+            localStorage.setItem('favorites_all', JSON.stringify(list));
+          }
+        } catch (e) {}
+      },
+      onCustomUpdated(saved){
+        try {
+          const a = findCustomAttractionById(saved.id)
+          if (a) {
+            this.attraction = a
+            // 刷新图片
+            this.image1 = null; this.image2 = null; this.image3 = null;
+            this.$nextTick(async () => {
+              try { if (a.hasImage1) this.image1 = await getCustomImageUrl(`${a.id}:main`); } catch(e) {}
+              try { if (a.hasImage2) this.image2 = await getCustomImageUrl(`${a.id}:sec0`); } catch(e) {}
+              try { if (a.hasImage3) this.image3 = await getCustomImageUrl(`${a.id}:sec1`); } catch(e) {}
+            })
+          }
+        } catch(e) {}
       },
 
       handleWheel(event) {
@@ -1020,6 +1138,21 @@
   align-self: center;
 }
 
+/* 编辑按钮（自创景点） */
+.edit-button {
+  position: absolute;
+  top: 10px;
+  right: 12px;
+  padding: 6px 12px;
+  border-radius: 10px;
+  background: #3b82f6;
+  color: #fff;
+  border: none;
+  font-weight: 700;
+  cursor: pointer;
+}
+.edit-button:hover { filter: brightness(0.95); }
+
 .back-icon {
   font-size: 18px;
   font-weight: bold;
@@ -1034,10 +1167,6 @@
   font-size: 3rem;
   font-weight: 700;
   margin-bottom: 24px;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
   line-height: 1.2;
 }
 .fav-badge {

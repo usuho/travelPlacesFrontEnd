@@ -1,6 +1,6 @@
 <template>
   <div class="register-container">
-    <h2>Register</h2>
+    <h2 class="title-hero">Register</h2>
     <form @submit.prevent="handleSubmit">
       <div class="form-group">
         <label for="username">Username:</label>

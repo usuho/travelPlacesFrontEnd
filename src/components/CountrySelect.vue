@@ -1,7 +1,7 @@
 <template>
   <div class="container fade-in">
     <div class="hero-section">
-      <h1 class="hero-title">探索世界</h1>
+      <h1 class="hero-title title-hero">探索世界</h1>
       <p class="hero-subtitle">选择您想探索的国家，发现令人惊叹的景点</p>
     </div>
 
@@ -142,13 +142,10 @@ export default {
   margin-bottom: 60px;
 }
 
-.hero-title {
+  .hero-title {
   font-size: 4rem;
   font-weight: 700;
   margin-bottom: 24px;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
 }
 
 .hero-subtitle {

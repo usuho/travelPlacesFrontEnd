@@ -1,6 +1,6 @@
 <template>
     <div class="login-container">
-      <h2>Login</h2>
+      <h2 class="title-hero">Login</h2>
       <form @submit.prevent="handleSubmit">
         <div class="form-group">
           <label for="username">Username:</label>

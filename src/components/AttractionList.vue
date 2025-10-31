@@ -7,7 +7,7 @@
           返回
         </button>
         <div class="header-content">
-          <h1 class="page-title">{{translateCountry(country)}}的景点</h1>
+          <h1 class="page-title title-hero">{{translateCountry(country)}}的景点</h1>
           <p class="page-subtitle">发现{{translateCountry(country)}}最受欢迎的旅行目的地</p>
         </div>
       </header>
@@ -340,6 +340,7 @@
             :key="attraction.id"
             class="attraction-item"
             :class="{ favorited: isFavorited(attraction.id) }"
+            tabindex="0"
             @click="handleClick(attraction,index,$event)"
             @mousedown.prevent="startCardPress(attraction, $event)"
             @mouseup.prevent="endCardPress"
@@ -535,7 +536,7 @@
               @click.stop="handleMenuItemClick(f, i, $event)"
             >
               <div :class="['fav-left-actions', { visible: isFavActionsVisible(f) }]">
-                <button class="fav-delete" @click.stop="removeFavorite(f)">删除</button>
+                <button class="fav-delete" @click.stop="removeFavorite(f)">移除</button>
               </div>
               <div class="fav-content" :style="{ transform: `translateX(${getFavSwipeOffset(f)}px)` }">
                 <span class="fav-index">{{ f.order }}</span>
@@ -569,10 +570,10 @@
           <div class="favorites-add" @click.stop="showCreateModal = true" title="创建景点">
             <div class="plus-circle">+</div>
           </div>
-          <!-- 新增：导入/导出按钮行（位于 + 项下方，清空收藏上方） -->
-          <div class="favorites-actions-row">
-            <button class="favorites-action-btn" @click.stop="onImportClick">读取</button>
-            <button class="favorites-action-btn primary" @click.stop="exportActiveFavorites">保存</button>
+          <!-- 新增：导入/导出按钮行（位于 + 项下方，清空收藏上方）；当列表为空时隐藏 -->
+          <div class="favorites-actions-row" v-if="sortedFavorites.length">
+            <button class="favorites-action-btn" @click.stop="onImportClick">导入</button>
+            <button class="favorites-action-btn primary" @click.stop="exportActiveFavorites">导出</button>
             <!-- 隐藏的文件输入用于读取 -->
             <input
               ref="importFileInput"
@@ -582,16 +583,11 @@
               @change="handleImportFile"
             />
           </div>
+          <!-- 删除收藏列表操作（与拖出选项卡删除一致）；空白时也显示，且放入可滚动列表中 -->
+          <div class="favorites-clear" @click="promptClearFavorites">
+            🗑️ 删除收藏
+          </div>
         </transition-group>
-        <!-- 清空收藏列表操作 -->
-        <div
-          v-if="sortedFavorites.length"
-          class="favorites-clear"
-          @click="promptClearFavorites"
-          :aria-disabled="!sortedFavorites.length"
-        >
-          🗑️ 清空收藏
-        </div>
         <!-- 跟随手指/鼠标的拖拽项 -->
         <div
           v-if="dragging && dragItem"
@@ -688,6 +684,7 @@
   import { openDB } from 'idb';
   import CreateAttractionModal from './CreateAttractionModal.vue'
   import { findCustomAttractionById, deleteCustomAttraction } from '../utils/customAttractions.js'
+  import { getImageUrl as getCustomImageUrl, deleteImagesForId as deleteCustomImagesForId } from '../utils/customImageStore.js'
 
   export default {
     components: { CreateAttractionModal },
@@ -889,6 +886,8 @@
       this.fetchCountis();
       this.fetchAllAttractions();
       this.loadFavorites();
+      // 确保自创景点收藏信息为最新
+      try { this.refreshCustomFavorites(); this.saveFavorites(); } catch(e) {}
       this.resetSwipeState(true);
     },
 
@@ -896,6 +895,15 @@
       this.updateSwipeEnabled();
       try {
         window.addEventListener('resize', this.updateSwipeEnabled, { passive: true });
+      } catch (e) {}
+      // 浏览器/手机后退键与页面“返回”按钮一致：一律回到首页（国家选择）
+      try {
+        history.pushState({ listBackGuard: true }, document.title, location.href);
+        this._onListBack = (evt) => {
+          try { evt && evt.preventDefault && evt.preventDefault(); } catch(e) {}
+          this.goBack();
+        };
+        window.addEventListener('popstate', this._onListBack, { passive: true });
       } catch (e) {}
     },
 
@@ -975,6 +983,7 @@
       }
       try {
         window.removeEventListener('resize', this.updateSwipeEnabled);
+        if (this._onListBack) window.removeEventListener('popstate', this._onListBack);
       } catch (e) {}
     },
 
@@ -1000,13 +1009,18 @@
         // 预留地图模式入口（目前仅占位）
         try { console.log('打开地图模式', this.country); } catch(e) {}
       },
+      // 改为删除整个收藏列表（与拖动选项卡到菜单外删除的行为一致）
+      // 当收藏为空时：不弹确认框，直接删除当前收藏
       promptClearFavorites() {
         try {
-          if (!this.sortedFavorites.length) return;
-          const ok = window.confirm('确定要清空此收藏吗？此操作不可恢复。');
-          if (!ok) return;
-          this.favorites = [];
-          this.saveFavorites();
+          const id = this.activeTabId;
+          if (!id) return;
+          if (!this.sortedFavorites.length) {
+            this.tabDeleteTargetId = id;
+            this.performDeleteTab();
+            return;
+          }
+          this.confirmDeleteTab(id);
         } catch (e) {}
       },
       // 导入/导出收藏列表
@@ -1510,7 +1524,14 @@
         if (deleteOutside) {
           const del = this.sortedTabs[from];
           if (del) {
-            this.confirmDeleteTab(del.id);
+            const tab = this.favoriteTabs.find(t => t.id === del.id);
+            const count = tab && Array.isArray(tab.items) ? tab.items.length : 0;
+            if (count === 0) {
+              this.tabDeleteTargetId = del.id;
+              this.performDeleteTab();
+            } else {
+              this.confirmDeleteTab(del.id);
+            }
           }
         } else {
           // reorder
@@ -1765,6 +1786,8 @@
         this.showFavorites = !this.showFavorites;
         this.resetSwipeState(true);
         if (this.showFavorites) {
+          // 打开时刷新一次自创景点的信息（名称/地区等）
+          try { this.refreshCustomFavorites(); this.saveFavorites(); } catch(e) {}
           this.updateFavoritesMenuPosition();
           this.$nextTick(() => {
             this.updateFavoritesListScroll();
@@ -1791,6 +1814,26 @@
           window.removeEventListener('scroll', this.updateFavoritesMenuPosition);
         }
       },
+      refreshCustomFavorites() {
+        try {
+          const updateItem = (it) => {
+            if (!it || String(it.country) !== 'custom') return;
+            const a = findCustomAttractionById(it.id);
+            if (a) {
+              if (a.name) it.name = a.name;
+              if (a.region !== undefined) it.region = a.region;
+              if (a.county !== undefined) it.county = a.county;
+            }
+          };
+          // 更新所有 tab 中的自创收藏项
+          (this.favoriteTabs || []).forEach(t => {
+            if (Array.isArray(t.items)) t.items.forEach(updateItem);
+          });
+          // 绑定 favorites 引用的安全刷新
+          const at = this.favoriteTabs.find(t => t.id === this.activeTabId);
+          this.favorites = at ? at.items : [];
+        } catch (e) {}
+      },
       thumbKey(f) {
         return `${f.country}-${f.id}`;
       },
@@ -1805,7 +1848,11 @@
         try {
           if (String(f.country) === 'custom') {
             const a = findCustomAttractionById(f.id);
-            const url = a && a.images && a.images.main ? a.images.main : '';
+            let url = a && a.images && a.images.main ? a.images.main : '';
+            if (!url && a && a.hasImage1) {
+              // 从 IndexedDB 读取主图
+              url = await getCustomImageUrl(`${f.id}:main`);
+            }
             if (url) {
               this.$set ? this.$set(this.favThumbs, key, url) : (this.favThumbs[key] = url);
             }
@@ -2005,6 +2052,7 @@
         // 清除自创景点缓存（若为自创）
         if (String(t.country) === 'custom') {
           try { deleteCustomAttraction(t.id); } catch (e) {}
+          try { deleteCustomImagesForId(t.id); } catch (e) {}
         }
         // 清理缩略图缓存（统一处理）
         const key = this.thumbKey(t);
@@ -2520,6 +2568,7 @@
         this.showAttractionSuggestions = false;
         this.attractionSearch = attraction.name;
         // ✅ 直接跳转到详情页
+        try { localStorage.setItem('lastAttractionsRoute', this.$route.fullPath || ''); } catch(e) {}
         this.$router.push(`/attraction/${this.country}/${attraction.id}?from=search`);
       },
 
@@ -2572,6 +2621,8 @@
           const color = this.getRatingColor(attraction.rating);
           localStorage.setItem('selectedAttractionRatingColor', color);
         } catch(e) {}
+        // 记录返回目标：当前列表页完整路径（包含筛选与页码）
+        try { localStorage.setItem('lastAttractionsRoute', this.$route.fullPath || ''); } catch(e) {}
         this.$router.push(`/attraction/${this.country}/${attraction.id}`)
       },
 
@@ -2707,6 +2758,7 @@
         localStorage.setItem('attractionsOrder',"rating_desc");
         localStorage.setItem('attractionsCounty','');
         localStorage.setItem('attractionsCounty','');
+        // 返回到国家选择页（首页路径为 '/'）
         this.$router.push('/');
       },
 
@@ -2958,8 +3010,8 @@
   border-radius: 12px;
   box-shadow: 0 12px 30px rgba(0,0,0,0.2);
   padding: 12px;
-  max-height: 60vh;
-  overflow: auto;
+  /* 只让内部列表滚动，外层不产生多余空白 */
+  overflow: visible;
   user-select: none;
   -webkit-user-select: none;
   -ms-user-select: none;
@@ -3116,7 +3168,7 @@
   -webkit-touch-callout: none;
 }
 .favorites-clear {
-  margin-top: 10px;
+  margin-top: 0;
   padding: 10px 12px;
   border: 1px solid rgba(255, 0, 0, 0.15);
   border-radius: 10px;
@@ -3362,10 +3414,6 @@
   font-size: 3.5rem;
   font-weight: 700;
   margin-bottom: 16px;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
 }
 
 .page-subtitle {
@@ -3614,10 +3662,19 @@
   width: 100%;
   height: 100%;
   object-fit: cover;
-  transition: transform 0.3s ease;
+  /* 初始即设置 transform，确保从 scale(1) 平滑过渡到放大 */
+  transform: scale(1);
+  transform-origin: center center;
+  transition: transform 0.28s ease;
+  will-change: transform;
 }
 
 .attraction-item:hover .attraction-image {
+  transform: scale(1.05);
+}
+
+/* 焦点态：与 hover 一致，且带平滑过渡 */
+.attraction-item:focus .attraction-image {
   transform: scale(1.05);
 }
 
@@ -3735,7 +3792,7 @@
   flex-wrap: wrap;
   justify-content: flex-start;
   max-width: 1200px;
-  margin: 0 auto;
+  margin: 0;
   padding-left: 0;
 }
 
@@ -4014,6 +4071,10 @@
     width: 100%;
     height: 100%;
     object-fit: cover;
+    transform: scale(1);
+    transform-origin: center center;
+    transition: transform 0.28s ease;
+    will-change: transform;
   }
 
   /* 右侧信息垂直分布 */

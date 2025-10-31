@@ -2,7 +2,7 @@
   <div v-if="modelValue" class="modal-mask">
     <div class="modal" @click.stop>
       <div class="modal-header">
-        <h3>创建景点</h3>
+        <h3>{{ mode === 'edit' ? '修改景点' : '创建景点' }}</h3>
         <button class="close" @click="close">×</button>
       </div>
 
@@ -49,7 +49,7 @@
 
           <div class="full img-block">
             <div class="img-field">
-              <span class="required">主图</span>
+              <span class="label-text">主图</span>
               <label class="upload-button">
                 <input type="file" accept="image/*" @change="onMainImage" />
                 <span>选择图片</span>
@@ -78,7 +78,7 @@
 
       <div class="modal-footer">
         <button class="ghost" @click="close">取消</button>
-        <button class="primary" :disabled="!canSubmit" @click="submit">创建</button>
+        <button class="primary" :disabled="!canSubmit" @click="submit">{{ mode === 'edit' ? '修改' : '创建' }}</button>
       </div>
     </div>
   </div>
@@ -86,15 +86,18 @@
 </template>
 
 <script>
-import { addCustomAttraction } from '../utils/customAttractions.js'
+  import { addCustomAttraction } from '../utils/customAttractions.js'
+  import { getImageUrl as getCustomImageUrl, setImage as setCustomImage } from '../utils/customImageStore.js'
 
 export default {
   name: 'CreateAttractionModal',
   props: {
     modelValue: { type: Boolean, default: false },
-    countyLabel: { type: String, default: '省份/州' }
+    countyLabel: { type: String, default: '省份/州' },
+    mode: { type: String, default: 'create' }, // 'create' | 'edit'
+    initial: { type: Object, default: null }
   },
-  emits: ['update:modelValue', 'created'],
+  emits: ['update:modelValue', 'created', 'updated'],
   data() {
     return {
       form: {
@@ -111,7 +114,45 @@ export default {
   },
   computed: {
     canSubmit() {
-      return !!this.form.name && !!this.form.images.main
+      // 仅名称必填，主图可选
+      return !!this.form.name
+    }
+  },
+  mounted() {
+    try {
+      if (this.mode === 'edit' && this.initial && this.modelValue) {
+        this.form.name = this.initial.name || ''
+        this.form.region = this.initial.region || ''
+        this.form.county = this.initial.county || ''
+        this.form.position = this.initial.position || ''
+        this.form.duration = this.initial.duration || ''
+        this.form.details = this.initial.details || ''
+        this.form.overview = this.initial.overview || ''
+        const id = this.initial.id
+        if (this.initial.hasImage1) {
+          getCustomImageUrl(`${id}:main`).then(u=>{ if(u) this.form.images.main = u })
+        }
+        if (this.initial.hasImage2) {
+          getCustomImageUrl(`${id}:sec0`).then(u=>{ if(u) this.form.images.secondary[0] = u })
+        }
+        if (this.initial.hasImage3) {
+          getCustomImageUrl(`${id}:sec1`).then(u=>{ if(u) this.form.images.secondary[1] = u })
+        }
+      }
+    } catch(e) {}
+  },
+  watch: {
+    modelValue(val){
+      if (val && this.mode==='edit' && this.initial) {
+        // 打开时再同步一遍
+        this.form.name = this.initial.name || ''
+        this.form.region = this.initial.region || ''
+        this.form.county = this.initial.county || ''
+        this.form.position = this.initial.position || ''
+        this.form.duration = this.initial.duration || ''
+        this.form.details = this.initial.details || ''
+        this.form.overview = this.initial.overview || ''
+      }
     }
   },
   methods: {
@@ -135,9 +176,25 @@ export default {
       const url = await this.readFileAsDataURL(file)
       this.$set ? this.$set(this.form.images.secondary, idx, url) : (this.form.images.secondary[idx] = url)
     },
-    submit() {
+    async submit() {
       if (!this.canSubmit) return
-      const id = 'custom_' + Date.now()
+      const id = (this.mode === 'edit' && this.initial && this.initial.id)
+        ? String(this.initial.id)
+        : ('custom_' + Date.now())
+
+      // 先把图片写入 IndexedDB，避免 localStorage 超限失败；编辑模式下，未重新上传则保留原图
+      try {
+        if (this.form.images.main) {
+          await setCustomImage(`${id}:main`, this.form.images.main)
+        }
+        if (this.form.images.secondary[0]) {
+          await setCustomImage(`${id}:sec0`, this.form.images.secondary[0])
+        }
+        if (this.form.images.secondary[1]) {
+          await setCustomImage(`${id}:sec1`, this.form.images.secondary[1])
+        }
+      } catch (e) {}
+
       const attraction = {
         id,
         country: 'custom',
@@ -148,17 +205,18 @@ export default {
         duration: this.form.duration,
         details: this.form.details,
         overview: this.form.overview,
-        hasImage1: !!this.form.images.main,
-        hasImage2: !!this.form.images.secondary[0],
-        hasImage3: !!this.form.images.secondary[1],
+        // 仅保留是否存在图片的标记，实际图片存 IndexedDB；编辑未改图则沿用原有标记
+        hasImage1: !!this.form.images.main || !!(this.mode==='edit' && this.initial && this.initial.hasImage1),
+        hasImage2: !!this.form.images.secondary[0] || !!(this.mode==='edit' && this.initial && this.initial.hasImage2),
+        hasImage3: !!this.form.images.secondary[1] || !!(this.mode==='edit' && this.initial && this.initial.hasImage3),
         images: {
-          main: this.form.images.main,
-          secondary: this.form.images.secondary.filter(Boolean)
+          main: '',
+          secondary: []
         },
         createdAt: new Date().toISOString()
       }
       const saved = addCustomAttraction(attraction)
-      this.$emit('created', saved)
+      if (this.mode === 'edit') this.$emit('updated', saved); else this.$emit('created', saved)
       this.$emit('update:modelValue', false)
     }
   }

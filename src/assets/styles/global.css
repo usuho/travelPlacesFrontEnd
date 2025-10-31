@@ -8,3 +8,37 @@
     transform: translateY(0);
   }
 }
+
+/* 统一标题渐变与高光动画（与景点详情页一致） */
+.title-hero {
+  background-image:
+    /* 左倾“波浪”明暗：提高对比但仍保持柔和、无边界 */
+    repeating-linear-gradient(45deg,
+      rgba(255,255,255,.045) 0%,
+      rgba(255,255,255,.045) 6%,
+      rgba(0, 0, 0, 0.621) 12%,
+      rgba(255,255,255,.045) 18%,
+      rgba(0, 0, 0, 0.621) 24%,
+      rgba(255,255,255,.045) 30%
+    ),
+    /* 与详情页一致的双色底色渐变（带缓冲过渡） */
+    /* 提升基底亮度，让阴影对比更明显 */
+    linear-gradient(30deg,
+      #8a8a8a 0%,
+      #8a8a8a 42%,
+      #b08f8f 58%,
+      #c79999 100%
+    );
+  background-size: 600% 600%, 100% 100%;
+  background-position: -400% 0, 0 0;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  /* 线性、无停顿循环；保持较慢速度 */
+  animation: title-shine 300s linear infinite alternate;
+}
+
+@keyframes title-shine {
+  0%   { background-position: -400% 0, 0 0; }
+  100% { background-position:  400% 0, 0 0; }
+}
