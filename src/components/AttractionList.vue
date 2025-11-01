@@ -721,6 +721,7 @@
           // Tabs auto-scroll during drag
           tabAutoScrollFrame: null,
           tabAutoScrollVelocity: 0,
+          tabAutoScrollMode: null,
           tabStartScrollLeft: 0,
           tabDeleteConfirmVisible: false,
           tabDeleteTargetId: null,
@@ -747,11 +748,18 @@
         dragIndex: null,
         dragItem: null,
         dragY: 0,
+        dragX: 0,
         dragOffsetY: 0,
         dragListRect: null,
         dragBoundaries: [],
         placeholderStyle: {},
         placeholderIndex: null,
+        dragActivatedTabId: null,
+        dragOriginalTabId: null,
+        dragSourceTabId: null,
+        dragHoverTabIndex: null,
+        tabHoverTimer: null,
+        tabHoverDelay: 500,
         moveListener: null,
         upListener: null,
         autoScrollFrame: null,
@@ -1375,6 +1383,12 @@
           .sort((a, b) => (a.order || 0) - (b.order || 0))
           .forEach((item, idx) => (item.order = idx + 1));
       },
+      normalizeTabItemsOrder(tab) {
+        if (!tab || !Array.isArray(tab.items)) return;
+        tab.items
+          .sort((a, b) => (a.order || 0) - (b.order || 0))
+          .forEach((item, idx) => { item.order = idx + 1; });
+      },
       isFavorited(id) {
         return this.favorites.some(f => f.id === id && f.country === this.country);
       },
@@ -1642,7 +1656,7 @@
         this.stopTabAutoScroll();
         this.detachTabDragListeners();
       },
-      maybeTabAutoScroll(point) {
+      maybeTabAutoScroll(point, mode = 'tab') {
         const tabs = this.$refs.favTabs;
         if (!tabs) { this.stopTabAutoScroll(); return; }
         const r = tabs.getBoundingClientRect();
@@ -1657,9 +1671,10 @@
           velocity = Math.min(12, (dist / threshold) * 12);
         }
         if (velocity !== 0) {
+          this.tabAutoScrollMode = mode;
           this.tabAutoScrollVelocity = velocity;
           if (!this.tabAutoScrollFrame) this.runTabAutoScrollLoop();
-        } else {
+        } else if (this.tabAutoScrollMode === mode) {
           this.stopTabAutoScroll();
         }
       },
@@ -1668,12 +1683,15 @@
           window.cancelAnimationFrame(this.tabAutoScrollFrame);
         }
         const step = () => {
-          if (!this.tabDragging) { this.stopTabAutoScroll(); return; }
+          const mode = this.tabAutoScrollMode;
+          const usingTabDrag = mode === 'tab' && this.tabDragging;
+          const usingItemDrag = mode === 'item' && this.dragging;
+          if (!usingTabDrag && !usingItemDrag) { this.stopTabAutoScroll(); return; }
           const tabs = this.$refs.favTabs;
           if (!tabs) { this.stopTabAutoScroll(); return; }
           // Recompute velocity each frame based on current pointer and container rect
           const r = tabs.getBoundingClientRect();
-          const x = this.tabDragX;
+          const x = usingTabDrag ? this.tabDragX : this.dragX;
           const threshold = Math.min(100, r.width / 3);
           let v = 0;
           if (x < r.left + threshold) {
@@ -1691,15 +1709,19 @@
           if (next > maxScroll) next = maxScroll;
           if (next !== tabs.scrollLeft) {
             tabs.scrollLeft = next;
-            // After scrolling, recompute placeholder index for accuracy
-            const tabEls = Array.from(tabs.querySelectorAll('.fav-tab'));
-            const rects = tabEls.map(el => el.getBoundingClientRect());
-            const centers = rects.map(r => (r.left + r.right) / 2);
-            let target = centers.length;
-            for (let i = 0; i < centers.length; i++) {
-              if (this.tabDragX < centers[i]) { target = i; break; }
+            if (usingTabDrag) {
+              // After scrolling, recompute placeholder index for accuracy
+              const tabEls = Array.from(tabs.querySelectorAll('.fav-tab'));
+              const rects = tabEls.map(el => el.getBoundingClientRect());
+              const centers = rects.map(r => (r.left + r.right) / 2);
+              let target = centers.length;
+              for (let i = 0; i < centers.length; i++) {
+                if (this.tabDragX < centers[i]) { target = i; break; }
+              }
+              this.tabPlaceholderIndex = Math.max(0, Math.min(target, this.sortedTabs.length));
+            } else if (usingItemDrag) {
+              this.handleTabHoverDuringItemDrag({ clientX: x, clientY: this.dragY });
             }
-            this.tabPlaceholderIndex = Math.max(0, Math.min(target, this.sortedTabs.length));
           } else {
             this.stopTabAutoScroll();
             return;
@@ -1714,6 +1736,7 @@
           this.tabAutoScrollFrame = null;
         }
         this.tabAutoScrollVelocity = 0;
+        this.tabAutoScrollMode = null;
       },
       onTabsWheel(evt) {
         try {
@@ -2277,6 +2300,88 @@ const all = this.sortedFavorites || [];
           };
         });
       },
+      clearTabHoverTimer() {
+        if (this.tabHoverTimer) {
+          clearTimeout(this.tabHoverTimer);
+          this.tabHoverTimer = null;
+        }
+      },
+      handleTabHoverDuringItemDrag(point) {
+        if (!this.dragging || !point) return;
+        const tabs = this.$refs.favTabs;
+        if (!tabs) {
+          this.clearTabHoverTimer();
+          this.dragHoverTabIndex = null;
+          return;
+        }
+        const rect = tabs.getBoundingClientRect();
+        const x = point.clientX;
+        const y = point.clientY;
+        const withinVertical = y >= rect.top && y <= rect.bottom;
+        if (!withinVertical) {
+          if (this.dragHoverTabIndex !== null) {
+            this.dragHoverTabIndex = null;
+          }
+          this.clearTabHoverTimer();
+          return;
+        }
+        const tabEls = Array.from(tabs.querySelectorAll('.fav-tab'));
+        let hoveredIndex = -1;
+        for (let i = 0; i < tabEls.length; i++) {
+          const el = tabEls[i];
+          const r = el.getBoundingClientRect();
+          if (x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) {
+            hoveredIndex = i;
+            break;
+          }
+        }
+        if (hoveredIndex < 0) {
+          if (this.dragHoverTabIndex !== null) {
+            this.dragHoverTabIndex = null;
+          }
+          this.clearTabHoverTimer();
+          return;
+        }
+        const hoveredTab = this.sortedTabs[hoveredIndex];
+        if (!hoveredTab || hoveredTab.id === this.activeTabId) {
+          if (this.dragHoverTabIndex !== null) {
+            this.dragHoverTabIndex = null;
+          }
+          this.clearTabHoverTimer();
+          return;
+        }
+        if (this.dragHoverTabIndex !== hoveredIndex) {
+          this.clearTabHoverTimer();
+          this.dragHoverTabIndex = hoveredIndex;
+          this.tabHoverTimer = setTimeout(() => {
+            this.activateTabForDrag(hoveredTab.id);
+          }, this.tabHoverDelay);
+        }
+      },
+      activateTabForDrag(tabId) {
+        this.clearTabHoverTimer();
+        if (!this.dragging) return;
+        const targetTab = this.favoriteTabs.find(t => t.id === tabId);
+        if (!targetTab || tabId === this.activeTabId) return;
+        this.setActiveTab(tabId);
+        this.dragHoverTabIndex = null;
+        this.$nextTick(() => {
+          const list = this.favoritesListEl();
+          if (list) {
+            this.dragListRect = list.getBoundingClientRect();
+            const itemEls = Array.from(list.querySelectorAll('.favorites-item'));
+            this.captureDragMetrics(itemEls, list);
+          }
+          if (tabId === this.dragSourceTabId) {
+            const idx = this.sortedFavorites.findIndex(item => item.id === (this.dragItem && this.dragItem.id));
+            this.dragIndex = idx >= 0 ? idx : null;
+          } else {
+            this.dragIndex = null;
+          }
+          this.placeholderIndex = this.sortedFavorites.length;
+          this.updatePlaceholderIndex();
+        });
+      },
       maybeAutoScroll() {
         if (!this.dragging) return;
         const list = this.favoritesListEl();
@@ -2504,7 +2609,7 @@ const all = this.sortedFavorites || [];
         let triggered = false;
         const timer = setTimeout(() => {
           triggered = true;
-          this.beginDrag(index, startY, originRect);
+          this.beginDrag(index, startX, startY, originRect);
         }, this.longPressThreshold);
         const cancel = () => {
           clearTimeout(timer);
@@ -2534,10 +2639,14 @@ const all = this.sortedFavorites || [];
         window.addEventListener('touchend', cancel, true);
         window.addEventListener('touchmove', preventScroll, { passive: false });
       },
-      beginDrag(index, startClientY, originRect) {
+      beginDrag(index, startClientX, startClientY, originRect) {
         this.dragging = true;
         this.dragIndex = index;
         this.dragItem = { ...this.sortedFavorites[index] };
+        this.dragSourceTabId = this.activeTabId;
+        this.dragHoverTabIndex = null;
+        this.clearTabHoverTimer();
+        this.dragX = startClientX;
         const list = this.favoritesListEl();
         if (!list) return;
         this.dragListRect = list.getBoundingClientRect();
@@ -2573,8 +2682,11 @@ const all = this.sortedFavorites || [];
           const e = evt.touches ? evt.touches[0] : evt;
           if (evt.cancelable) evt.preventDefault();
           this.dragY = e.clientY;
+          this.dragX = e.clientX;
           this.updatePlaceholderIndex();
           this.maybeAutoScroll();
+          this.handleTabHoverDuringItemDrag(e);
+          this.maybeTabAutoScroll(e, 'item');
         };
         this.upListener = (evt) => {
           this.finishDrag(evt);
@@ -2596,6 +2708,9 @@ const all = this.sortedFavorites || [];
           this.upListener = null;
         }
         this.stopAutoScroll();
+        this.stopTabAutoScroll();
+        this.clearTabHoverTimer();
+        this.dragHoverTabIndex = null;
         this.dragBoundaries = [];
       },
       updatePlaceholderIndex() {
@@ -2639,28 +2754,65 @@ const all = this.sortedFavorites || [];
           const r = menu.getBoundingClientRect();
           return dropX >= r.left && dropX <= r.right && dropY >= r.top && dropY <= r.bottom;
         })();
+        const draggedId = this.dragItem && this.dragItem.id;
+        const sourceTab = this.favoriteTabs.find(t => t.id === this.dragSourceTabId);
         if (!inside) {
-          const id = this.dragItem.id;
-          const fi = this.favorites.find(f => f.id === id);
+          const sourceItems = sourceTab && Array.isArray(sourceTab.items) ? sourceTab.items : this.favorites;
+          const fi = draggedId ? sourceItems.find(f => f.id === draggedId) : null;
           if (fi) {
-            // 任何收藏（含非自创）拖出菜单都弹确认
+            // Dropping outside the menu prompts the removal confirmation.
             this.itemDeleteTarget = { ...fi };
             this.itemDeleteConfirmVisible = true;
           }
-        } else {
-          const from = this.dragIndex;
-          let to = this.placeholderIndex;
-          if (to > this.sortedFavorites.length - 1) to = this.sortedFavorites.length - 1;
-          if (from !== to && from >= 0 && to >= 0) {
-            const ordered = [...this.sortedFavorites];
-            const [moved] = ordered.splice(from, 1);
-            ordered.splice(to, 0, moved);
-            ordered.forEach((item, i) => {
-              const f = this.favorites.find(x => x.id === item.id);
-              if (f) f.order = i + 1;
-            });
-            this.normalizeFavoritesOrder();
-            this.saveFavorites();
+        } else if (draggedId && sourceTab) {
+          const targetTab = this.favoriteTabs.find(t => t.id === this.activeTabId);
+          if (targetTab) {
+            if (sourceTab.id === targetTab.id) {
+              const ordered = [...this.sortedFavorites];
+              let from = this.dragIndex != null ? this.dragIndex : ordered.findIndex(item => item.id === draggedId);
+              let to = this.placeholderIndex != null ? this.placeholderIndex : ordered.length - 1;
+              if (to < 0) to = 0;
+              if (to > ordered.length) to = ordered.length;
+              if (from < 0 || from >= ordered.length) {
+                from = ordered.findIndex(item => item.id === draggedId);
+              }
+              if (from >= 0 && from < ordered.length && from !== to) {
+                const [moved] = ordered.splice(from, 1);
+                const insertIndex = Math.max(0, Math.min(to, ordered.length));
+                ordered.splice(insertIndex, 0, moved);
+                ordered.forEach((item, i) => { item.order = i + 1; });
+                this.normalizeTabItemsOrder(targetTab);
+                if (this.activeTabId === targetTab.id) {
+                  this.normalizeFavoritesOrder();
+                }
+                this.saveFavorites();
+              }
+            } else {
+              const sourceItems = Array.isArray(sourceTab.items) ? sourceTab.items : [];
+              const targetItems = Array.isArray(targetTab.items) ? targetTab.items : [];
+              const sourceIdx = sourceItems.findIndex(item => item.id === draggedId);
+              let moved = null;
+              if (sourceIdx >= 0) {
+                const removed = sourceItems.splice(sourceIdx, 1);
+                moved = removed && removed[0] ? removed[0] : null;
+                this.normalizeTabItemsOrder(sourceTab);
+              }
+              if (!moved) {
+                moved = { ...this.dragItem };
+              }
+              let insertIndex = this.placeholderIndex != null ? this.placeholderIndex : targetItems.length;
+              if (insertIndex < 0) insertIndex = 0;
+              if (insertIndex > targetItems.length) insertIndex = targetItems.length;
+              targetItems.splice(insertIndex, 0, moved);
+              this.normalizeTabItemsOrder(targetTab);
+              if (this.activeTabId === targetTab.id) {
+                this.normalizeFavoritesOrder();
+              }
+              if (moved) {
+                try { this.ensureFavThumb(moved); } catch (err) {}
+              }
+              this.saveFavorites();
+            }
           }
         }
         this.dragging = false;
@@ -2669,9 +2821,11 @@ const all = this.sortedFavorites || [];
         this.placeholderIndex = null;
         this.dragListRect = null;
         this.placeholderStyle = {};
+        this.dragSourceTabId = null;
+        this.dragHoverTabIndex = null;
+        this.clearTabHoverTimer();
         this.detachDragListeners();
       },
-
       updateMobileAttractionDropdownPosition() {
         this.$nextTick(() => {
           const input = this.$refs.mobileAttractionInput;
