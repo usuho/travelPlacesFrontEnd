@@ -1837,7 +1837,8 @@
             this.favoriteTabs.push(t);
           }
           if (!this.favoriteTabs.find(t => t.id === this.activeTabId)) {
-            this.activeTabId = this.favoriteTabs[0].id;
+            const lastTab = this.favoriteTabs[this.favoriteTabs.length - 1];
+            this.activeTabId = lastTab ? lastTab.id : this.favoriteTabs[0].id;
           }
           const at = this.favoriteTabs.find(t => t.id === this.activeTabId);
           this.favorites = at ? at.items : [];
