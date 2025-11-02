@@ -487,11 +487,13 @@
                     :ref="'tabEdit_'+tab.id"
                     contenteditable="true"
                     spellcheck="false"
+                    @compositionstart="tabEditingComposing = true"
+                    @compositionend="onTabCompositionEnd(tab, $event)"
                     @input="onTabNameInput(tab, $event)"
-                    @keydown.enter.prevent="finishEditTab(true)"
-                    @keydown.esc.prevent="finishEditTab(false)"
+                    @keydown.enter.prevent="onTabEditEnter($event)"
+                    @keydown.esc.prevent="onTabEditEsc($event)"
                     @blur="finishEditTab(true)"
-                  >{{ editingTabName }}</span>
+                  ></span>
                 </template>
                 <template v-else>
                   {{ tab.name }}
@@ -693,7 +695,7 @@
   export default {
     components: { CreateAttractionModal },
     data() {
-        return {
+      return {
           // 收藏相关
           favorites: [], // points to active tab's items
           // Tabs for 收藏列表
@@ -701,6 +703,7 @@
           activeTabId: null,
           editingTabId: null,
           editingTabName: '',
+          tabEditingComposing: false,
           // Tab drag state
           tabPressTimer: null,
           tabLongPressThreshold: 300,
@@ -1457,10 +1460,12 @@
           const el = this.$refs[refName] && (Array.isArray(this.$refs[refName]) ? this.$refs[refName][0] : this.$refs[refName]);
           if (el) {
             try {
+              // Put current name into contenteditable and move caret to end
+              el.textContent = this.editingTabName;
               el.focus();
-              // select all text
               const range = document.createRange();
               range.selectNodeContents(el);
+              range.collapse(false); // caret at end
               const sel = window.getSelection();
               sel.removeAllRanges();
               sel.addRange(range);
@@ -1468,6 +1473,25 @@
           }
           this.attachEditOutsideListeners(tab.id);
         });
+      },
+      onTabCompositionEnd(tab, evt) {
+        this.tabEditingComposing = false;
+        try {
+          const el = evt && evt.target;
+          const nameRaw = el ? (el.textContent || '') : '';
+          this.editingTabName = nameRaw;
+          if (tab && tab.id) {
+            tab.name = nameRaw;
+          }
+        } catch (e) {}
+      },
+      onTabEditEnter(evt) {
+        if (this.tabEditingComposing) return;
+        this.finishEditTab(true);
+      },
+      onTabEditEsc(evt) {
+        if (this.tabEditingComposing) return;
+        this.finishEditTab(false);
       },
       finishEditTab(commit) {
         const id = this.editingTabId;
