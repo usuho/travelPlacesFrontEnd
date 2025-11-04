@@ -339,8 +339,41 @@
   methods: {
       openMapForThis() {
         try {
+          if (this.fromMap) {
+            // 从地图进入：优先尝试打开 Google Maps 应用，其次打开网页版
+            const q = this.buildMapQuery();
+            const schemeUrl = `comgooglemaps://?q=${encodeURIComponent(q)}`;
+            const webUrl = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(q)}`;
+            let opened = false;
+            try {
+              // 直接尝试跳转到 Google Maps 应用
+              window.location.href = schemeUrl;
+              opened = true;
+            } catch (e) {
+              opened = false;
+            }
+            // 无论是否成功，兜底在短延迟后打开网页版（若已跳转到 App，则此步骤一般被系统拦截）
+            setTimeout(() => {
+              try { window.open(webUrl, '_blank'); } catch (e) { window.location.href = webUrl; }
+            }, 300);
+            return;
+          }
+          // 非地图进入：保持原逻辑，跳到站内地图
           this.$router.push({ path: `/map/${this.country}`, query: { focusId: this.id, from: 'details' } });
         } catch(e) {}
+      },
+      buildMapQuery() {
+        const parts = [];
+        try {
+          if (this.attraction) {
+            if (this.attraction.name) parts.push(this.attraction.name);
+            if (this.attraction.position) parts.push(this.attraction.position);
+            if (this.attraction.county) parts.push(this.attraction.county);
+            if (this.attraction.region) parts.push(this.attraction.region);
+          }
+          if (this.country) parts.push(this.country);
+        } catch (e) {}
+        return parts.filter(Boolean).join(' ');
       },
       isMobileViewport() {
         try { return (window.innerWidth || document.documentElement.clientWidth || 0) < 1024; } catch(e) { return false; }
