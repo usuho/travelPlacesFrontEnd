@@ -170,11 +170,11 @@
             <button @click="goBack" class="back-button bottom-back-button">
               返回
             </button>
-            <button @click="prevPage" :disabled="isFavoritesMode ? favIndex === 0 : (fromSearch || index === 0)"  class="nav-button">
+            <button @click="prevPage" :disabled="fromMap || (isFavoritesMode ? favIndex === 0 : (fromSearch || index === 0))"  class="nav-button">
               <span class="nav-icon">←</span>
               上一个景点
             </button>
-            <button @click="nextPage" :disabled="isFavoritesMode ? favIndex >= favNav.length - 1 : (fromSearch || index === 19)" class="nav-button">
+            <button @click="nextPage" :disabled="fromMap || (isFavoritesMode ? favIndex >= favNav.length - 1 : (fromSearch || index === 19))" class="nav-button">
               下一个景点
               <span class="nav-icon">→</span>
             </button>
@@ -219,6 +219,7 @@
       return {
         fromSearch: this.$route.query.from === 'search',
         fromFavorites: this.$route.query.from === 'favorites',
+        fromMap: this.$route.query.from === 'map',
         loading: true,
         country: this.$route.params.country,
         id: this.$route.params.id,
@@ -578,6 +579,7 @@
         }
       },
       canSwipeDetail(direction) {
+        if (this.fromMap) return false;
         if (!this.attraction || this.loading) return false;
         if (this.isFavoritesMode && this.favNav.length > 0) {
           if (direction === 'left') return this.favIndex < this.favNav.length - 1;
@@ -821,7 +823,9 @@
 
       goBack() {
         if (this.fullscreenImage) { this.closeFullscreen(); return; }
-        // 一律回到列表页（与页面返回按钮一致）
+        // 来自地图：返回上一页（地图）
+        if (this.fromMap) { this.$router.back(); return; }
+        // 默认：回到列表
         const last = localStorage.getItem('lastAttractionsRoute');
         if (last) { this.$router.push(last); return; }
         const page = localStorage.getItem('attractionsPage') || 1;

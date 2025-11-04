@@ -496,7 +496,7 @@ export default {
         const node = popupRoot || document.querySelector(`.map-popup[data-id="${id}"][data-country="${country}"]`);
         if (node) {
           node.addEventListener('click', () => {
-            this.$router.push({ path: `/attraction/${country}/${id}` });
+            this.$router.push({ path: `/attraction/${country}/${id}` , query: { from: 'map' } });
           }, { once: true, passive: true });
         }
       } catch (e) {}
