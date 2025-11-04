@@ -303,7 +303,7 @@ export default {
           if (bounds && !bounds.contains(L.latLng(r.lat, r.lng))) continue;
           if (this.passFilters && !this.passFilters(r, filters)) continue;
           const latlng = [r.lat, r.lng];
-          const icon = this.createAllIcon();
+          const icon = this.createAllIcon(r.rating);
           const marker = L.marker(latlng, { icon, pane: 'allPane', zIndexOffset: 0 });
           marker.bindPopup(this.buildPopup(r));
           marker.on('popupopen', () => this.attachPopupHandlers(r));
@@ -345,7 +345,7 @@ export default {
         if (this.passFilters && !this.passFilters(r, filters)) continue;
         visible.add(String(r.id));
         if (!this.allMarkers.has(String(r.id))) {
-          const icon = this.createAllIcon();
+          const icon = this.createAllIcon(r.rating);
           const marker = L.marker([r.lat, r.lng], { icon, pane: 'allPane', zIndexOffset: 0 });
           marker.bindPopup(this.buildPopup(r));
           marker.on('popupopen', () => this.attachPopupHandlers(r));
@@ -449,8 +449,9 @@ export default {
       const html = `<div class="fav-marker" style="background:${color}">${text}</div>`;
       return L.divIcon({ className: 'marker-wrapper', html, iconSize: [16, 16], iconAnchor: [8, 8], popupAnchor: [0, -8] });
     },
-    createAllIcon() {
-      const html = `<div class="dot-marker"></div>`;
+    createAllIcon(rating) {
+      const color = this.getRatingColor(rating);
+      const html = `<div class="dot-marker" style="background:${color}"></div>`;
       return L.divIcon({ className: 'marker-wrapper', html, iconSize: [16, 16], iconAnchor: [8, 8], popupAnchor: [0, -8] });
     },
     createFocusIcon() {
