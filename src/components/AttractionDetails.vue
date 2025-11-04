@@ -115,7 +115,9 @@
                 </div>
                 <div class="info-item">
                   <span class="info-label">具体位置</span>
-                  <span class="info-value">{{ attraction.position }}</span>
+                  <span class="info-value">
+                    <a href="javascript:void(0)" class="map-link" @click="openMapForThis">{{ attraction.position }}</a>
+                  </span>
                 </div>
               </div>
             </div>
@@ -334,6 +336,11 @@
     }
   },
   methods: {
+      openMapForThis() {
+        try {
+          this.$router.push({ path: `/map/${this.country}`, query: { focusId: this.id, from: 'details' } });
+        } catch(e) {}
+      },
       isMobileViewport() {
         try { return (window.innerWidth || document.documentElement.clientWidth || 0) < 1024; } catch(e) { return false; }
       },

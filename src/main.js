@@ -6,6 +6,7 @@ import userRegister from './components/userRegister.vue'
 import CountrySelect from './components/CountrySelect.vue'
 import AttractionList from './components/AttractionList.vue'
 import AttractionDetails from './components/AttractionDetails.vue'
+import AttractionMap from './components/AttractionMap.vue'
 
 import flyIn from './directives/flyIn.js';
 import fadeIn from './directives/fadeIn.js';
@@ -17,7 +18,8 @@ const routes = [
   { path: '/userRegister', component: userRegister },
   { path: '/', component: CountrySelect },
   { path: '/attractions/:country', component: AttractionList },
-  { path: '/attraction/:country/:id', component: AttractionDetails }
+  { path: '/attraction/:country/:id', component: AttractionDetails },
+  { path: '/map/:country', component: AttractionMap }
 ]
 
 const router = createRouter({

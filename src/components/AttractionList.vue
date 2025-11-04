@@ -1084,8 +1084,9 @@
         try { this.ensureFavThumb({ id: attraction.id, country: 'custom' }); } catch (e) {}
       },
       openMapMode() {
-        // 预留地图模式入口（目前仅占位）
-        try { console.log('打开地图模式', this.country); } catch(e) {}
+        try {
+          this.$router.push({ path: `/map/${this.country}` });
+        } catch(e) {}
       },
       // 改为删除整个收藏列表（与拖动选项卡到菜单外删除的行为一致）
       // 当收藏为空时：不弹确认框，直接删除当前收藏
