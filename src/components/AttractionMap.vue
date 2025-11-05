@@ -1,6 +1,7 @@
-<template>
+﻿<template>
   <div class="map-page">
     <div id="map" class="map-container"></div>
+    <div v-if="showLoading" class="map-loading-overlay"><div class="spinner"></div></div>
     <button class="back-button map-back-button" @click="handleBack">返回</button>
   </div>
 </template>
@@ -39,6 +40,11 @@ export default {
       allMarkers: new Map(),
       _didInitCenter: false,
       _allGeoData: [],
+      showLoading: false,
+      _hasRenderedFirst: false,
+      _allRenderQueue: [],
+      _allRenderIdle: null,
+      _allRenderBatchSize: 400,
     };
   },
   computed: {
@@ -53,6 +59,7 @@ export default {
   async mounted() {
     this.loadFavoritesState();
     this.initMap();
+    this.showLoading = true;
     await this.renderFavoritesMarkers();
     try { await this.fetchAllGeoOnce(); } catch (e) {}
     this.renderAllInView && this.renderAllInView();
@@ -258,6 +265,7 @@ export default {
         marker.bindPopup(this.buildPopup(meta));
         marker.on('popupopen', () => this.attachPopupHandlers(meta));
         marker.addTo(this.favoritesLayer);
+        if (!this._hasRenderedFirst) { this._hasRenderedFirst = true; this.showLoading = false; }
       }
 
       // 如果有收藏：默认以序号1为中心，并将缩放调整到能包含所有收藏（仅首次，不干扰用户后续操作）
@@ -339,20 +347,54 @@ export default {
       const bounds = this.map.getBounds();
       const filters = this.getActiveFilters ? this.getActiveFilters() : { minReviews: 0, region: '', county: '' };
       const visible = new Set();
+      const toAdd = [];
       for (const r of (this._allGeoData || [])) {
         if (!Number.isFinite(r.lat) || !Number.isFinite(r.lng)) continue;
         if (bounds && !bounds.contains(L.latLng(r.lat, r.lng))) continue;
         if (this.passFilters && !this.passFilters(r, filters)) continue;
         visible.add(String(r.id));
-        if (!this.allMarkers.has(String(r.id))) {
-          const icon = this.createAllIcon(r.rating);
-          const marker = L.marker([r.lat, r.lng], { icon, pane: 'allPane', zIndexOffset: 0 });
-          marker.bindPopup(this.buildPopup(r));
-          marker.on('popupopen', () => this.attachPopupHandlers(r));
-          marker.addTo(this.allLayer);
-          this.allMarkers.set(String(r.id), marker);
-        }
+        if (!this.allMarkers.has(String(r.id))) { toAdd.push(r); }
       }
+      // 增量调度加入视野内的普通标记
+      try {
+        if (this._allRenderIdle) {
+          if ('cancelIdleCallback' in window) { window.cancelIdleCallback(this._allRenderIdle); } else { clearTimeout(this._allRenderIdle); }
+          this._allRenderIdle = null;
+        }
+      } catch (e) {}
+      this._allRenderQueue = toAdd;
+      const runAddBatch = (deadline) => {
+        if (!Array.isArray(this._allRenderQueue) || this._allRenderQueue.length === 0) return;
+        let processed = 0;
+        while (processed < this._allRenderBatchSize && this._allRenderQueue.length) {
+          const r = this._allRenderQueue.shift();
+          if (r) {
+            const id = String(r.id);
+            if (!this.allMarkers.has(id) && Number.isFinite(r.lat) && Number.isFinite(r.lng)) {
+              const icon = this.createAllIcon(r.rating);
+              const marker = L.marker([r.lat, r.lng], { icon, pane: 'allPane', zIndexOffset: 0 });
+              marker.bindPopup(this.buildPopup(r));
+              marker.on('popupopen', () => this.attachPopupHandlers(r));
+              marker.addTo(this.allLayer);
+              this.allMarkers.set(id, marker);
+              if (!this._hasRenderedFirst) { this._hasRenderedFirst = true; this.showLoading = false; }
+            }
+          }
+          processed++;
+          if (deadline && typeof deadline.timeRemaining === 'function' && deadline.timeRemaining() <= 1) break;
+        }
+        if (this._allRenderQueue.length) { scheduleNext(); }
+      };
+      const scheduleNext = () => {
+        if ('requestIdleCallback' in window) {
+          this._allRenderIdle = window.requestIdleCallback(runAddBatch, { timeout: 60 });
+        } else {
+          this._allRenderIdle = setTimeout(runAddBatch, 0);
+        }
+      };
+      if (this._allRenderQueue.length) { scheduleNext(); }
+      else if (!this._hasRenderedFirst && this.favoritesLayer && Object.keys(this.favoritesLayer._layers || {}).length === 0 && this.allMarkers.size === 0) { this.showLoading = false; }
+
       // 移除离开视野的普通标记
       for (const [id, mk] of Array.from(this.allMarkers.entries())) {
         if (!visible.has(id)) {
@@ -667,4 +709,9 @@ export default {
 :deep(.popup-name) { grid-column: 1 / 3; font-weight: 800; max-width: 220px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 :deep(.popup-meta) { color: #64748b; font-size: 12px; }
 :deep(.popup-rating) { color: #fff; font-weight: 800; padding: 2px 6px; font-size: 12px; border-radius: 6px; align-self: start; }
+
+/* 居中加载指示，不拦截地图操作 */
+.map-loading-overlay { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; pointer-events: none; z-index: 1500; }
+.spinner { width: 36px; height: 36px; border: 4px solid rgba(0,0,0,0.15); border-top-color: rgba(0,0,0,0.6); border-radius: 50%; animation: spin 0.9s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
 </style>
