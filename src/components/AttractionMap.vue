@@ -262,7 +262,7 @@ export default {
               const g = await this.geocodeByFreeApi(address);
               if (g) {
                 latlng = [g.lat, g.lng];
-                meta = { id: fav.id, name: fav.name || (p && p.name) || '', region: fav.region || (p && p.region) || '', county: fav.county || (p && p.county) || '', rating: fav.rating, country: String(fav.country || this.country), hasImage: false };
+                meta = { id: fav.id, name: fav.name || (p && p.name) || '', region: fav.region || (p && p.region) || '', county: fav.county || (p && p.county) || '', rating: fav.rating, country: String(fav.country || this.country), hasImage: !!(p && p.hasImage) };
               }
             } catch (e) {}
           }
@@ -302,20 +302,46 @@ export default {
         let data = [];
         try { const res = await fetchAttractionsGeo(this.country); if (Array.isArray(res)) data = res; } catch (e) {}
 
-        // Fallback：若远端无专用 geo 接口，则退回到按页拉取列表并有限地理编码（最多 150 个）
-        if (!Array.isArray(data) || data.length === 0) {
-          try {
-            const pos = await fetchAttractionsPositions(this.country);
-            if (Array.isArray(pos)) {
-              const slice = pos.slice(0, 150);
-              for (const p of slice) {
-                const address = `${p.name || ''} ${p.region || ''} ${p.county || ''} ${p.position || ''} ${this.country}`.trim();
-                const g = await this.geocodeByFreeApi(address);
-                if (g) data.push({ id: p.id, name: p.name, region: p.region, county: p.county, rating: p.rating, lat: g.lat, lng: g.lng, hasImage: !!p.hasImage, country: this.country });
+        // 前端补全：对缺失经纬度的普通景点进行地理编码（与收藏一致）。
+        // 1) 若远端无专用 geo 接口，使用 positions 全量补齐。
+        // 2) 即使远端有 geo 数据，也补齐其中缺失经纬度的项目。
+        try {
+          const pos = await fetchAttractionsPositions(this.country);
+          if (Array.isArray(pos) && pos.length) {
+            const byId = new Map();
+            if (Array.isArray(data)) {
+              for (const r of data) byId.set(String(r.id), r);
+            }
+            for (const p of pos) {
+              const idStr = String(p.id);
+              const existing = byId.get(idStr);
+              const needGeocode = !existing || !Number.isFinite(existing.lat) || !Number.isFinite(existing.lng);
+              if (!needGeocode) continue;
+              const address = `${p.name || ''} ${p.region || ''} ${p.county || ''} ${p.position || ''} ${this.country}`.trim();
+              const g = await this.geocodeByFreeApi(address);
+              if (g) {
+                const item = {
+                  id: p.id,
+                  name: p.name,
+                  region: p.region,
+                  county: p.county,
+                  rating: p.rating,
+                  total_reviews: p.total_reviews,
+                  lat: g.lat,
+                  lng: g.lng,
+                  hasImage: !!p.hasImage,
+                  country: this.country,
+                };
+                if (existing) {
+                  Object.assign(existing, item);
+                } else {
+                  data.push(item);
+                  byId.set(idStr, item);
+                }
               }
             }
-          } catch (e) {}
-        }
+          }
+        } catch (e) {}
 
         const bounds = this.map && this.map.getBounds ? this.map.getBounds() : null;
         const filters = this.getActiveFilters ? this.getActiveFilters() : { minReviews: 0, region: '', county: '' };
@@ -338,19 +364,44 @@ export default {
       try {
         let data = [];
         try { const res = await fetchAttractionsGeo(this.country); if (Array.isArray(res)) data = res; } catch (e) {}
-        if (!Array.isArray(data) || data.length === 0) {
-          try {
-            const pos = await fetchAttractionsPositions(this.country);
-            if (Array.isArray(pos)) {
-              const slice = pos.slice(0, 150);
-              for (const p of slice) {
-                const address = `${p.name || ''} ${p.region || ''} ${p.county || ''} ${p.position || ''} ${this.country}`.trim();
-                const g = await this.geocodeByFreeApi(address);
-                if (g) data.push({ id: p.id, name: p.name, region: p.region, county: p.county, rating: p.rating, total_reviews: p.total_reviews, lat: g.lat, lng: g.lng, hasImage: !!p.hasImage, country: this.country });
+        // 前端补全：对缺失经纬度的普通景点进行地理编码（与收藏一致）。
+        try {
+          const pos = await fetchAttractionsPositions(this.country);
+          if (Array.isArray(pos) && pos.length) {
+            const byId = new Map();
+            if (Array.isArray(data)) {
+              for (const r of data) byId.set(String(r.id), r);
+            }
+            for (const p of pos) {
+              const idStr = String(p.id);
+              const existing = byId.get(idStr);
+              const needGeocode = !existing || !Number.isFinite(existing.lat) || !Number.isFinite(existing.lng);
+              if (!needGeocode) continue;
+              const address = `${p.name || ''} ${p.region || ''} ${p.county || ''} ${p.position || ''} ${this.country}`.trim();
+              const g = await this.geocodeByFreeApi(address);
+              if (g) {
+                const item = {
+                  id: p.id,
+                  name: p.name,
+                  region: p.region,
+                  county: p.county,
+                  rating: p.rating,
+                  total_reviews: p.total_reviews,
+                  lat: g.lat,
+                  lng: g.lng,
+                  hasImage: !!p.hasImage,
+                  country: this.country,
+                };
+                if (existing) {
+                  Object.assign(existing, item);
+                } else {
+                  data.push(item);
+                  byId.set(idStr, item);
+                }
               }
             }
-          } catch (e) {}
-        }
+          }
+        } catch (e) {}
         this._allGeoData = Array.isArray(data) ? data : [];
       } catch (e) { this._allGeoData = []; }
     },
@@ -772,7 +823,8 @@ export default {
         if (meta.hasImage) {
           // 服务器直链（支持缓存）
           const base = getLastApiBase();
-          return `${base}/api/attraction-image/${this.country}/${meta.id}/1`;
+          const country = String(meta.country || this.country);
+          return `${base}/api/attraction-image/${country}/${meta.id}/1`;
         }
       }
       return '';
@@ -788,7 +840,8 @@ export default {
         } else {
           if (meta.hasImage) {
             const base = getLastApiBase();
-            const url = `${base}/api/attraction-image/${this.country}/${meta.id}/1`;
+            const country = String(meta.country || this.country);
+            const url = `${base}/api/attraction-image/${country}/${meta.id}/1`;
             this.imageCache.set(key, url);
             return url;
           }
