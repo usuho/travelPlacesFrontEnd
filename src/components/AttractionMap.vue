@@ -4,7 +4,6 @@
     <div v-if="showLoading" class="map-loading-overlay"><div class="spinner"></div></div>
     <div class="map-stats">
       <div>已渲染(屏内)：{{ statsRendered }}</div>
-      <div>移除池：{{ statsRemovedPool }}</div>
       <div>未渲染(屏内)：{{ statsNeverRendered }}</div>
     </div>
     <button class="back-button map-back-button" @click="handleBack">返回</button>
@@ -47,16 +46,11 @@ export default {
       _allGeoData: [],
       showLoading: false,
       _hasRenderedFirst: false,
-      _allRenderQueue: [],
-      _allRenderIdle: null,
-      _allRenderBatchSize: 50,
       // 限制与缓存
-      _visibleCap: 600,
+      _visibleCap: 400,
       allMarkersMeta: new Map(), // id -> meta（含 rating/lat/lng 等）
-      _removedStore: new Map(),  // id -> meta（被移除的可恢复项）
       // 统计显示
       statsRendered: 0,
-      statsRemovedPool: 0,
       statsNeverRendered: 0,
     };
   },
@@ -410,209 +404,44 @@ export default {
       if (!this.map) return;
       const bounds = this.map.getBounds();
       const filters = this.getActiveFilters ? this.getActiveFilters() : { minReviews: 0, region: '', county: '' };
-      const visible = new Set();
-      const toAdd = [];
-      for (const r of (this._allGeoData || [])) {
-        if (!Number.isFinite(r.lat) || !Number.isFinite(r.lng)) continue;
-        if (bounds && !bounds.contains(L.latLng(r.lat, r.lng))) continue;
-        if (this.passFilters && !this.passFilters(r, filters)) continue;
-        const idStr = String(r.id);
-        visible.add(idStr);
-        // 仅将“非移除池”的待渲染项加入队列
-        if (!this.allMarkers.has(idStr) && !(this._removedStore && this._removedStore.has(idStr))) {
-          toAdd.push(r);
-        }
-      }
-      // 初步统计（未渲染仅统计不在移除池中的待渲染项）
-      this.updateRenderStats(toAdd);
-      // 增量调度加入视野内的普通标记 + 1000 上限管理
-      try {
-        if (this._allRenderIdle) {
-          if ('cancelIdleCallback' in window) { window.cancelIdleCallback(this._allRenderIdle); } else { clearTimeout(this._allRenderIdle); }
-          this._allRenderIdle = null;
-        }
-      } catch (e) {}
-      this._allRenderQueue = toAdd;
-      // 先按上限裁剪已渲染（仅统计当前视野内）
-      const currentVisibleIds = Array.from(this.allMarkers.keys()).filter(id => visible.has(id));
-      if (currentVisibleIds.length > this._visibleCap) {
-        const over = currentVisibleIds.length - this._visibleCap;
-        // 收集评分并按低->高排序移除
-        const candidates = currentVisibleIds.map(id => {
-          const meta = this.allMarkersMeta.get(id) || (this._allGeoData.find(x => String(x.id) === String(id)) || {});
-          const ratingNum = this.getNumericRating(meta && meta.rating);
-          return { id, ratingNum, meta };
-        }).sort((a,b) => a.ratingNum - b.ratingNum);
-        const removeUnit = this.getDynamicUnitSize(over);
-        const toRemove = candidates.slice(0, removeUnit);
-        for (const item of toRemove) {
-          const mk = this.allMarkers.get(item.id);
-          if (mk) {
-            try { this.allLayer.removeLayer(mk); } catch (e) {}
-            this.allMarkers.delete(item.id);
-            this.allMarkersMeta.delete(item.id);
-            if (!this._removedStore.has(item.id)) {
-              // 确保有坐标
-              let lat = item.meta && item.meta.lat; let lng = item.meta && item.meta.lng;
-              try { if ((!Number.isFinite(lat) || !Number.isFinite(lng)) && mk.getLatLng) { const ll = mk.getLatLng(); lat = ll.lat; lng = ll.lng; } } catch(e) {}
-              this._removedStore.set(item.id, { ...item.meta, id: item.id, lat, lng, rating: item.meta && item.meta.rating });
-            }
-          }
-        }
+
+      // 从全量数据中筛选出“当前屏幕内、通过过滤条件”的普通景点
+      const visibleList = (this._allGeoData || []).filter(r => {
+        if (!Number.isFinite(r.lat) || !Number.isFinite(r.lng)) return false;
+        if (bounds && !bounds.contains(L.latLng(r.lat, r.lng))) return false;
+        if (this.passFilters && !this.passFilters(r, filters)) return false;
+        return true;
+      });
+
+      // 按好评率从高到低排序
+      visibleList.sort((a, b) => this.getNumericRating(b.rating) - this.getNumericRating(a.rating));
+
+      // 清空现有普通景点标记（保留收藏层与聚焦层）
+      try { this.allLayer.clearLayers(); } catch (e) {}
+      this.allMarkers.clear();
+      this.allMarkersMeta.clear();
+
+      // 按排序渲染，最多 600 个
+      const limit = Math.min(visibleList.length, this._visibleCap);
+      for (let i = 0; i < limit; i++) {
+        const r = visibleList[i];
+        const id = String(r.id);
+        const icon = this.createAllIcon(r.rating);
+        const marker = L.marker([r.lat, r.lng], { icon, pane: 'allPane', zIndexOffset: 0 });
+        marker.bindPopup(this.buildPopup(r));
+        marker.on('popupopen', () => this.attachPopupHandlers(r));
+        marker.addTo(this.allLayer);
+        this.allMarkers.set(id, marker);
+        this.allMarkersMeta.set(id, r);
       }
 
-      // 若达到上限且还有待渲染项，为了继续渲染，预先按低分移除一批以腾出空间
-      if (Array.isArray(this._allRenderQueue) && this._allRenderQueue.length > 0) {
-        const batchNeed = this.getDynamicUnitSize(this._allRenderQueue.length);
-        const overflowIfAdd = (this.allMarkers.size + batchNeed) - this._visibleCap;
-        if (overflowIfAdd > 0) {
-          // 从当前屏内已渲染里再移除 overflowIfAdd 个（低分优先）
-          const candidates = Array.from(this.allMarkers.keys())
-            .filter(id => visible.has(id))
-            .map(id => {
-              const meta = this.allMarkersMeta.get(id) || (this._allGeoData.find(x => String(x.id) === String(id)) || {});
-              const ratingNum = this.getNumericRating(meta && meta.rating);
-              return { id, ratingNum, meta };
-            })
-            .sort((a,b) => a.ratingNum - b.ratingNum);
-          const removeUnit2 = this.getDynamicUnitSize(overflowIfAdd);
-          const toRemoveMore = candidates.slice(0, removeUnit2);
-          for (const item of toRemoveMore) {
-            const mk = this.allMarkers.get(item.id);
-            if (mk) {
-              try { this.allLayer.removeLayer(mk); } catch (e) {}
-              this.allMarkers.delete(item.id);
-              this.allMarkersMeta.delete(item.id);
-              if (!this._removedStore.has(item.id)) {
-                let lat = item.meta && item.meta.lat; let lng = item.meta && item.meta.lng;
-                try { if ((!Number.isFinite(lat) || !Number.isFinite(lng)) && mk.getLatLng) { const ll = mk.getLatLng(); lat = ll.lat; lng = ll.lng; } } catch(e) {}
-                this._removedStore.set(item.id, { ...item.meta, id: item.id, lat, lng, rating: item.meta && item.meta.rating });
-              }
-            }
-          }
-        }
+      // 更新渲染统计
+      this.statsRendered = this.allMarkers.size;
+      this.statsNeverRendered = Math.max(0, visibleList.length - this.statsRendered);
+      if (!this._hasRenderedFirst && this.statsRendered > 0) {
+        this._hasRenderedFirst = true;
+        this.showLoading = false;
       }
-      this.updateRenderStats(this._allRenderQueue.length);
-      this.updateRenderStats(this._allRenderQueue.length);
-      const runAddBatch = (deadline) => {
-        // 若已达上限但仍有待渲染，则先释放空间（低分优先）
-        if (this.allMarkers.size >= this._visibleCap && Array.isArray(this._allRenderQueue) && this._allRenderQueue.length > 0) {
-          const batchNeed = this.getDynamicUnitSize(this._allRenderQueue.length);
-          const overflowIfAdd = (this.allMarkers.size + batchNeed) - this._visibleCap;
-          if (overflowIfAdd > 0) {
-            const candidates = Array.from(this.allMarkers.keys())
-              .filter(id => visible.has(id))
-              .map(id => {
-                const meta = this.allMarkersMeta.get(id) || (this._allGeoData.find(x => String(x.id) === String(id)) || {});
-                const ratingNum = this.getNumericRating(meta && meta.rating);
-                return { id, ratingNum, meta };
-              })
-              .sort((a,b) => a.ratingNum - b.ratingNum);
-            const removeUnit3 = this.getDynamicUnitSize(overflowIfAdd);
-            const toRemoveMore = candidates.slice(0, removeUnit3);
-            for (const item of toRemoveMore) {
-              const mk = this.allMarkers.get(item.id);
-              if (mk) {
-                try { this.allLayer.removeLayer(mk); } catch (e) {}
-                this.allMarkers.delete(item.id);
-                this.allMarkersMeta.delete(item.id);
-                if (!this._removedStore.has(item.id)) {
-                  let lat = item.meta && item.meta.lat; let lng = item.meta && item.meta.lng;
-                  try { if ((!Number.isFinite(lat) || !Number.isFinite(lng)) && mk.getLatLng) { const ll = mk.getLatLng(); lat = ll.lat; lng = ll.lng; } } catch(e) {}
-                  this._removedStore.set(item.id, { ...item.meta, id: item.id, lat, lng, rating: item.meta && item.meta.rating });
-                }
-              }
-            }
-            this.updateRenderStats(this._allRenderQueue.length);
-          }
-        }
-        if (this.allMarkers.size >= this._visibleCap) return;
-        if (!Array.isArray(this._allRenderQueue) || this._allRenderQueue.length === 0) return;
-        const addUnit = this.getDynamicUnitSize(this._allRenderQueue.length);
-        let processed = 0;
-        while (processed < addUnit && this._allRenderQueue.length) {
-          if (this.allMarkers.size >= this._visibleCap) break;
-          const r = this._allRenderQueue.shift();
-          if (r) {
-            const id = String(r.id);
-            if (!this.allMarkers.has(id) && Number.isFinite(r.lat) && Number.isFinite(r.lng)) {
-              const icon = this.createAllIcon(r.rating);
-              const marker = L.marker([r.lat, r.lng], { icon, pane: 'allPane', zIndexOffset: 0 });
-              marker.bindPopup(this.buildPopup(r));
-              marker.on('popupopen', () => this.attachPopupHandlers(r));
-              marker.addTo(this.allLayer);
-              this.allMarkers.set(id, marker);
-              this.allMarkersMeta.set(id, r);
-              if (!this._hasRenderedFirst) { this._hasRenderedFirst = true; this.showLoading = false; }
-            }
-          }
-          processed++;
-          // 不再根据 timeRemaining 提前打断，确保本轮按动态单位完成
-        }
-        this.updateRenderStats(this._allRenderQueue.length);
-        if (this._allRenderQueue.length) { scheduleNext(); }
-      };
-      const scheduleNext = () => {
-        if ('requestIdleCallback' in window) {
-          this._allRenderIdle = window.requestIdleCallback(runAddBatch, { timeout: 60 });
-        } else {
-          this._allRenderIdle = setTimeout(runAddBatch, 0);
-        }
-      };
-      if (this._allRenderQueue.length) { scheduleNext(); this.updateRenderStats(this._allRenderQueue.length); }
-      else if (this.allMarkers.size < this._visibleCap && this._allRenderQueue.length === 0) {
-        // 无新增可渲染项，尝试从被移除池中恢复（仅恢复当前视野内，评分高->低）
-        const need = this._visibleCap - this.allMarkers.size;
-        if (need > 0 && this._removedStore.size > 0) {
-          const b = this.map.getBounds();
-          const pool = Array.from(this._removedStore.values()).filter(m => Number.isFinite(m.lat) && Number.isFinite(m.lng) && b.contains(L.latLng(m.lat, m.lng)) && !this.allMarkers.has(String(m.id)));
-          pool.sort((a,bm) => this.getNumericRating(bm.rating) - this.getNumericRating(a.rating));
-          const restoreUnit = this.getDynamicUnitSize(Math.min(need, pool.length));
-          let restored = 0;
-          for (const r of pool) {
-            if (this.allMarkers.size >= this._visibleCap) break;
-            if (restored >= restoreUnit) break;
-            const id = String(r.id);
-            const icon = this.createAllIcon(r.rating);
-            const marker = L.marker([r.lat, r.lng], { icon, pane: 'allPane', zIndexOffset: 0 });
-            marker.bindPopup(this.buildPopup(r));
-            marker.on('popupopen', () => this.attachPopupHandlers(r));
-            marker.addTo(this.allLayer);
-            this.allMarkers.set(id, marker);
-            this.allMarkersMeta.set(id, r);
-            this._removedStore.delete(id);
-            restored++;
-            if (!this._hasRenderedFirst) { this._hasRenderedFirst = true; this.showLoading = false; }
-            if (restored >= need) break;
-          }
-          this.updateRenderStats(0);
-        }
-      } else if (!this._hasRenderedFirst && this.favoritesLayer && Object.keys(this.favoritesLayer._layers || {}).length === 0 && this.allMarkers.size === 0) { this.showLoading = false; }
-
-      // 移除离开视野的普通标记（按单位）
-      const toRemoveInvisible = [];
-      for (const [id, mk] of Array.from(this.allMarkers.entries())) {
-        if (!visible.has(id)) toRemoveInvisible.push({ id, mk });
-      }
-      if (toRemoveInvisible.length) {
-        const removeUnit4 = this.getDynamicUnitSize(toRemoveInvisible.length);
-        for (const item of toRemoveInvisible.slice(0, removeUnit4)) {
-          try { this.allLayer.removeLayer(item.mk); } catch (e) {}
-          this.allMarkers.delete(item.id);
-          this.allMarkersMeta.delete(item.id);
-        }
-      }
-      this.updateRenderStats(this._allRenderQueue ? this._allRenderQueue.length : 0);
-    },
-
-    // 动态批量单位选择：>=200 -> 200, >=100 -> 100, >=10 -> 10, else 1
-    getDynamicUnitSize(count) {
-      const n = parseInt(count, 10);
-      if (!Number.isFinite(n) || n <= 0) return 0;
-      if (n >= 200) return 200;
-      if (n >= 100) return 100;
-      if (n >= 10) return 10;
-      return 1;
     },
 
     async focusSpecificAttraction() {
@@ -785,19 +614,7 @@ export default {
       const v = Number.isFinite(raw) ? Math.max(0, Math.min(100, raw)) : 0;
       return v;
     },
-    updateRenderStats(toAddInput) {
-      try {
-        this.statsRendered = this.allMarkers ? this.allMarkers.size : 0;
-        this.statsRemovedPool = this._removedStore ? this._removedStore.size : 0;
-        const excludeRemoved = (arr) => (Array.isArray(arr) ? arr.filter(r => !this._removedStore || !this._removedStore.has(String(r && r.id))).length : 0);
-        if (Array.isArray(toAddInput)) {
-          this.statsNeverRendered = excludeRemoved(toAddInput);
-        } else {
-          // 默认从当前队列计算，并排除移除池
-          this.statsNeverRendered = excludeRemoved(this._allRenderQueue);
-        }
-      } catch (e) {}
-    },
+
     // 列表筛选：从 localStorage 读取
     getActiveFilters() {
       let minReviews = 0, region = '', county = '';
