@@ -2,6 +2,11 @@
   <div class="map-page">
     <div id="map" class="map-container"></div>
     <div v-if="showLoading" class="map-loading-overlay"><div class="spinner"></div></div>
+    <div class="map-stats">
+      <div>已渲染(屏内)：{{ statsRendered }}</div>
+      <div>移除池：{{ statsRemovedPool }}</div>
+      <div>未渲染(屏内)：{{ statsNeverRendered }}</div>
+    </div>
     <button class="back-button map-back-button" @click="handleBack">返回</button>
   </div>
 </template>
@@ -44,7 +49,15 @@ export default {
       _hasRenderedFirst: false,
       _allRenderQueue: [],
       _allRenderIdle: null,
-      _allRenderBatchSize: 400,
+      _allRenderBatchSize: 50,
+      // 限制与缓存
+      _visibleCap: 1000,
+      allMarkersMeta: new Map(), // id -> meta（含 rating/lat/lng 等）
+      _removedStore: new Map(),  // id -> meta（被移除的可恢复项）
+      // 统计显示
+      statsRendered: 0,
+      statsRemovedPool: 0,
+      statsNeverRendered: 0,
     };
   },
   computed: {
@@ -355,7 +368,9 @@ export default {
         visible.add(String(r.id));
         if (!this.allMarkers.has(String(r.id))) { toAdd.push(r); }
       }
-      // 增量调度加入视野内的普通标记
+      // 初步统计
+      this.updateRenderStats(toAdd.length);
+      // 增量调度加入视野内的普通标记 + 1000 上限管理
       try {
         if (this._allRenderIdle) {
           if ('cancelIdleCallback' in window) { window.cancelIdleCallback(this._allRenderIdle); } else { clearTimeout(this._allRenderIdle); }
@@ -363,10 +378,101 @@ export default {
         }
       } catch (e) {}
       this._allRenderQueue = toAdd;
+      // 先按上限裁剪已渲染（仅统计当前视野内）
+      const currentVisibleIds = Array.from(this.allMarkers.keys()).filter(id => visible.has(id));
+      if (currentVisibleIds.length > this._visibleCap) {
+        const over = currentVisibleIds.length - this._visibleCap;
+        // 收集评分并按低->高排序移除
+        const candidates = currentVisibleIds.map(id => {
+          const meta = this.allMarkersMeta.get(id) || (this._allGeoData.find(x => String(x.id) === String(id)) || {});
+          const ratingNum = this.getNumericRating(meta && meta.rating);
+          return { id, ratingNum, meta };
+        }).sort((a,b) => a.ratingNum - b.ratingNum);
+        const toRemove = candidates.slice(0, over);
+        for (const item of toRemove) {
+          const mk = this.allMarkers.get(item.id);
+          if (mk) {
+            try { this.allLayer.removeLayer(mk); } catch (e) {}
+            this.allMarkers.delete(item.id);
+            this.allMarkersMeta.delete(item.id);
+            if (!this._removedStore.has(item.id)) {
+              // 确保有坐标
+              let lat = item.meta && item.meta.lat; let lng = item.meta && item.meta.lng;
+              try { if ((!Number.isFinite(lat) || !Number.isFinite(lng)) && mk.getLatLng) { const ll = mk.getLatLng(); lat = ll.lat; lng = ll.lng; } } catch(e) {}
+              this._removedStore.set(item.id, { ...item.meta, id: item.id, lat, lng, rating: item.meta && item.meta.rating });
+            }
+          }
+        }
+      }
+
+      // 若达到上限且还有待渲染项，为了继续渲染，预先按低分移除一批以腾出空间
+      if (Array.isArray(this._allRenderQueue) && this._allRenderQueue.length > 0) {
+        const batchNeed = Math.min(this._allRenderBatchSize, this._allRenderQueue.length);
+        const overflowIfAdd = (this.allMarkers.size + batchNeed) - this._visibleCap;
+        if (overflowIfAdd > 0) {
+          // 从当前屏内已渲染里再移除 overflowIfAdd 个（低分优先）
+          const candidates = Array.from(this.allMarkers.keys())
+            .filter(id => visible.has(id))
+            .map(id => {
+              const meta = this.allMarkersMeta.get(id) || (this._allGeoData.find(x => String(x.id) === String(id)) || {});
+              const ratingNum = this.getNumericRating(meta && meta.rating);
+              return { id, ratingNum, meta };
+            })
+            .sort((a,b) => a.ratingNum - b.ratingNum);
+          const toRemoveMore = candidates.slice(0, overflowIfAdd);
+          for (const item of toRemoveMore) {
+            const mk = this.allMarkers.get(item.id);
+            if (mk) {
+              try { this.allLayer.removeLayer(mk); } catch (e) {}
+              this.allMarkers.delete(item.id);
+              this.allMarkersMeta.delete(item.id);
+              if (!this._removedStore.has(item.id)) {
+                let lat = item.meta && item.meta.lat; let lng = item.meta && item.meta.lng;
+                try { if ((!Number.isFinite(lat) || !Number.isFinite(lng)) && mk.getLatLng) { const ll = mk.getLatLng(); lat = ll.lat; lng = ll.lng; } } catch(e) {}
+                this._removedStore.set(item.id, { ...item.meta, id: item.id, lat, lng, rating: item.meta && item.meta.rating });
+              }
+            }
+          }
+        }
+      }
+      this.updateRenderStats(this._allRenderQueue.length);
+      this.updateRenderStats(this._allRenderQueue.length);
       const runAddBatch = (deadline) => {
+        // 若已达上限但仍有待渲染，则先释放空间（低分优先）
+        if (this.allMarkers.size >= this._visibleCap && Array.isArray(this._allRenderQueue) && this._allRenderQueue.length > 0) {
+          const batchNeed = Math.min(this._allRenderBatchSize, this._allRenderQueue.length);
+          const overflowIfAdd = (this.allMarkers.size + batchNeed) - this._visibleCap;
+          if (overflowIfAdd > 0) {
+            const candidates = Array.from(this.allMarkers.keys())
+              .filter(id => visible.has(id))
+              .map(id => {
+                const meta = this.allMarkersMeta.get(id) || (this._allGeoData.find(x => String(x.id) === String(id)) || {});
+                const ratingNum = this.getNumericRating(meta && meta.rating);
+                return { id, ratingNum, meta };
+              })
+              .sort((a,b) => a.ratingNum - b.ratingNum);
+            const toRemoveMore = candidates.slice(0, overflowIfAdd);
+            for (const item of toRemoveMore) {
+              const mk = this.allMarkers.get(item.id);
+              if (mk) {
+                try { this.allLayer.removeLayer(mk); } catch (e) {}
+                this.allMarkers.delete(item.id);
+                this.allMarkersMeta.delete(item.id);
+                if (!this._removedStore.has(item.id)) {
+                  let lat = item.meta && item.meta.lat; let lng = item.meta && item.meta.lng;
+                  try { if ((!Number.isFinite(lat) || !Number.isFinite(lng)) && mk.getLatLng) { const ll = mk.getLatLng(); lat = ll.lat; lng = ll.lng; } } catch(e) {}
+                  this._removedStore.set(item.id, { ...item.meta, id: item.id, lat, lng, rating: item.meta && item.meta.rating });
+                }
+              }
+            }
+            this.updateRenderStats(this._allRenderQueue.length);
+          }
+        }
+        if (this.allMarkers.size >= this._visibleCap) return;
         if (!Array.isArray(this._allRenderQueue) || this._allRenderQueue.length === 0) return;
         let processed = 0;
         while (processed < this._allRenderBatchSize && this._allRenderQueue.length) {
+          if (this.allMarkers.size >= this._visibleCap) break;
           const r = this._allRenderQueue.shift();
           if (r) {
             const id = String(r.id);
@@ -377,12 +483,14 @@ export default {
               marker.on('popupopen', () => this.attachPopupHandlers(r));
               marker.addTo(this.allLayer);
               this.allMarkers.set(id, marker);
+              this.allMarkersMeta.set(id, r);
               if (!this._hasRenderedFirst) { this._hasRenderedFirst = true; this.showLoading = false; }
             }
           }
           processed++;
           if (deadline && typeof deadline.timeRemaining === 'function' && deadline.timeRemaining() <= 1) break;
         }
+        this.updateRenderStats(this._allRenderQueue.length);
         if (this._allRenderQueue.length) { scheduleNext(); }
       };
       const scheduleNext = () => {
@@ -392,16 +500,43 @@ export default {
           this._allRenderIdle = setTimeout(runAddBatch, 0);
         }
       };
-      if (this._allRenderQueue.length) { scheduleNext(); }
-      else if (!this._hasRenderedFirst && this.favoritesLayer && Object.keys(this.favoritesLayer._layers || {}).length === 0 && this.allMarkers.size === 0) { this.showLoading = false; }
+      if (this._allRenderQueue.length) { scheduleNext(); this.updateRenderStats(this._allRenderQueue.length); }
+      else if (this.allMarkers.size < this._visibleCap && this._allRenderQueue.length === 0) {
+        // 无新增可渲染项，尝试从被移除池中恢复（仅恢复当前视野内，评分高->低）
+        const need = this._visibleCap - this.allMarkers.size;
+        if (need > 0 && this._removedStore.size > 0) {
+          const b = this.map.getBounds();
+          const pool = Array.from(this._removedStore.values()).filter(m => Number.isFinite(m.lat) && Number.isFinite(m.lng) && b.contains(L.latLng(m.lat, m.lng)) && !this.allMarkers.has(String(m.id)));
+          pool.sort((a,bm) => this.getNumericRating(bm.rating) - this.getNumericRating(a.rating));
+          let restored = 0;
+          for (const r of pool) {
+            if (this.allMarkers.size >= this._visibleCap) break;
+            const id = String(r.id);
+            const icon = this.createAllIcon(r.rating);
+            const marker = L.marker([r.lat, r.lng], { icon, pane: 'allPane', zIndexOffset: 0 });
+            marker.bindPopup(this.buildPopup(r));
+            marker.on('popupopen', () => this.attachPopupHandlers(r));
+            marker.addTo(this.allLayer);
+            this.allMarkers.set(id, marker);
+            this.allMarkersMeta.set(id, r);
+            this._removedStore.delete(id);
+            restored++;
+            if (!this._hasRenderedFirst) { this._hasRenderedFirst = true; this.showLoading = false; }
+            if (restored >= need) break;
+          }
+          this.updateRenderStats(0);
+        }
+      } else if (!this._hasRenderedFirst && this.favoritesLayer && Object.keys(this.favoritesLayer._layers || {}).length === 0 && this.allMarkers.size === 0) { this.showLoading = false; }
 
       // 移除离开视野的普通标记
       for (const [id, mk] of Array.from(this.allMarkers.entries())) {
         if (!visible.has(id)) {
           try { this.allLayer.removeLayer(mk); } catch (e) {}
           this.allMarkers.delete(id);
+          this.allMarkersMeta.delete(id);
         }
       }
+      this.updateRenderStats(this._allRenderQueue ? this._allRenderQueue.length : 0);
     },
 
     async focusSpecificAttraction() {
@@ -564,6 +699,22 @@ export default {
       const green = Math.round(255 * x);
       return `rgb(${red}, ${green}, 0)`;
     },
+    getNumericRating(rating) {
+      const raw = typeof rating === 'number' ? rating : parseFloat(String(rating || '').replace('%', '').trim());
+      const v = Number.isFinite(raw) ? Math.max(0, Math.min(100, raw)) : 0;
+      return v;
+    },
+    updateRenderStats(toAddCount) {
+      try {
+        this.statsRendered = this.allMarkers ? this.allMarkers.size : 0;
+        this.statsRemovedPool = this._removedStore ? this._removedStore.size : 0;
+        if (typeof toAddCount === 'number') {
+          this.statsNeverRendered = toAddCount;
+        } else {
+          this.statsNeverRendered = Array.isArray(this._allRenderQueue) ? this._allRenderQueue.length : 0;
+        }
+      } catch (e) {}
+    },
     // 列表筛选：从 localStorage 读取
     getActiveFilters() {
       let minReviews = 0, region = '', county = '';
@@ -714,4 +865,20 @@ export default {
 .map-loading-overlay { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; pointer-events: none; z-index: 1500; }
 .spinner { width: 36px; height: 36px; border: 4px solid rgba(0,0,0,0.15); border-top-color: rgba(0,0,0,0.6); border-radius: 50%; animation: spin 0.9s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
+
+/* 右上角统计面板 */
+.map-stats {
+  position: fixed;
+  top: calc(env(safe-area-inset-top) + 12px);
+  right: 12px;
+  z-index: 2100;
+  background: rgba(0,0,0,0.55);
+  color: #fff;
+  font-size: 12px;
+  line-height: 1.4;
+  padding: 6px 10px;
+  border-radius: 8px;
+  backdrop-filter: blur(4px);
+  pointer-events: none;
+}
 </style>
