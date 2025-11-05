@@ -365,11 +365,15 @@ export default {
         if (!Number.isFinite(r.lat) || !Number.isFinite(r.lng)) continue;
         if (bounds && !bounds.contains(L.latLng(r.lat, r.lng))) continue;
         if (this.passFilters && !this.passFilters(r, filters)) continue;
-        visible.add(String(r.id));
-        if (!this.allMarkers.has(String(r.id))) { toAdd.push(r); }
+        const idStr = String(r.id);
+        visible.add(idStr);
+        // 仅将“非移除池”的待渲染项加入队列
+        if (!this.allMarkers.has(idStr) && !(this._removedStore && this._removedStore.has(idStr))) {
+          toAdd.push(r);
+        }
       }
-      // 初步统计
-      this.updateRenderStats(toAdd.length);
+      // 初步统计（未渲染仅统计不在移除池中的待渲染项）
+      this.updateRenderStats(toAdd);
       // 增量调度加入视野内的普通标记 + 1000 上限管理
       try {
         if (this._allRenderIdle) {
@@ -704,14 +708,16 @@ export default {
       const v = Number.isFinite(raw) ? Math.max(0, Math.min(100, raw)) : 0;
       return v;
     },
-    updateRenderStats(toAddCount) {
+    updateRenderStats(toAddInput) {
       try {
         this.statsRendered = this.allMarkers ? this.allMarkers.size : 0;
         this.statsRemovedPool = this._removedStore ? this._removedStore.size : 0;
-        if (typeof toAddCount === 'number') {
-          this.statsNeverRendered = toAddCount;
+        const excludeRemoved = (arr) => (Array.isArray(arr) ? arr.filter(r => !this._removedStore || !this._removedStore.has(String(r && r.id))).length : 0);
+        if (Array.isArray(toAddInput)) {
+          this.statsNeverRendered = excludeRemoved(toAddInput);
         } else {
-          this.statsNeverRendered = Array.isArray(this._allRenderQueue) ? this._allRenderQueue.length : 0;
+          // 默认从当前队列计算，并排除移除池
+          this.statsNeverRendered = excludeRemoved(this._allRenderQueue);
         }
       } catch (e) {}
     },
