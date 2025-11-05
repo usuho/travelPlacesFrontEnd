@@ -392,7 +392,8 @@ export default {
           const ratingNum = this.getNumericRating(meta && meta.rating);
           return { id, ratingNum, meta };
         }).sort((a,b) => a.ratingNum - b.ratingNum);
-        const toRemove = candidates.slice(0, over);
+        const removeUnit = this.getDynamicUnitSize(over);
+        const toRemove = candidates.slice(0, removeUnit);
         for (const item of toRemove) {
           const mk = this.allMarkers.get(item.id);
           if (mk) {
@@ -411,7 +412,7 @@ export default {
 
       // 若达到上限且还有待渲染项，为了继续渲染，预先按低分移除一批以腾出空间
       if (Array.isArray(this._allRenderQueue) && this._allRenderQueue.length > 0) {
-        const batchNeed = Math.min(this._allRenderBatchSize, this._allRenderQueue.length);
+        const batchNeed = this.getDynamicUnitSize(this._allRenderQueue.length);
         const overflowIfAdd = (this.allMarkers.size + batchNeed) - this._visibleCap;
         if (overflowIfAdd > 0) {
           // 从当前屏内已渲染里再移除 overflowIfAdd 个（低分优先）
@@ -423,7 +424,8 @@ export default {
               return { id, ratingNum, meta };
             })
             .sort((a,b) => a.ratingNum - b.ratingNum);
-          const toRemoveMore = candidates.slice(0, overflowIfAdd);
+          const removeUnit2 = this.getDynamicUnitSize(overflowIfAdd);
+          const toRemoveMore = candidates.slice(0, removeUnit2);
           for (const item of toRemoveMore) {
             const mk = this.allMarkers.get(item.id);
             if (mk) {
@@ -444,7 +446,7 @@ export default {
       const runAddBatch = (deadline) => {
         // 若已达上限但仍有待渲染，则先释放空间（低分优先）
         if (this.allMarkers.size >= this._visibleCap && Array.isArray(this._allRenderQueue) && this._allRenderQueue.length > 0) {
-          const batchNeed = Math.min(this._allRenderBatchSize, this._allRenderQueue.length);
+          const batchNeed = this.getDynamicUnitSize(this._allRenderQueue.length);
           const overflowIfAdd = (this.allMarkers.size + batchNeed) - this._visibleCap;
           if (overflowIfAdd > 0) {
             const candidates = Array.from(this.allMarkers.keys())
@@ -455,7 +457,8 @@ export default {
                 return { id, ratingNum, meta };
               })
               .sort((a,b) => a.ratingNum - b.ratingNum);
-            const toRemoveMore = candidates.slice(0, overflowIfAdd);
+            const removeUnit3 = this.getDynamicUnitSize(overflowIfAdd);
+            const toRemoveMore = candidates.slice(0, removeUnit3);
             for (const item of toRemoveMore) {
               const mk = this.allMarkers.get(item.id);
               if (mk) {
@@ -474,8 +477,9 @@ export default {
         }
         if (this.allMarkers.size >= this._visibleCap) return;
         if (!Array.isArray(this._allRenderQueue) || this._allRenderQueue.length === 0) return;
+        const addUnit = this.getDynamicUnitSize(this._allRenderQueue.length);
         let processed = 0;
-        while (processed < this._allRenderBatchSize && this._allRenderQueue.length) {
+        while (processed < addUnit && this._allRenderQueue.length) {
           if (this.allMarkers.size >= this._visibleCap) break;
           const r = this._allRenderQueue.shift();
           if (r) {
@@ -492,7 +496,7 @@ export default {
             }
           }
           processed++;
-          if (deadline && typeof deadline.timeRemaining === 'function' && deadline.timeRemaining() <= 1) break;
+          // 不再根据 timeRemaining 提前打断，确保本轮按动态单位完成
         }
         this.updateRenderStats(this._allRenderQueue.length);
         if (this._allRenderQueue.length) { scheduleNext(); }
@@ -512,9 +516,11 @@ export default {
           const b = this.map.getBounds();
           const pool = Array.from(this._removedStore.values()).filter(m => Number.isFinite(m.lat) && Number.isFinite(m.lng) && b.contains(L.latLng(m.lat, m.lng)) && !this.allMarkers.has(String(m.id)));
           pool.sort((a,bm) => this.getNumericRating(bm.rating) - this.getNumericRating(a.rating));
+          const restoreUnit = this.getDynamicUnitSize(Math.min(need, pool.length));
           let restored = 0;
           for (const r of pool) {
             if (this.allMarkers.size >= this._visibleCap) break;
+            if (restored >= restoreUnit) break;
             const id = String(r.id);
             const icon = this.createAllIcon(r.rating);
             const marker = L.marker([r.lat, r.lng], { icon, pane: 'allPane', zIndexOffset: 0 });
@@ -532,15 +538,30 @@ export default {
         }
       } else if (!this._hasRenderedFirst && this.favoritesLayer && Object.keys(this.favoritesLayer._layers || {}).length === 0 && this.allMarkers.size === 0) { this.showLoading = false; }
 
-      // 移除离开视野的普通标记
+      // 移除离开视野的普通标记（按单位）
+      const toRemoveInvisible = [];
       for (const [id, mk] of Array.from(this.allMarkers.entries())) {
-        if (!visible.has(id)) {
-          try { this.allLayer.removeLayer(mk); } catch (e) {}
-          this.allMarkers.delete(id);
-          this.allMarkersMeta.delete(id);
+        if (!visible.has(id)) toRemoveInvisible.push({ id, mk });
+      }
+      if (toRemoveInvisible.length) {
+        const removeUnit4 = this.getDynamicUnitSize(toRemoveInvisible.length);
+        for (const item of toRemoveInvisible.slice(0, removeUnit4)) {
+          try { this.allLayer.removeLayer(item.mk); } catch (e) {}
+          this.allMarkers.delete(item.id);
+          this.allMarkersMeta.delete(item.id);
         }
       }
       this.updateRenderStats(this._allRenderQueue ? this._allRenderQueue.length : 0);
+    },
+
+    // 动态批量单位选择：>=200 -> 200, >=100 -> 100, >=10 -> 10, else 1
+    getDynamicUnitSize(count) {
+      const n = parseInt(count, 10);
+      if (!Number.isFinite(n) || n <= 0) return 0;
+      if (n >= 200) return 200;
+      if (n >= 100) return 100;
+      if (n >= 10) return 10;
+      return 1;
     },
 
     async focusSpecificAttraction() {
