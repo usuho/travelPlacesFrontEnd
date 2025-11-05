@@ -51,7 +51,7 @@ export default {
       _allRenderIdle: null,
       _allRenderBatchSize: 50,
       // 限制与缓存
-      _visibleCap: 1000,
+      _visibleCap: 600,
       allMarkersMeta: new Map(), // id -> meta（含 rating/lat/lng 等）
       _removedStore: new Map(),  // id -> meta（被移除的可恢复项）
       // 统计显示
@@ -132,7 +132,7 @@ export default {
 
     initMap() {
       const { center, zoom } = this.getDefaultView();
-      this.map = L.map('map', { zoomControl: true }).setView(center, zoom);
+      this.map = L.map('map', { zoomControl: true, dragging: true, tap: false, touchZoom: true }).setView(center, zoom);
       L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
         maxZoom: 18,
         attribution: '&copy; OpenStreetMap contributors'
@@ -908,4 +908,12 @@ export default {
   backdrop-filter: blur(4px);
   pointer-events: none;
 }
+
+
+:deep(.leaflet-container) {
+  touch-action: none !important;
+  -ms-touch-action: none !important;
+  overscroll-behavior: contain;
+}
 </style>
+
