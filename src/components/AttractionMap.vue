@@ -245,7 +245,7 @@ export default {
             region: (fav.region || (ca && ca.region) || ''),
             county: (fav.county || (ca && ca.county) || ''),
             rating: Number.isFinite(fav.rating) ? fav.rating : (ca && ca.rating) || 0,
-            hasImage: !!(ca && ca.image1),
+            hasImage: !!(ca && (ca.hasImage1 || ca.hasImage2 || ca.hasImage3)),
             country: 'custom',
           };
         } else {
@@ -632,7 +632,7 @@ export default {
           const g = await this.geocodeByFreeApi(`${ca.name} ${ca.region || ''} ${ca.county || ''}`.trim());
           if (g) latlng = [g.lat, g.lng];
         }
-        meta = ca ? { id, name: ca.name, region: ca.region, county: ca.county, rating: ca.rating, country: 'custom', hasImage: !!ca.image1 } : null;
+        meta = ca ? { id, name: ca.name, region: ca.region, county: ca.county, rating: ca.rating, country: 'custom', hasImage: !!(ca.hasImage1 || ca.hasImage2 || ca.hasImage3) } : null;
       } else {
         try {
           const arr = await fetchAttractionsGeoByIds(this.country, [id]);
@@ -735,11 +735,16 @@ export default {
     },
 
     attachPopupHandlers(meta) {
-      // 加载图片（若占位）
+      // 加载图片（若占位）。注意：el.src 在部分浏览器会被解析为绝对 URL，即使属性为空，
+      // 因此用 getAttribute('src') 判断是否真的为空；自创景点为稳妥总是尝试加载一次。
       const imgId = `img_${meta.country || this.country}_${meta.id}`;
       const el = document.getElementById(imgId);
-      if (el && !el.src) {
-        this.loadImage(meta).then(src => { if (src) el.src = src; });
+      if (el) {
+        const rawAttr = el.getAttribute('src');
+        const isCustom = String(meta.country || this.country) === 'custom';
+        if (!rawAttr || isCustom) {
+          this.loadImage(meta).then(src => { if (src) el.src = src; });
+        }
       }
       // 点击弹窗跳转到详情
       try {
@@ -835,8 +840,12 @@ export default {
       if (this.imageCache.has(key)) return this.imageCache.get(key);
       try {
         if (String(meta.country || this.country) === 'custom') {
-          const url = await getCustomImageUrl(String(meta.id), 1);
-          if (url) { this.imageCache.set(key, url); return url; }
+          const id = String(meta.id);
+          const keys = [`${id}:main`, `${id}:sec0`, `${id}:sec1`];
+          for (const k of keys) {
+            const url = await getCustomImageUrl(k);
+            if (url) { this.imageCache.set(key, url); return url; }
+          }
         } else {
           if (meta.hasImage) {
             const base = getLastApiBase();
