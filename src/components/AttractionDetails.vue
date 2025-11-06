@@ -116,7 +116,9 @@
                 <div class="info-item">
                   <span class="info-label">具体位置</span>
                   <span class="info-value">
-                    <a href="javascript:void(0)" class="map-link" @click="openMapForThis">{{ attraction.position }}</a>
+                    <a href="javascript:void(0)" class="map-link" @click="openMapForThis">
+                      {{ attraction.position }}<span v-if="fromMap" class="map-link-hint">…用谷歌地图打开</span>
+                    </a>
                   </span>
                 </div>
               </div>
@@ -1320,6 +1322,10 @@
   border-radius: 20px;
   backdrop-filter: blur(10px);
 }
+
+/* 位置链接与提示（从地图进入时）颜色保持一致 */
+.info-card .info-value .map-link { color: #1a73e8; }
+.info-card .info-value .map-link .map-link-hint { margin-left: 6px; }
 
 /* 图片展示区域 */
 .images-section {
