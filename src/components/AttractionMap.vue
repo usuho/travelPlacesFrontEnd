@@ -57,6 +57,8 @@ export default {
       // 进入地图时的拟合控制与视图恢复
       _blockFavFit: false,
       _shouldRestoreView: false,
+      _overlapZoomThreshold: 14,
+      _markersInteractive: true,
     };
   },
   computed: {
@@ -170,7 +172,18 @@ export default {
       // 仅渲染视野内标记（普通景点）；收藏不随视野清空
       const updateInView = () => { this.renderAllInView && this.renderAllInView(); };
       this.map.on('moveend', updateInView);
-      this.map.on('zoomend', updateInView);
+      this.map.on('zoomend', () => {
+        updateInView();
+        // 重新计算重叠分组的错位（基于像素的位移随缩放需重算）
+        try { this.recomputeOverlapAll(); } catch (e) {}
+      });
+      // 拖动时临时禁用标记指针事件，保证单指拖动；结束后恢复，可点击
+      try {
+        this.map.on('dragstart', () => { try { const el = document.getElementById('map'); if (el) el.classList.add('dragging-map'); } catch (e) {} });
+        this.map.on('dragend', () => { try { const el = document.getElementById('map'); if (el) el.classList.remove('dragging-map'); } catch (e) {} });
+      } catch (e) {}
+      // 初始化一次布局
+      try { this.recomputeOverlapAll(); } catch (e) {}
     },
 
     getDefaultView() {
@@ -235,9 +248,12 @@ export default {
         latlngsForFit.push(latlng);
         const icon = this.createFavoriteIcon(orderText || '', isPendingFlag);
         const marker = L.marker(latlng, { icon, pane: 'favoritesPane', zIndexOffset: 1000 });
+        try { marker.options._origLatLng = L.latLng(latlng[0], latlng[1]); } catch (e) {}
         marker.bindPopup(this.buildPopup(meta));
         marker.on('popupopen', () => this.attachPopupHandlers(meta));
         marker.addTo(this.favoritesLayer);
+        // 处理重叠：收藏标记任何缩放都要并排，增量重算
+        try { this.recomputeOverlapAll(); } catch (e) {}
         if (!this._hasRenderedFirst) { this._hasRenderedFirst = true; this.showLoading = false; }
       };
 
@@ -451,10 +467,13 @@ export default {
           const latlng = [r.lat, r.lng];
           const icon = this.createAllIcon(r.rating);
           const marker = L.marker(latlng, { icon, pane: 'allPane', zIndexOffset: 0 });
+          try { marker.options._origLatLng = L.latLng(latlng[0], latlng[1]); } catch (e) {}
           marker.bindPopup(this.buildPopup(r));
           marker.on('popupopen', () => this.attachPopupHandlers(r));
           marker.addTo(this.allLayer);
         }
+        // 统一重算所有分组的错位（收藏 + 普通）
+        try { this.recomputeOverlapAll(); } catch (e) {}
       } catch (e) {}
     },
 
@@ -553,10 +572,43 @@ export default {
       this.allMarkersMeta.clear();
 
       // 按排序渲染，最多 600 个
+      // 重叠错位分组：同一经纬度的标记横向错开
+      const overlapGroups = new Map();
+      const getOverlapKey = (r) => `${Number(r.lat).toFixed(6)},${Number(r.lng).toFixed(6)}`;
+      const repositionGroup = (g) => {
+        try {
+          const n = g.markers.length;
+          if (!this.map || n <= 1) return;
+          const center = L.latLng(g.center[0], g.center[1]);
+          const z = this.map.getZoom();
+          if (!Number.isFinite(z) || z < this._overlapZoomThreshold) {
+            // 缩放不够大：不做错开，保持重叠
+            for (let i = 0; i < n; i++) {
+              try { g.markers[i].setLatLng(center); } catch (e) {}
+            }
+            return;
+          }
+          const spacing = 18; // 普通点略小的间距
+          const cp = this.map.latLngToLayerPoint(center);
+          for (let i = 0; i < n; i++) {
+            const dx = (i - (n - 1) / 2) * spacing;
+            const p2 = L.point(cp.x + dx, cp.y);
+            const ll2 = this.map.layerPointToLatLng(p2);
+            try { g.markers[i].setLatLng(ll2); } catch (e) {}
+          }
+        } catch (e) {}
+      };
+
+      // 当前国家内的收藏 ID 集合（避免同时渲染普通点与收藏点的重复）
+      const favIdSet = new Set();
+      try { for (const f of (this.favorites || [])) { if (String(f.country || this.country) === String(this.country)) favIdSet.add(String(f.id)); } } catch (e) {}
+
       const limit = Math.min(visibleList.length, this._visibleCap);
       for (let i = 0; i < limit; i++) {
         const r = visibleList[i];
         const id = String(r.id);
+        // 若该景点已在收藏层渲染，跳过普通层，避免重复
+        if (favIdSet.has(id)) continue;
         const icon = this.createAllIcon(r.rating);
         const marker = L.marker([r.lat, r.lng], { icon, pane: 'allPane', zIndexOffset: 0 });
         marker.bindPopup(this.buildPopup(r));
@@ -564,6 +616,15 @@ export default {
         marker.addTo(this.allLayer);
         this.allMarkers.set(id, marker);
         this.allMarkersMeta.set(id, r);
+
+        // 处理重叠：记录分组并重新定位
+        try {
+          const k = getOverlapKey(r);
+          if (!overlapGroups.has(k)) overlapGroups.set(k, { center: [r.lat, r.lng], markers: [] });
+          const g = overlapGroups.get(k);
+          g.markers.push(marker);
+          repositionGroup(g);
+        } catch (e) {}
       }
 
       // 更新渲染统计
@@ -894,6 +955,131 @@ export default {
       // 放大为原来的 1.5 倍（16px -> 24px）并调整锚点
       return L.divIcon({ className: 'marker-wrapper', html, iconSize: [24, 24], iconAnchor: [12, 12], popupAnchor: [0, -12] });
     },
+    // 根据缩放级别，低缩放禁用标记的指针事件，保证单指拖动地图
+    updateMarkersInteractivity() {
+      try {
+        if (!this.map) return;
+        const z = this.map.getZoom();
+        const interactive = Number.isFinite(z) && z >= this._overlapZoomThreshold;
+        this._markersInteractive = !!interactive;
+      } catch (e) {}
+    },
+    // 统一重算重叠标记的错位布局
+    recomputeOverlapAll() {
+      try {
+        if (!this.map) return;
+        const z = this.map.getZoom();
+        const threshold = this._overlapZoomThreshold;
+        const groups = new Map(); // key -> { center: L.LatLng, fav: [], normal: [] }
+        const add = (m, isFav) => {
+          try {
+            const c = (m && m.options && m.options._origLatLng) ? m.options._origLatLng : (m.getLatLng && m.getLatLng());
+            if (!c) return;
+            const key = `${c.lat.toFixed(6)},${c.lng.toFixed(6)}`;
+            if (!groups.has(key)) groups.set(key, { center: c, fav: [], normal: [] });
+            const g = groups.get(key);
+            (isFav ? g.fav : g.normal).push(m);
+          } catch (e) {}
+        };
+        const favs = Object.values(this.favoritesLayer?._layers || {});
+        const norms = Object.values(this.allLayer?._layers || {});
+        favs.forEach(m => add(m, true));
+        norms.forEach(m => add(m, false));
+        for (const g of groups.values()) {
+          const favCount = g.fav.length;
+          const normCount = g.normal.length;
+          if (favCount === 0 && normCount <= 1) continue;
+          if (favCount === 0) {
+            // 只有普通：到达阈值才并排
+            if (!Number.isFinite(z) || z < threshold) {
+              for (const m of g.normal) { try { m.setLatLng(g.center); } catch (e) {} }
+              continue;
+            }
+            const n = normCount;
+            const spacing = 22;
+            const cp = this.map.latLngToLayerPoint(g.center);
+            for (let i = 0; i < n; i++) {
+              const dx = (i - (n - 1) / 2) * spacing;
+              const p2 = L.point(cp.x + dx, cp.y);
+              const ll2 = this.map.layerPointToLatLng(p2);
+              try { g.normal[i].setLatLng(ll2); } catch (e) {}
+            }
+            continue;
+          }
+          // 有收藏
+          const spacing = 22;
+          const cp = this.map.latLngToLayerPoint(g.center);
+          if (!Number.isFinite(z) || z < threshold) {
+            // 小缩放：收藏并排，其余重合为一个槽位（位于末尾）
+            const totalSlots = favCount + (normCount > 0 ? 1 : 0);
+            const slots = [];
+            for (let i = 0; i < totalSlots; i++) {
+              const dx = (i - (totalSlots - 1) / 2) * spacing;
+              const p2 = L.point(cp.x + dx, cp.y);
+              slots.push(this.map.layerPointToLatLng(p2));
+            }
+            for (let i = 0; i < favCount; i++) {
+              try { g.fav[i].setLatLng(slots[i]); } catch (e) {}
+            }
+            if (normCount > 0) {
+              const target = slots[slots.length - 1];
+              for (const m of g.normal) { try { m.setLatLng(target); } catch (e) {} }
+            }
+          } else {
+            // 大缩放：非收藏一行并排；收藏单独在其上一行并排（不重叠到同一行）
+            // 非收藏行（基准行）
+            if (normCount > 0) {
+              const nSlots = [];
+              for (let i = 0; i < normCount; i++) {
+                const dx = (i - (normCount - 1) / 2) * spacing;
+                const p2 = L.point(cp.x + dx, cp.y);
+                nSlots.push(this.map.layerPointToLatLng(p2));
+              }
+              for (let i = 0; i < normCount; i++) {
+                try { g.normal[i].setLatLng(nSlots[i]); } catch (e) {}
+              }
+            }
+            // 收藏行（在上方）
+            if (favCount > 0) {
+              const vOffset = 26; // 垂直向上偏移像素，确保不与下方一行重叠
+              const fSlots = [];
+              for (let i = 0; i < favCount; i++) {
+                const dx = (i - (favCount - 1) / 2) * spacing;
+                const p2 = L.point(cp.x + dx, cp.y - vOffset);
+                fSlots.push(this.map.layerPointToLatLng(p2));
+              }
+              for (let i = 0; i < favCount; i++) {
+                try { g.fav[i].setLatLng(fSlots[i]); } catch (e) {}
+              }
+            }
+          }
+        }
+      } catch (e) {}
+    },
+    _repositionFavOverlapGroups() {
+      try {
+        const groups = this._favOverlapGroups;
+        if (!this.map || !groups) return;
+        for (const g of groups.values()) {
+          const n = g && g.markers ? g.markers.length : 0;
+          if (n <= 1) continue;
+          const center = L.latLng(g.center[0], g.center[1]);
+          const z = this.map.getZoom();
+          if (!Number.isFinite(z) || z < this._overlapZoomThreshold) {
+            for (let i = 0; i < n; i++) { try { g.markers[i].setLatLng(center); } catch (e) {} }
+            continue;
+          }
+          const spacing = 22;
+          const cp = this.map.latLngToLayerPoint(center);
+          for (let i = 0; i < n; i++) {
+            const dx = (i - (n - 1) / 2) * spacing;
+            const p2 = L.point(cp.x + dx, cp.y);
+            const ll2 = this.map.layerPointToLatLng(p2);
+            try { g.markers[i].setLatLng(ll2); } catch (e) {}
+          }
+        }
+      } catch (e) {}
+    },
     createAllIcon(rating) {
       const color = this.getRatingColor(rating);
       const html = `<div class="dot-marker" style="background:${color}"></div>`;
@@ -1190,6 +1376,7 @@ export default {
 
 /* 收藏：数字 + 圆形（黄/银） */
 :deep(.marker-wrapper) { pointer-events: auto; }
+:deep(#map.dragging-map .marker-wrapper) { pointer-events: none; }
 :deep(.fav-marker) {
   /* 放大为 1.5 倍：16px -> 24px，文字同比例放大 */
   width: 24px; height: 24px; border-radius: 50%;
