@@ -2949,6 +2949,11 @@ const all = this.sortedFavorites || [];
         this.attractionSearch = attraction.name;
         // ✅ 直接跳转到详情页
         try { localStorage.setItem('lastAttractionsRoute', this.$route.fullPath || ''); } catch(e) {}
+        // 传递列表中一致的评分背景色
+        try {
+          const color = this.getRatingColor(attraction && attraction.rating);
+          localStorage.setItem('selectedAttractionRatingColor', color);
+        } catch (e) {}
         this.$router.push(`/attraction/${this.country}/${attraction.id}?from=search`);
       },
 

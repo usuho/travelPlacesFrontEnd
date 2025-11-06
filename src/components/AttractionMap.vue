@@ -1142,6 +1142,11 @@ export default {
           node.addEventListener('click', () => {
             // 在离开地图前保存当前地图视图（用于从详情返回后恢复）
             try { this.saveMapView(); } catch (e) {}
+            // 将地图中实际使用的背景色传入详情，保证一致
+            try {
+              const color = this.getRatingColor(meta && meta.rating);
+              localStorage.setItem('selectedAttractionRatingColor', color);
+            } catch (e) {}
             this.$router.push({ path: `/attraction/${country}/${id}` , query: { from: 'map' } });
           }, { once: true, passive: true });
         }
