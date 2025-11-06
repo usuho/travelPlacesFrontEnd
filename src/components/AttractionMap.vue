@@ -141,10 +141,22 @@ export default {
           this.activeTabId = this.favoriteTabs[0].id;
         }
       } catch (e) {}
-      const at = this.favoriteTabs.find(t => t.id === this.activeTabId);
-      this.favorites = at && Array.isArray(at.items) ? [...at.items] : [];
-      // 不再按国家过滤，跨国家收藏也一并展示
-      // 排序，保证序号稳定
+      // 默认取当前激活 tab；若从详情页进入（带 focusId），则合并所有 tab，确保焦点景点一定纳入收藏层渲染
+      if (this.fromDetails && this.focusId) {
+        const map = new Map();
+        for (const t of (this.favoriteTabs || [])) {
+          const items = Array.isArray(t.items) ? t.items : [];
+          for (const it of items) {
+            const key = `${String(it.country||'')}|${String(it.id)}`;
+            if (!map.has(key)) map.set(key, it);
+          }
+        }
+        this.favorites = Array.from(map.values());
+      } else {
+        const at = this.favoriteTabs.find(t => t.id === this.activeTabId);
+        this.favorites = at && Array.isArray(at.items) ? [...at.items] : [];
+      }
+      // 不再按国家过滤，跨国家收藏也一并展示；排序保证序号稳定
       this.favorites.sort((a, b) => (a.order || 0) - (b.order || 0));
     },
 

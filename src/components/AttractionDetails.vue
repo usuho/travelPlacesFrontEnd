@@ -912,7 +912,7 @@
             });
           }
         } catch (e) {}
-        // 同步更新收藏菜单中该自创景点的名称/地域信息
+        // 同步更新收藏菜单中该自创景点的信息（名称/地域/具体位置等）
         try {
           const raw = localStorage.getItem('favoriteTabs_all');
           if (raw) {
@@ -922,9 +922,11 @@
               if (Array.isArray(t.items)) {
                 t.items.forEach(it => {
                   if (String(it.id) === id && String(it.country||'') === 'custom') {
-                    if (saved && saved.name) it.name = saved.name;
+                    if (saved && saved.name !== undefined) it.name = saved.name;
                     if (saved && saved.region !== undefined) it.region = saved.region;
                     if (saved && saved.county !== undefined) it.county = saved.county;
+                    if (saved && saved.position !== undefined) it.position = saved.position;
+                    if (saved && saved.rating !== undefined) it.rating = saved.rating;
                   }
                 });
               }
@@ -940,9 +942,11 @@
             const id = (saved && saved.id) ? String(saved.id) : String(this.id);
             list.forEach(it => {
               if (String(it.id) === id && String(it.country||'') === 'custom') {
-                if (saved && saved.name) it.name = saved.name;
+                if (saved && saved.name !== undefined) it.name = saved.name;
                 if (saved && saved.region !== undefined) it.region = saved.region;
                 if (saved && saved.county !== undefined) it.county = saved.county;
+                if (saved && saved.position !== undefined) it.position = saved.position;
+                if (saved && saved.rating !== undefined) it.rating = saved.rating;
               }
             });
             localStorage.setItem('favorites_all', JSON.stringify(list));
