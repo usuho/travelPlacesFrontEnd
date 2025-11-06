@@ -2,10 +2,10 @@
   <div class="map-page">
     <div id="map" class="map-container"></div>
     <div v-if="showLoading" class="map-loading-overlay"><div class="spinner"></div></div>
-    <div class="map-stats">
+    <!--<div class="map-stats">
       <div>已渲染(屏内)：{{ statsRendered }}</div>
       <div>未渲染(屏内)：{{ statsNeverRendered }}</div>
-    </div>
+    </div>-->
     <button class="back-button map-back-button" @click="handleBack">返回</button>
   </div>
 </template>
