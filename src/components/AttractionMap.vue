@@ -74,12 +74,25 @@ export default {
   async mounted() {
     this.loadFavoritesState();
     this.initMap();
+    // 记录最近一次非自创的国家，用于从自创详情进入地图时作为普通景点的回退来源
+    try { if (String(this.country) !== 'custom') localStorage.setItem('lastNonCustomCountry', String(this.country)); } catch (e) {}
     // 从详情返回或从地图内跳到详情再返回时，尝试恢复之前的视图
     this.tryRestoreMapViewMaybe();
     // 若是从详情页进入地图，则不进行收藏范围拟合（只聚焦详情项）
     if (this.fromDetails) this._blockFavFit = true;
     this.showLoading = true;
     await this.renderFavoritesMarkers();
+    // 自创国家下，优先尝试使用上次非自创国家的快照，避免空白与二次加载
+    if (String(this.country) === 'custom') {
+      try {
+        const lastCtry = localStorage.getItem('lastNonCustomCountry') || '';
+        const snap = this._loadNormalsSnapshot(lastCtry);
+        if (Array.isArray(snap) && snap.length) {
+          this._allGeoData = snap;
+          this.renderAllInView && this.renderAllInView();
+        }
+      } catch (e) {}
+    }
     try { this.fetchAllGeoOnce().then(() => { this.renderAllInView && this.renderAllInView(); }); } catch (e) {}
 
     if (this.focusId) {
@@ -359,6 +372,7 @@ export default {
           const geo = geoMap.get(key);
           if (geo && Number.isFinite(geo.lat) && Number.isFinite(geo.lng)) {
             try { console.info('[Geo] use server geo', { id: String(fav.id), lat: geo.lat, lng: geo.lng, country: ctry }); } catch(_) {}
+            try { this._geoPut(`${ctry}|${String(fav.id)}`, Number(geo.lat), Number(geo.lng)); } catch (e) {}
             renderOne([geo.lat, geo.lng], geo, orderText, isPending);
           } else {
             const cacheKey = `${ctry}|${String(fav.id)}`;
@@ -532,6 +546,8 @@ export default {
 
     async fetchAllGeoOnce() {
       if (Array.isArray(this._allGeoData) && this._allGeoData.length) return;
+      // 自创国家：不从后端拉取普通景点，保留快照数据（若有）
+      if (String(this.country) === 'custom') return;
       try {
         let data = [];
         try { const res = await fetchAttractionsGeo(this.country); if (Array.isArray(res)) data = res; } catch (e) {}
@@ -601,6 +617,8 @@ export default {
           }
         } catch (e) {}
         this._allGeoData = Array.isArray(data) ? data : [];
+        // 保存普通景点的快照，供自创国家进入地图时快速显示
+        try { this._saveNormalsSnapshot(String(this.country), this._allGeoData); } catch (e) {}
       } catch (e) { this._allGeoData = []; }
     },
 
@@ -663,6 +681,8 @@ export default {
         const id = String(r.id);
         // 若该景点已在收藏层渲染，跳过普通层，避免重复
         if (favIdSet.has(id)) continue;
+        // 缓存普通景点的经纬度，提升下次加载速度
+        try { this._geoPut(`${String(r.country || this.country)}|${id}`, Number(r.lat), Number(r.lng)); } catch (e) {}
         const icon = this.createAllIcon(r.rating);
         const marker = L.marker([r.lat, r.lng], { icon, pane: 'allPane', zIndexOffset: 0 });
         marker.bindPopup(this.buildPopup(r));
@@ -785,6 +805,7 @@ export default {
           const r = (Array.isArray(arr) && arr[0]) || null;
           if (r && Number.isFinite(r.lat) && Number.isFinite(r.lng)) {
             try { console.info('[Geo] use server geo (focus)', { id, lat: r.lat, lng: r.lng, country: this.country }); } catch(_) {}
+            try { this._geoPut(`${String(this.country)}|${id}`, Number(r.lat), Number(r.lng)); } catch (e) {}
             latlng = [r.lat, r.lng];
             meta = r;
           }
@@ -1351,12 +1372,43 @@ export default {
       } catch (e) {}
     },
     _geoGet(key) {
-      const cache = this._geoLoad();
-      const rec = cache && cache[key];
+      // 为跨页面/多实例互通，优先从 localStorage 直接读取最新缓存
+      let rec = null;
+      try {
+        const raw = localStorage.getItem(this._geoCacheKey());
+        const obj = raw ? JSON.parse(raw) : null;
+        rec = obj && obj[key];
+      } catch (e) {
+        rec = null;
+      }
+      if (!rec) {
+        const cache = this._geoLoad();
+        rec = cache && cache[key];
+      }
       if (!rec) return null;
       const lat = Number(rec.lat), lng = Number(rec.lng);
       if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
       return { lat, lng };
+    },
+
+    // —— 跨页面普通景点快照（仅用于快速显示，真实数据仍以后端为准） ——
+    _snapshotKey(country) { return `allGeoSnapshot_${String(country||'')}`; },
+    _saveNormalsSnapshot(country, arr) {
+      try {
+        const list = Array.isArray(arr) ? arr.filter(x => Number.isFinite(x.lat) && Number.isFinite(x.lng)) : [];
+        const light = list.map(x => ({ id: x.id, name: x.name, region: x.region, county: x.county, rating: x.rating, total_reviews: x.total_reviews, lat: x.lat, lng: x.lng, hasImage: !!x.hasImage, country: String(x.country || country || this.country) }));
+        const payload = { ts: Date.now(), items: light };
+        localStorage.setItem(this._snapshotKey(country), JSON.stringify(payload));
+      } catch (e) {}
+    },
+    _loadNormalsSnapshot(country) {
+      try {
+        const raw = localStorage.getItem(this._snapshotKey(country));
+        if (!raw) return [];
+        const obj = JSON.parse(raw) || {};
+        const items = Array.isArray(obj.items) ? obj.items : [];
+        return items;
+      } catch (e) { return []; }
     },
     _geoPut(key, lat, lng) {
       if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
