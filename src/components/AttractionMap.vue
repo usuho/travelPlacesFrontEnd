@@ -276,19 +276,27 @@ export default {
           };
           let latlng = null;
           if (ca && Number.isFinite(ca.lat) && Number.isFinite(ca.lng)) {
+            try { console.info('[Geo] use direct custom latlng', { id: String(fav.id), lat: Number(ca.lat), lng: Number(ca.lng) }); } catch(_) {}
             latlng = [Number(ca.lat), Number(ca.lng)];
             renderOne(latlng, meta, orderText, isPending);
           } else if (ca) {
             const cacheKey = `custom|${String(fav.id)}`;
             const cached = this._geoGet(cacheKey);
             if (cached) {
+              try { console.info('[Geo] use cache', { source: 'browser', key: cacheKey, id: String(fav.id), lat: cached.lat, lng: cached.lng }); } catch(_) {}
               latlng = [cached.lat, cached.lng];
               renderOne(latlng, meta, orderText, isPending);
             } else {
               this._favGeoPending++;
               const task = (async () => {
                 try {
-                  const g = await this.geocodeByFreeApi(`${ca.name} ${ca.region || ''} ${ca.county || ''}`.trim(), 'custom');
+                  const _addr = `${ca.position || ''} ${ca.name || ''} ${ca.region || ''} ${ca.county || ''}`.trim();
+                  const routeKey = String(this.country || '').toLowerCase();
+                  const hasMeta = !!this._getCountryMeta(routeKey);
+                  const isChineseText = /[\u4e00-\u9fa5]/.test(_addr);
+                  const hintKey = hasMeta ? routeKey : (isChineseText ? 'china' : 'custom');
+                  try { console.info('[Geo] start geocode (custom favorite)', { id: String(fav.id), address: _addr, hintCountry: hintKey }); } catch(_) {}
+                  const g = await this.geocodeByFreeApi(_addr, hintKey);
                   if (g) { this._geoPut(cacheKey, g.lat, g.lng); renderOne([g.lat, g.lng], meta, orderText, isPending); }
                 } catch (e) {}
                 finally {
@@ -312,11 +320,13 @@ export default {
           const key = `${ctry}|${String(fav.id)}`;
           const geo = geoMap.get(key);
           if (geo && Number.isFinite(geo.lat) && Number.isFinite(geo.lng)) {
+            try { console.info('[Geo] use server geo', { id: String(fav.id), lat: geo.lat, lng: geo.lng, country: ctry }); } catch(_) {}
             renderOne([geo.lat, geo.lng], geo, orderText, isPending);
           } else {
             const cacheKey = `${ctry}|${String(fav.id)}`;
             const cached = this._geoGet(cacheKey);
             if (cached) {
+              try { console.info('[Geo] use cache', { source: 'browser', key: cacheKey, id: String(fav.id), lat: cached.lat, lng: cached.lng, country: ctry }); } catch(_) {}
               const meta = { id: fav.id, name: fav.name || '', region: fav.region || '', county: fav.county || '', rating: fav.rating, country: ctry, hasImage: false };
               renderOne([cached.lat, cached.lng], meta, orderText, isPending);
             } else {
@@ -327,7 +337,10 @@ export default {
                   const p = (Array.isArray(rows) && rows[0]) || null;
                   const metaC = this._getCountryMeta(String(ctry || '').toLowerCase());
                   const countryText = (metaC && metaC.labelEn) || (metaC && metaC.iso2) || '';
-                  const address = p ? `${p.name || ''} ${p.region || ''} ${p.county || ''} ${p.position || ''} ${countryText}`.trim() : `${fav.name || ''} ${fav.region || ''} ${fav.county || ''} ${countryText}`.trim();
+                  const address = p
+                    ? `${p.position || ''} ${p.name || ''} ${p.region || ''} ${p.county || ''} ${countryText}`.trim()
+                    : `${fav.position || ''} ${fav.name || ''} ${fav.region || ''} ${fav.county || ''} ${countryText}`.trim();
+                  try { console.info('[Geo] start geocode (favorite normal)', { id: String(fav.id), address, hintCountry: ctry }); } catch(_) {}
                   const g = await this.geocodeByFreeApi(address, ctry);
                   if (g) {
                     this._geoPut(cacheKey, g.lat, g.lng);
@@ -430,7 +443,8 @@ export default {
               } else {
                 const metaC = this._getCountryMeta(String(this.country || '').toLowerCase());
                 const countryText = (metaC && metaC.labelEn) || (metaC && metaC.iso2) || '';
-                const address = `${p.name || ''} ${p.region || ''} ${p.county || ''} ${p.position || ''} ${countryText}`.trim();
+                const address = `${p.position || ''} ${p.name || ''} ${p.region || ''} ${p.county || ''} ${countryText}`.trim();
+                try { console.info('[Geo] start geocode (normal missing lat/lng - renderAllMarkers)', { id: String(p.id), address, hintCountry: this.country }); } catch(_) {}
                 const g = await this.geocodeByFreeApi(address, this.country);
                 if (g) {
                   const item = {
@@ -519,7 +533,8 @@ export default {
               } else {
                 const metaC = this._getCountryMeta(String(this.country || '').toLowerCase());
                 const countryText = (metaC && metaC.labelEn) || (metaC && metaC.iso2) || '';
-                const address = `${p.name || ''} ${p.region || ''} ${p.county || ''} ${p.position || ''} ${countryText}`.trim();
+                const address = `${p.position || ''} ${p.name || ''} ${p.region || ''} ${p.county || ''} ${countryText}`.trim();
+                try { console.info('[Geo] start geocode (normal missing lat/lng - fetchAllGeoOnce)', { id: String(p.id), address, hintCountry: this.country }); } catch(_) {}
                 const g = await this.geocodeByFreeApi(address, this.country);
                 if (g) {
                   const item = {
@@ -648,14 +663,22 @@ export default {
       if (String(this.country) === 'custom') {
         const ca = findCustomAttractionById(id);
         if (ca && Number.isFinite(ca.lat) && Number.isFinite(ca.lng)) {
+          try { console.info('[Geo] use direct custom latlng (focus)', { id, lat: Number(ca.lat), lng: Number(ca.lng) }); } catch(_) {}
           latlng = [Number(ca.lat), Number(ca.lng)];
         } else if (ca) {
           const cacheKey = `custom|${id}`;
           const cached = this._geoGet(cacheKey);
           if (cached) {
+            try { console.info('[Geo] use cache (focus)', { source: 'browser', key: cacheKey, id, lat: cached.lat, lng: cached.lng }); } catch(_) {}
             latlng = [cached.lat, cached.lng];
           } else {
-            const g = await this.geocodeByFreeApi(`${ca.name} ${ca.region || ''} ${ca.county || ''}`.trim(), 'custom');
+            const _addr = `${ca.name} ${ca.region || ''} ${ca.county || ''} ${ca.position || ''}`.trim();
+            const routeKey = String(this.country || '').toLowerCase();
+            const hasMeta = !!this._getCountryMeta(routeKey);
+            const isChineseText = /[\u4e00-\u9fa5]/.test(_addr);
+            const hintKey = hasMeta ? routeKey : (isChineseText ? 'china' : 'custom');
+            try { console.info('[Geo] start geocode (focus custom)', { id, address: _addr, hintCountry: hintKey }); } catch(_) {}
+            const g = await this.geocodeByFreeApi(_addr, hintKey);
             if (g) { latlng = [g.lat, g.lng]; this._geoPut(cacheKey, g.lat, g.lng); }
           }
         }
@@ -665,6 +688,7 @@ export default {
           const arr = await fetchAttractionsGeoByIds(this.country, [id]);
           const r = (Array.isArray(arr) && arr[0]) || null;
           if (r && Number.isFinite(r.lat) && Number.isFinite(r.lng)) {
+            try { console.info('[Geo] use server geo (focus)', { id, lat: r.lat, lng: r.lng, country: this.country }); } catch(_) {}
             latlng = [r.lat, r.lng];
             meta = r;
           }
@@ -676,6 +700,7 @@ export default {
             const cacheKey = `${String(this.country)}|${id}`;
             const cached = this._geoGet(cacheKey);
             if (cached) {
+              try { console.info('[Geo] use cache (focus)', { source: 'browser', key: cacheKey, id, lat: cached.lat, lng: cached.lng, country: this.country }); } catch(_) {}
               latlng = [cached.lat, cached.lng];
               meta = p || meta;
             } else {
@@ -683,6 +708,7 @@ export default {
               const countryText = (metaC && metaC.labelEn) || (metaC && metaC.iso2) || '';
               const address = p ? `${p.name || ''} ${p.region || ''} ${p.county || ''} ${p.position || ''} ${countryText}`.trim() : '';
               if (address) {
+                try { console.info('[Geo] start geocode (focus normal)', { id, address, hintCountry: this.country }); } catch(_) {}
                 const g = await this.geocodeByFreeApi(address, this.country);
                 if (g) { latlng = [g.lat, g.lng]; meta = p || meta; this._geoPut(cacheKey, g.lat, g.lng); }
               }
@@ -706,6 +732,12 @@ export default {
         }
         marker.addTo(this.focusedLayer);
       }
+
+      // 聚焦渲染完成后，停止加载动画（适用于从详情页进入且无收藏/普通点已渲染的情况）
+      try {
+        this._hasRenderedFirst = true;
+        this.showLoading = false;
+      } catch (e) {}
     },
 
     // 前端兜底地理编码：
@@ -743,37 +775,51 @@ export default {
       // 英文国家名用于部分服务的文本增强
       const countryLabelEn = (countryMeta && countryMeta.labelEn) || '';
 
+      // —— 调试日志：本次地理编码上下文 ——
+      try {
+        // 使用 groupCollapsed 便于收起
+        console.groupCollapsed('[Geo] start', { address: trimAddr, hintCountry: countryKey, iso2, isChina, viewbox, bias: [biasLat, biasLng], countryLabelEn });
+      } catch (_) {}
+
       // Helper: safe fetch JSON
-      const getJson = async (url) => {
+      const getJson = async (url, tag = '') => {
         try {
+          try { console.log('[Geo] fetch', { tag, url }); } catch(_) {}
           const r = await fetch(url, { headers: { 'accept-language': 'zh-CN,zh;q=0.9,en;q=0.8' } });
           if (!r.ok) return null;
-          return await r.json();
-        } catch (_) { return null; }
+          const data = await r.json();
+          try { console.log('[Geo] response', { tag, url, data }); } catch(_) {}
+          return data;
+        } catch (err) {
+          try { console.warn('[Geo] fetch error', { tag, url, err }); } catch(_) {}
+          return null;
+        }
       };
 
       // 1) 中国优先：高德地址 → 高德POI（并将 GCJ-02 转为 WGS84）
       if (isChina && amapKey) {
         // 高德地址优先
         const url1 = `https://restapi.amap.com/v3/geocode/geo?address=${encodeURIComponent(trimAddr)}&key=${amapKey}`;
-        const j1 = await getJson(url1);
+        const j1 = await getJson(url1, 'amap-geocode');
         try {
           if (j1 && Array.isArray(j1.geocodes) && j1.geocodes[0] && typeof j1.geocodes[0].location === 'string') {
             const [lng, lat] = j1.geocodes[0].location.split(',').map(parseFloat);
             if (Number.isFinite(lat) && Number.isFinite(lng)) {
               const [wlat, wlng] = this.gcj02ToWgs84(lat, lng);
+              try { console.info('[Geo] success', { provider: 'amap-geocode', gcj02: { lat, lng }, wgs84: { lat: wlat, lng: wlng } }); console.groupEnd(); } catch(_) {}
               return { lat: wlat, lng: wlng };
             }
           }
         } catch (_) {}
         // 回退到高德 POI（文本检索）
         const url2 = `https://restapi.amap.com/v3/place/text?keywords=${encodeURIComponent(trimAddr)}&key=${amapKey}&children=0&offset=1&page=1&extensions=base`;
-        const j2 = await getJson(url2);
+        const j2 = await getJson(url2, 'amap-poi');
         try {
           if (j2 && Array.isArray(j2.pois) && j2.pois[0] && typeof j2.pois[0].location === 'string') {
             const [lng, lat] = j2.pois[0].location.split(',').map(parseFloat);
             if (Number.isFinite(lat) && Number.isFinite(lng)) {
               const [wlat, wlng] = this.gcj02ToWgs84(lat, lng);
+              try { console.info('[Geo] success', { provider: 'amap-poi', gcj02: { lat, lng }, wgs84: { lat: wlat, lng: wlng } }); console.groupEnd(); } catch(_) {}
               return { lat: wlat, lng: wlng };
             }
           }
@@ -786,11 +832,11 @@ export default {
         if (viewbox) params.append('bbox', viewbox.join(','));
         if (biasLat !== null && biasLng !== null) { params.append('lat', String(biasLat)); params.append('lon', String(biasLng)); }
         const url = `https://photon.komoot.io/api/?${params.toString()}`;
-        const j = await getJson(url);
+        const j = await getJson(url, 'photon');
         try {
           const feat = j && Array.isArray(j.features) && j.features[0];
           const coords = feat && feat.geometry && Array.isArray(feat.geometry.coordinates) && feat.geometry.coordinates;
-          if (coords && Number.isFinite(coords[0]) && Number.isFinite(coords[1])) return { lat: coords[1], lng: coords[0] };
+          if (coords && Number.isFinite(coords[0]) && Number.isFinite(coords[1])) { try { console.info('[Geo] success', { provider: 'photon', lonlat: coords }); console.groupEnd(); } catch(_) {} ; return { lat: coords[1], lng: coords[0] } }
         } catch (_) {}
       }
 
@@ -799,10 +845,10 @@ export default {
         const params = new URLSearchParams({ name: trimAddr, count: '1', language: 'zh' });
         if (iso2) params.append('country_code', iso2);
         const url = `https://geocoding-api.open-meteo.com/v1/search?${params.toString()}`;
-        const j = await getJson(url);
+        const j = await getJson(url, 'open-meteo');
         try {
           const r = j && Array.isArray(j.results) && j.results[0];
-          if (r && Number.isFinite(r.latitude) && Number.isFinite(r.longitude)) return { lat: r.latitude, lng: r.longitude };
+          if (r && Number.isFinite(r.latitude) && Number.isFinite(r.longitude)) { try { console.info('[Geo] success', { provider: 'open-meteo', lat: r.latitude, lng: r.longitude, raw: r }); console.groupEnd(); } catch(_) {} ; return { lat: r.latitude, lng: r.longitude } }
         } catch (_) {}
       }
 
@@ -815,46 +861,46 @@ export default {
           params.append('bounded', '1');
         }
         const url = `https://nominatim.openstreetmap.org/search?${params.toString()}`;
-        const j = await getJson(url);
+        const j = await getJson(url, 'nominatim');
         try {
           const r = Array.isArray(j) && j[0];
           const lat = r && parseFloat(r.lat);
           const lng = r && parseFloat(r.lon);
-          if (Number.isFinite(lat) && Number.isFinite(lng)) return { lat, lng };
+          if (Number.isFinite(lat) && Number.isFinite(lng)) { try { console.info('[Geo] success', { provider: 'nominatim', lat, lng, raw: r }); console.groupEnd(); } catch(_) {} ; return { lat, lng } }
         } catch (_) {}
       }
 
       // 5) OpenCage（带 countrycode）
       if (openCageKey) {
         const url = `https://api.opencagedata.com/geocode/v1/json?q=${encodeURIComponent(trimAddr)}&key=${openCageKey}&limit=1&no_annotations=1${iso2?`&countrycode=${iso2}`:''}`;
-        const j = await getJson(url);
+        const j = await getJson(url, 'opencage');
         try {
           const r = j && Array.isArray(j.results) && j.results[0];
           const g = r && r.geometry;
-          if (g && Number.isFinite(g.lat) && Number.isFinite(g.lng)) return { lat: g.lat, lng: g.lng };
+          if (g && Number.isFinite(g.lat) && Number.isFinite(g.lng)) { try { console.info('[Geo] success', { provider: 'opencage', lat: g.lat, lng: g.lng, raw: r }); console.groupEnd(); } catch(_) {} ; return { lat: g.lat, lng: g.lng } }
         } catch (_) {}
       }
 
       // 6) Geoapify（带 countrycode）
       if (geoapifyKey) {
         const url = `https://api.geoapify.com/v1/geocode/search?text=${encodeURIComponent(trimAddr)}&limit=1&lang=zh&${iso2?`filter=countrycode:${iso2}&`:''}apiKey=${geoapifyKey}`;
-        const j = await getJson(url);
+        const j = await getJson(url, 'geoapify');
         try {
           const feat = j && Array.isArray(j.features) && j.features[0];
           const coords = feat && feat.geometry && feat.geometry.coordinates;
-          if (coords && Number.isFinite(coords[0]) && Number.isFinite(coords[1])) return { lat: coords[1], lng: coords[0] };
+          if (coords && Number.isFinite(coords[0]) && Number.isFinite(coords[1])) { try { console.info('[Geo] success', { provider: 'geoapify', lonlat: coords }); console.groupEnd(); } catch(_) {} ; return { lat: coords[1], lng: coords[0] } }
         } catch (_) {}
       }
 
       // 7) LocationIQ（带 countrycodes）
       if (locationIqKey) {
         const url = `https://us1.locationiq.com/v1/search?key=${locationIqKey}&q=${encodeURIComponent(trimAddr)}&format=json&limit=1${iso2?`&countrycodes=${iso2}`:''}`;
-        const j = await getJson(url);
+        const j = await getJson(url, 'locationiq');
         try {
           const r = Array.isArray(j) && j[0];
           const lat = r && parseFloat(r.lat);
           const lng = r && parseFloat(r.lon);
-          if (Number.isFinite(lat) && Number.isFinite(lng)) return { lat, lng };
+          if (Number.isFinite(lat) && Number.isFinite(lng)) { try { console.info('[Geo] success', { provider: 'locationiq', lat, lng, raw: r }); console.groupEnd(); } catch(_) {} ; return { lat, lng } }
         } catch (_) {}
       }
 
@@ -862,26 +908,26 @@ export default {
       if (mapQuestKey) {
         const q = countryLabelEn ? `${trimAddr} ${countryLabelEn}` : trimAddr;
         const url = `https://www.mapquestapi.com/geocoding/v1/address?key=${mapQuestKey}&location=${encodeURIComponent(q)}`;
-        const j = await getJson(url);
+        const j = await getJson(url, 'mapquest');
         try {
           const loc = j && Array.isArray(j.results) && j.results[0] && Array.isArray(j.results[0].locations) && j.results[0].locations[0];
           const g = loc && loc.latLng;
-          if (g && Number.isFinite(g.lat) && Number.isFinite(g.lng)) return { lat: g.lat, lng: g.lng };
+          if (g && Number.isFinite(g.lat) && Number.isFinite(g.lng)) { try { console.info('[Geo] success', { provider: 'mapquest', lat: g.lat, lng: g.lng, raw: loc }); console.groupEnd(); } catch(_) {} ; return { lat: g.lat, lng: g.lng } }
         } catch (_) {}
       }
 
       // 9) Positionstack（带 country）
       if (positionstackKey) {
         const url = `https://api.positionstack.com/v1/forward?access_key=${positionstackKey}&query=${encodeURIComponent(trimAddr)}&limit=1${iso2?`&country=${iso2}`:''}`;
-        const j = await getJson(url);
+        const j = await getJson(url, 'positionstack');
         try {
           const r = j && Array.isArray(j.data) && j.data[0];
           const lat = r && parseFloat(r.latitude);
           const lng = r && parseFloat(r.longitude);
-          if (Number.isFinite(lat) && Number.isFinite(lng)) return { lat, lng };
+          if (Number.isFinite(lat) && Number.isFinite(lng)) { try { console.info('[Geo] success', { provider: 'positionstack', lat, lng, raw: r }); console.groupEnd(); } catch(_) {} ; return { lat, lng } }
         } catch (_) {}
       }
-
+      try { console.warn('[Geo] no result', { address: trimAddr, hintCountry: countryKey }); console.groupEnd(); } catch(_) {}
       return null;
     },
 

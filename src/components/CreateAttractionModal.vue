@@ -223,6 +223,26 @@ export default {
         }
       } catch (e) {}
 
+      // 若为编辑模式且具体位置有改动，则清理该自创景点的地理编码浏览器缓存
+      try {
+        if (this.mode === 'edit' && this.initial) {
+          const beforePos = String(this.initial.position || '').trim()
+          const afterPos = String(this.form.position || '').trim()
+          if (beforePos !== afterPos) {
+            const storeKey = 'geoCache_v1'
+            const raw = localStorage.getItem(storeKey)
+            if (raw) {
+              const obj = JSON.parse(raw) || {}
+              const cacheKey = `custom|${id}`
+              if (obj && typeof obj === 'object' && Object.prototype.hasOwnProperty.call(obj, cacheKey)) {
+                delete obj[cacheKey]
+                localStorage.setItem(storeKey, JSON.stringify(obj))
+              }
+            }
+          }
+        }
+      } catch (e) {}
+
       const attraction = {
         id,
         country: 'custom',
