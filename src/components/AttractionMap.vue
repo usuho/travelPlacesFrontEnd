@@ -177,6 +177,8 @@ export default {
         updateInView();
         // 重新计算重叠分组的错位（基于像素的位移随缩放需重算）
         try { this.recomputeOverlapAll(); } catch (e) {}
+        // 修复缩放后弹窗内图片/点击失效：对已打开的弹窗重新绑定处理
+        try { this.rebindOpenPopupHandlers(); } catch (e) {}
       });
       // 拖动时临时禁用标记指针事件，保证单指拖动；结束后恢复，可点击
       try {
@@ -185,6 +187,40 @@ export default {
       } catch (e) {}
       // 初始化一次布局
       try { this.recomputeOverlapAll(); } catch (e) {}
+    },
+
+    // 在缩放后为当前打开的弹窗重新绑定图片加载与点击跳转，保证自创/普通景点弹窗可用
+    rebindOpenPopupHandlers() {
+      try {
+        // 找到当前 DOM 中的弹窗根节点，读取其 data-id/country
+        const node = document.querySelector('.map-popup');
+        if (!node) return;
+        const id = node.getAttribute('data-id');
+        const country = node.getAttribute('data-country') || this.country;
+        if (!id) return;
+
+        // 在已知图层中查找对应的 marker 以获取其 meta
+        const layersToCheck = [];
+        try { layersToCheck.push(...Object.values(this.favoritesLayer?._layers || {})); } catch (_) {}
+        try { layersToCheck.push(...Object.values(this.allLayer?._layers || {})); } catch (_) {}
+        try { layersToCheck.push(...Object.values(this.focusedLayer?._layers || {})); } catch (_) {}
+
+        let meta = null;
+        for (const l of layersToCheck) {
+          try {
+            const m = l && l.options && l.options._meta;
+            if (m && String(m.id) === String(id) && String(m.country || this.country) === String(country)) { meta = m; break; }
+          } catch (_) {}
+        }
+        // 回退：从全量缓存中取
+        if (!meta) {
+          const m2 = this.allMarkersMeta && this.allMarkersMeta.get(String(id));
+          if (m2) meta = m2;
+        }
+        if (!meta) return;
+        // 重新绑定，确保图片与点击恢复
+        this.attachPopupHandlers(meta);
+      } catch (_) {}
     },
 
     getDefaultView() {
@@ -249,6 +285,7 @@ export default {
         latlngsForFit.push(latlng);
         const icon = this.createFavoriteIcon(orderText || '', isPendingFlag);
         const marker = L.marker(latlng, { icon, pane: 'favoritesPane', zIndexOffset: 1000 });
+        try { marker.options._meta = meta; } catch (e) {}
         try { marker.options._origLatLng = L.latLng(latlng[0], latlng[1]); } catch (e) {}
         marker.bindPopup(this.buildPopup(meta));
         marker.on('popupopen', () => this.attachPopupHandlers(meta));
@@ -481,11 +518,12 @@ export default {
           if (this.passFilters && !this.passFilters(r, filters)) continue;
           const latlng = [r.lat, r.lng];
           const icon = this.createAllIcon(r.rating);
-          const marker = L.marker(latlng, { icon, pane: 'allPane', zIndexOffset: 0 });
-          try { marker.options._origLatLng = L.latLng(latlng[0], latlng[1]); } catch (e) {}
-          marker.bindPopup(this.buildPopup(r));
-          marker.on('popupopen', () => this.attachPopupHandlers(r));
-          marker.addTo(this.allLayer);
+        const marker = L.marker(latlng, { icon, pane: 'allPane', zIndexOffset: 0 });
+        try { marker.options._meta = r; } catch (e) {}
+        try { marker.options._origLatLng = L.latLng(latlng[0], latlng[1]); } catch (e) {}
+        marker.bindPopup(this.buildPopup(r));
+        marker.on('popupopen', () => this.attachPopupHandlers(r));
+        marker.addTo(this.allLayer);
         }
         // 统一重算所有分组的错位（收藏 + 普通）
         try { this.recomputeOverlapAll(); } catch (e) {}
@@ -653,7 +691,8 @@ export default {
 
       // 若当前视野内没有任何应显示的普通景点，则平移到屏幕外的第一个候选点（不改变缩放）
       try {
-        if (this.map && !this._didAutoPanToFirst && this.allMarkers.size === 0) {
+        const hasFavMarkers = !!(this.favoritesLayer && this.favoritesLayer._layers && Object.keys(this.favoritesLayer._layers).length > 0);
+        if (this.map && !this._didAutoPanToFirst && this.allMarkers.size === 0 && !hasFavMarkers) {
           const currentZoom = this.map.getZoom();
           const b = bounds;
           const f = this.getActiveFilters ? this.getActiveFilters() : { minReviews: 0, region: '', county: '' };
@@ -698,14 +737,45 @@ export default {
             try { console.info('[Geo] use cache (focus)', { source: 'browser', key: cacheKey, id, lat: cached.lat, lng: cached.lng }); } catch(_) {}
             latlng = [cached.lat, cached.lng];
           } else {
-            const _addr = `${ca.name} ${ca.region || ''} ${ca.county || ''} ${ca.position || ''}`.trim();
+            const _addr = `${ca.position || ''} ${ca.name || ''} ${ca.region || ''} ${ca.county || ''}`.trim();
             const routeKey = String(this.country || '').toLowerCase();
             const hasMeta = !!this._getCountryMeta(routeKey);
             const isChineseText = /[\u4e00-\u9fa5]/.test(_addr);
             const hintKey = hasMeta ? routeKey : (isChineseText ? 'china' : 'custom');
             try { console.info('[Geo] start geocode (focus custom)', { id, address: _addr, hintCountry: hintKey }); } catch(_) {}
-            const g = await this.geocodeByFreeApi(_addr, hintKey);
-            if (g) { latlng = [g.lat, g.lng]; this._geoPut(cacheKey, g.lat, g.lng); }
+            // 与收藏缺经纬度的异步规则保持一致：异步地理编码，完成后再渲染与缩放
+            this._favGeoPending++;
+            (async () => {
+              try {
+                const g = await this.geocodeByFreeApi(_addr, hintKey);
+                if (g) {
+                  this._geoPut(cacheKey, g.lat, g.lng);
+                  // 渲染为“聚焦”标记并缩放到城市级
+                  const cityZoom = 14;
+                  const targetZoom = this.fromDetails ? cityZoom : this.getDefaultView().zoom;
+                  const ll = [g.lat, g.lng];
+                  try { this.map.setView(ll, targetZoom); } catch (e) {}
+                  try {
+                    this.focusedLayer.clearLayers();
+                    const icon = this.createFocusIcon();
+                    const marker = L.marker(ll, { icon, pane: 'focusPane', zIndexOffset: 500 });
+                    const metaLater = ca ? { id, name: ca.name, region: ca.region, county: ca.county, rating: (Number.isFinite(ca && ca.rating) ? ca.rating : 0), country: 'custom', hasImage: !!(ca.hasImage1 || ca.hasImage2 || ca.hasImage3) } : null;
+                    if (metaLater) {
+                      try { marker.options._meta = metaLater; } catch (e) {}
+                      marker.bindPopup(this.buildPopup(metaLater));
+                      marker.on('popupopen', () => this.attachPopupHandlers(metaLater));
+                    }
+                    marker.addTo(this.focusedLayer);
+                  } catch (e) {}
+                  // 标记已进行一次自动平移，避免后续覆盖
+                  if (this.fromDetails) this._didAutoPanToFirst = true;
+                  try { this._hasRenderedFirst = true; this.showLoading = false; } catch (e) {}
+                }
+              } catch (e) {}
+              finally {
+                this._favGeoPending = Math.max(0, this._favGeoPending - 1);
+              }
+            })();
           }
         }
         meta = ca ? { id, name: ca.name, region: ca.region, county: ca.county, rating: (Number.isFinite(ca && ca.rating) ? ca.rating : 0), country: 'custom', hasImage: !!(ca.hasImage1 || ca.hasImage2 || ca.hasImage3) } : null;
@@ -732,7 +802,7 @@ export default {
             } else {
               const metaC = this._getCountryMeta(String(this.country || '').toLowerCase());
               const countryText = (metaC && metaC.labelEn) || (metaC && metaC.iso2) || '';
-              const address = p ? `${p.name || ''} ${p.region || ''} ${p.county || ''} ${p.position || ''} ${countryText}`.trim() : '';
+              const address = p ? `${p.position || ''} ${p.name || ''} ${p.region || ''} ${p.county || ''} ${countryText}`.trim() : '';
               if (address) {
                 try { console.info('[Geo] start geocode (focus normal)', { id, address, hintCountry: this.country }); } catch(_) {}
                 const g = await this.geocodeByFreeApi(address, this.country);
@@ -746,13 +816,18 @@ export default {
       if (!latlng) return;
 
       const { zoom } = this.getDefaultView();
-      this.map.setView(latlng, zoom);
+      const cityZoom = 14;
+      const targetZoom = this.fromDetails ? cityZoom : zoom;
+      this.map.setView(latlng, targetZoom);
+      // 避免后续普通点渲染流程的自动平移覆盖聚焦视图
+      if (this.fromDetails) this._didAutoPanToFirst = true;
 
       if (!inFav) {
         this.focusedLayer.clearLayers();
         const icon = this.createFocusIcon();
         const marker = L.marker(latlng, { icon, pane: 'focusPane', zIndexOffset: 500 });
         if (meta) {
+          try { marker.options._meta = meta; } catch (e) {}
           marker.bindPopup(this.buildPopup(meta));
           marker.on('popupopen', () => this.attachPopupHandlers(meta));
         }
@@ -1285,8 +1360,16 @@ export default {
     },
     _geoPut(key, lat, lng) {
       if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
-      const cache = this._geoLoad();
-      cache[key] = { lat, lng, ts: Date.now() };
+      // 防止多实例/不同页面的并发覆盖：始终与 localStorage 最新内容合并再写回
+      let latest = {};
+      try {
+        const raw = localStorage.getItem(this._geoCacheKey());
+        latest = raw ? (JSON.parse(raw) || {}) : {};
+      } catch (e) { latest = {}; }
+      const mem = this._geoLoad() || {};
+      const merged = { ...latest, ...mem };
+      merged[key] = { lat, lng, ts: Date.now() };
+      this._geoCache = merged;
       this._geoSave();
     },
 
