@@ -59,6 +59,7 @@ export default {
       _shouldRestoreView: false,
       _overlapZoomThreshold: 14,
       _markersInteractive: true,
+      _didAutoPanToFirst: false,
     };
   },
   computed: {
@@ -649,6 +650,31 @@ export default {
         this._hasRenderedFirst = true;
         this.showLoading = false;
       }
+
+      // 若当前视野内没有任何应显示的普通景点，则平移到屏幕外的第一个候选点（不改变缩放）
+      try {
+        if (this.map && !this._didAutoPanToFirst && this.allMarkers.size === 0) {
+          const currentZoom = this.map.getZoom();
+          const b = bounds;
+          const f = this.getActiveFilters ? this.getActiveFilters() : { minReviews: 0, region: '', county: '' };
+          const candidates = (this._allGeoData || [])
+            .filter(r => Number.isFinite(r.lat) && Number.isFinite(r.lng))
+            .filter(r => (this.passFilters ? this.passFilters(r, f) : true))
+            .sort((a, b) => this.getNumericRating(b.rating) - this.getNumericRating(a.rating));
+          if (candidates.length) {
+            let target = null;
+            if (b && b.isValid && b.isValid()) {
+              target = candidates.find(r => !b.contains(L.latLng(r.lat, r.lng))) || candidates[0];
+            } else {
+              target = candidates[0];
+            }
+            if (target) {
+              this._didAutoPanToFirst = true;
+              this.map.setView([target.lat, target.lng], currentZoom, { animate: false });
+            }
+          }
+        }
+      } catch (e) {}
     },
 
     async focusSpecificAttraction() {
