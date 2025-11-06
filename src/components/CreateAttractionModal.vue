@@ -223,21 +223,17 @@ export default {
         }
       } catch (e) {}
 
-      // 若为编辑模式且具体位置有改动，则清理该自创景点的地理编码浏览器缓存
+      // 若为编辑模式，清理该自创景点的地理编码浏览器缓存（视为全新景点）
       try {
         if (this.mode === 'edit' && this.initial) {
-          const beforePos = String(this.initial.position || '').trim()
-          const afterPos = String(this.form.position || '').trim()
-          if (beforePos !== afterPos) {
-            const storeKey = 'geoCache_v1'
-            const raw = localStorage.getItem(storeKey)
-            if (raw) {
-              const obj = JSON.parse(raw) || {}
-              const cacheKey = `custom|${id}`
-              if (obj && typeof obj === 'object' && Object.prototype.hasOwnProperty.call(obj, cacheKey)) {
-                delete obj[cacheKey]
-                localStorage.setItem(storeKey, JSON.stringify(obj))
-              }
+          const storeKey = 'geoCache_v1'
+          const raw = localStorage.getItem(storeKey)
+          if (raw) {
+            const obj = JSON.parse(raw) || {}
+            const cacheKey = `custom|${id}`
+            if (obj && typeof obj === 'object' && Object.prototype.hasOwnProperty.call(obj, cacheKey)) {
+              delete obj[cacheKey]
+              localStorage.setItem(storeKey, JSON.stringify(obj))
             }
           }
         }
@@ -264,8 +260,65 @@ export default {
         createdAt: new Date().toISOString()
       }
       const saved = addCustomAttraction(attraction)
+      // 异步预先建立地理编码缓存（自创景点统一异步），两端页面共用
+      try { this.prefetchCustomGeocode(saved); } catch (e) {}
       if (this.mode === 'edit') this.$emit('updated', saved); else this.$emit('created', saved)
       this.$emit('update:modelValue', false)
+    },
+
+    // —— 自创景点保存后：异步预先进行地理编码并写入共享缓存 ——
+    async prefetchCustomGeocode(attraction) {
+      try {
+        if (!attraction || !attraction.id) return;
+        const id = String(attraction.id);
+        // 构造与地图一致的地址（position 优先）
+        const addr = `${attraction.position || ''} ${attraction.name || ''} ${attraction.region || ''} ${attraction.county || ''}`.trim();
+        if (!addr) return;
+
+        // 选择性国家偏置（汉字 → 中国）
+        const isChineseText = /[\u4e00-\u9fa5]/.test(addr);
+        const iso2 = isChineseText ? 'cn' : '';
+
+        // 轻量地理编码：Photon → Open-Meteo → Nominatim
+        const headers = { 'accept-language': 'zh-CN,zh;q=0.9,en;q=0.8' };
+        const getJson = async (url) => {
+          try { const r = await fetch(url, { headers }); if (!r.ok) return null; return await r.json(); } catch (_) { return null; }
+        };
+        // 1) Photon
+        const params1 = new URLSearchParams({ q: addr, limit: '1', lang: 'zh' });
+        const j1 = await getJson(`https://photon.komoot.io/api/?${params1.toString()}`);
+        try {
+          const f = j1 && Array.isArray(j1.features) && j1.features[0];
+          const c = f && f.geometry && f.geometry.coordinates;
+          if (c && Number.isFinite(c[0]) && Number.isFinite(c[1])) { this._mergeGeoPut(`custom|${id}`, c[1], c[0]); return; }
+        } catch (_) {}
+        // 2) Open-Meteo
+        const params2 = new URLSearchParams({ name: addr, count: '1', language: 'zh' });
+        if (iso2) params2.append('country_code', iso2);
+        const j2 = await getJson(`https://geocoding-api.open-meteo.com/v1/search?${params2.toString()}`);
+        try {
+          const r = j2 && Array.isArray(j2.results) && j2.results[0];
+          if (r && Number.isFinite(r.latitude) && Number.isFinite(r.longitude)) { this._mergeGeoPut(`custom|${id}`, r.latitude, r.longitude); return; }
+        } catch (_) {}
+        // 3) Nominatim
+        const params3 = new URLSearchParams({ format: 'json', q: addr, limit: '1', addressdetails: '0' });
+        if (iso2) params3.append('countrycodes', iso2);
+        const j3 = await getJson(`https://nominatim.openstreetmap.org/search?${params3.toString()}`);
+        try {
+          const r = Array.isArray(j3) && j3[0];
+          const lat = r && parseFloat(r.lat); const lng = r && parseFloat(r.lon);
+          if (Number.isFinite(lat) && Number.isFinite(lng)) { this._mergeGeoPut(`custom|${id}`, lat, lng); return; }
+        } catch (_) {}
+      } catch (e) {}
+    },
+
+    _mergeGeoPut(key, lat, lng) {
+      if (!Number.isFinite(lat) || !Number.isFinite(lng) || !key) return;
+      const storeKey = 'geoCache_v1';
+      let latest = {};
+      try { const raw = localStorage.getItem(storeKey); latest = raw ? (JSON.parse(raw) || {}) : {}; } catch (e) { latest = {}; }
+      latest[key] = { lat, lng, ts: Date.now() };
+      try { localStorage.setItem(storeKey, JSON.stringify(latest)); } catch (e) {}
     }
   }
 }
