@@ -953,21 +953,6 @@
           }
         } catch (e) {}
       },
-      onCustomUpdated(saved){
-        try {
-          const a = findCustomAttractionById(saved.id)
-          if (a) {
-            this.attraction = a
-            // 刷新图片
-            this.image1 = null; this.image2 = null; this.image3 = null;
-            this.$nextTick(async () => {
-              try { if (a.hasImage1) this.image1 = await getCustomImageUrl(`${a.id}:main`); } catch(e) {}
-              try { if (a.hasImage2) this.image2 = await getCustomImageUrl(`${a.id}:sec0`); } catch(e) {}
-              try { if (a.hasImage3) this.image3 = await getCustomImageUrl(`${a.id}:sec1`); } catch(e) {}
-            })
-          }
-        } catch(e) {}
-      },
 
       handleWheel(event) {
         event.preventDefault();

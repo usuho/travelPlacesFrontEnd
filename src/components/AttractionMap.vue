@@ -751,7 +751,10 @@ export default {
     async focusSpecificAttraction() {
       const id = String(this.focusId);
       // 检查是否在收藏里（若是则不显橙色，只用收藏标记）
-      const inFav = this.favorites.some(f => String(f.id) === id && String(f.country) === String(this.country));
+      // 自创国家下，仅按 id 匹配，避免旧数据的 country 字段导致误判
+      const inFav = (String(this.country) === 'custom')
+        ? this.favorites.some(f => String(f.id) === id)
+        : this.favorites.some(f => String(f.id) === id && String(f.country) === String(this.country));
 
       // 获取坐标（自创或普通）
       let latlng = null;
@@ -1059,6 +1062,34 @@ export default {
           const lat = r && parseFloat(r.latitude);
           const lng = r && parseFloat(r.longitude);
           if (Number.isFinite(lat) && Number.isFinite(lng)) { try { console.info('[Geo] success', { provider: 'positionstack', lat, lng, raw: r }); console.groupEnd(); } catch(_) {} ; return { lat, lng } }
+        } catch (_) {}
+      }
+
+      // 10) Amap 兜底（不论是否中国地址，只要有 key 就尝试一次）
+      if (amapKey) {
+        try {
+          const url1 = `https://restapi.amap.com/v3/geocode/geo?address=${encodeURIComponent(trimAddr)}&key=${amapKey}`;
+          const j1 = await getJson(url1, 'amap-fallback-geocode');
+          if (j1 && Array.isArray(j1.geocodes) && j1.geocodes[0] && typeof j1.geocodes[0].location === 'string') {
+            const [lng1, lat1] = j1.geocodes[0].location.split(',').map(parseFloat);
+            if (Number.isFinite(lat1) && Number.isFinite(lng1)) {
+              const [wlat1, wlng1] = this.gcj02ToWgs84(lat1, lng1);
+              try { console.info('[Geo] success', { provider: 'amap-fallback-geocode', gcj02: { lat: lat1, lng: lng1 }, wgs84: { lat: wlat1, lng: wlng1 } }); console.groupEnd(); } catch(_) {}
+              return { lat: wlat1, lng: wlng1 };
+            }
+          }
+        } catch (_) {}
+        try {
+          const url2 = `https://restapi.amap.com/v3/place/text?keywords=${encodeURIComponent(trimAddr)}&key=${amapKey}&children=0&offset=1&page=1&extensions=base`;
+          const j2 = await getJson(url2, 'amap-fallback-poi');
+          if (j2 && Array.isArray(j2.pois) && j2.pois[0] && typeof j2.pois[0].location === 'string') {
+            const [lng2, lat2] = j2.pois[0].location.split(',').map(parseFloat);
+            if (Number.isFinite(lat2) && Number.isFinite(lng2)) {
+              const [wlat2, wlng2] = this.gcj02ToWgs84(lat2, lng2);
+              try { console.info('[Geo] success', { provider: 'amap-fallback-poi', gcj02: { lat: lat2, lng: lng2 }, wgs84: { lat: wlat2, lng: wlng2 } }); console.groupEnd(); } catch(_) {}
+              return { lat: wlat2, lng: wlng2 };
+            }
+          }
         } catch (_) {}
       }
       try { console.warn('[Geo] no result', { address: trimAddr, hintCountry: countryKey }); console.groupEnd(); } catch(_) {}
