@@ -52,6 +52,8 @@ export default {
       // 统计显示
       statsRendered: 0,
       statsNeverRendered: 0,
+      _favGeoPending: 0,
+      _didFinalFitFavorites: false,
     };
   },
   computed: {
@@ -68,8 +70,7 @@ export default {
     this.initMap();
     this.showLoading = true;
     await this.renderFavoritesMarkers();
-    try { await this.fetchAllGeoOnce(); } catch (e) {}
-    this.renderAllInView && this.renderAllInView();
+    try { this.fetchAllGeoOnce().then(() => { this.renderAllInView && this.renderAllInView(); }); } catch (e) {}
 
     if (this.focusId) {
       await this.focusSpecificAttraction();
@@ -214,26 +215,34 @@ export default {
         }
       }
 
-      // 逐个绘制（异步填坑：缺坐标则地理编码）
+      // 逐个绘制（异步填坑：缺坐标则地理编码）。
       let firstCenter = null;
       const latlngsForFit = [];
       let nonPendingIndex = 0;
+      const pendingTasks = [];
+      this._favGeoPending = 0;
+
+      const renderOne = (latlng, meta, orderText, isPendingFlag) => {
+        if (!latlng) return;
+        if (!firstCenter) firstCenter = latlng;
+        latlngsForFit.push(latlng);
+        const icon = this.createFavoriteIcon(orderText || '', isPendingFlag);
+        const marker = L.marker(latlng, { icon, pane: 'favoritesPane', zIndexOffset: 1000 });
+        marker.bindPopup(this.buildPopup(meta));
+        marker.on('popupopen', () => this.attachPopupHandlers(meta));
+        marker.addTo(this.favoritesLayer);
+        if (!this._hasRenderedFirst) { this._hasRenderedFirst = true; this.showLoading = false; }
+      };
+
       for (let i = 0; i < this.favorites.length; i++) {
         const fav = this.favorites[i];
         const isPending = !!fav.pending;
-        const orderText = isPending ? '' : String(++nonPendingIndex);
-        let latlng = null;
-        let meta = null;
+        if (!isPending) nonPendingIndex++;
+        const orderText = isPending ? '' : String(nonPendingIndex);
 
         if (String(fav.country) === 'custom') {
           const ca = findCustomAttractionById(String(fav.id));
-          if (ca && Number.isFinite(ca.lat) && Number.isFinite(ca.lng)) {
-            latlng = [Number(ca.lat), Number(ca.lng)];
-          } else if (ca) {
-            const g = await this.geocodeByFreeApi(`${ca.name} ${ca.region || ''} ${ca.county || ''}`.trim());
-            if (g) latlng = [g.lat, g.lng];
-          }
-          meta = {
+          const meta = {
             id: String(fav.id),
             name: (fav.name || (ca && ca.name) || '未命名景点'),
             region: (fav.region || (ca && ca.region) || ''),
@@ -242,41 +251,88 @@ export default {
             hasImage: !!(ca && (ca.hasImage1 || ca.hasImage2 || ca.hasImage3)),
             country: 'custom',
           };
+          let latlng = null;
+          if (ca && Number.isFinite(ca.lat) && Number.isFinite(ca.lng)) {
+            latlng = [Number(ca.lat), Number(ca.lng)];
+            renderOne(latlng, meta, orderText, isPending);
+          } else if (ca) {
+            const cacheKey = `custom|${String(fav.id)}`;
+            const cached = this._geoGet(cacheKey);
+            if (cached) {
+              latlng = [cached.lat, cached.lng];
+              renderOne(latlng, meta, orderText, isPending);
+            } else {
+              this._favGeoPending++;
+              const task = (async () => {
+                try {
+                  const g = await this.geocodeByFreeApi(`${ca.name} ${ca.region || ''} ${ca.county || ''}`.trim(), 'custom');
+                  if (g) { this._geoPut(cacheKey, g.lat, g.lng); renderOne([g.lat, g.lng], meta, orderText, isPending); }
+                } catch (e) {}
+                finally {
+                  this._favGeoPending = Math.max(0, this._favGeoPending - 1);
+                  if (this._favGeoPending === 0 && !this._didFinalFitFavorites) {
+                    try {
+                      const layers = Object.values(this.favoritesLayer._layers || {});
+                      const bounds = L.latLngBounds(layers.map(l => l.getLatLng && l.getLatLng()).filter(Boolean));
+                      if (bounds && bounds.isValid()) this.map.fitBounds(bounds, { padding: [40, 40], animate: false });
+                    } catch (e) {}
+                    this._didFinalFitFavorites = true;
+                    this._didInitCenter = true;
+                  }
+                }
+              })();
+              pendingTasks.push(task);
+            }
+          }
         } else {
-          const key = `${String(fav.country || this.country)}|${String(fav.id)}`;
+          const ctry = String(fav.country || this.country);
+          const key = `${ctry}|${String(fav.id)}`;
           const geo = geoMap.get(key);
           if (geo && Number.isFinite(geo.lat) && Number.isFinite(geo.lng)) {
-            latlng = [geo.lat, geo.lng];
-            meta = geo;
+            renderOne([geo.lat, geo.lng], geo, orderText, isPending);
           } else {
-            try {
-              const rows = await fetchAttractionsPositionsByIds(String(fav.country || this.country), [fav.id]);
-              const p = (Array.isArray(rows) && rows[0]) || null;
-              const address = p ? `${p.name || ''} ${p.region || ''} ${p.county || ''} ${p.position || ''} ${this.country}`.trim() : `${fav.name || ''} ${fav.region || ''} ${fav.county || ''} ${this.country}`.trim();
-              const g = await this.geocodeByFreeApi(address);
-              if (g) {
-                latlng = [g.lat, g.lng];
-                meta = { id: fav.id, name: fav.name || (p && p.name) || '', region: fav.region || (p && p.region) || '', county: fav.county || (p && p.county) || '', rating: fav.rating, country: String(fav.country || this.country), hasImage: !!(p && p.hasImage) };
-              }
-            } catch (e) {}
+            const cacheKey = `${ctry}|${String(fav.id)}`;
+            const cached = this._geoGet(cacheKey);
+            if (cached) {
+              const meta = { id: fav.id, name: fav.name || '', region: fav.region || '', county: fav.county || '', rating: fav.rating, country: ctry, hasImage: false };
+              renderOne([cached.lat, cached.lng], meta, orderText, isPending);
+            } else {
+              this._favGeoPending++;
+              const task = (async () => {
+                try {
+                  const rows = await fetchAttractionsPositionsByIds(ctry, [fav.id]);
+                  const p = (Array.isArray(rows) && rows[0]) || null;
+                  const metaC = this._getCountryMeta(String(ctry || '').toLowerCase());
+                  const countryText = (metaC && metaC.labelEn) || (metaC && metaC.iso2) || '';
+                  const address = p ? `${p.name || ''} ${p.region || ''} ${p.county || ''} ${p.position || ''} ${countryText}`.trim() : `${fav.name || ''} ${fav.region || ''} ${fav.county || ''} ${countryText}`.trim();
+                  const g = await this.geocodeByFreeApi(address, ctry);
+                  if (g) {
+                    this._geoPut(cacheKey, g.lat, g.lng);
+                    const meta = { id: fav.id, name: fav.name || (p && p.name) || '', region: fav.region || (p && p.region) || '', county: fav.county || (p && p.county) || '', rating: fav.rating, country: ctry, hasImage: !!(p && p.hasImage) };
+                    renderOne([g.lat, g.lng], meta, orderText, isPending);
+                  }
+                } catch (e) {}
+                finally {
+                  this._favGeoPending = Math.max(0, this._favGeoPending - 1);
+                  if (this._favGeoPending === 0 && !this._didFinalFitFavorites) {
+                    try {
+                      const layers = Object.values(this.favoritesLayer._layers || {});
+                      const bounds = L.latLngBounds(layers.map(l => l.getLatLng && l.getLatLng()).filter(Boolean));
+                      if (bounds && bounds.isValid()) this.map.fitBounds(bounds, { padding: [40, 40], animate: false });
+                    } catch (e) {}
+                    this._didFinalFitFavorites = true;
+                    this._didInitCenter = true;
+                  }
+                }
+              })();
+              pendingTasks.push(task);
+            }
           }
         }
-
-        if (!latlng) continue;
-
-        if (!firstCenter) firstCenter = latlng;
-        latlngsForFit.push(latlng);
-
-        const icon = this.createFavoriteIcon(orderText, isPending);
-        const marker = L.marker(latlng, { icon, pane: 'favoritesPane', zIndexOffset: 1000 });
-        marker.bindPopup(this.buildPopup(meta));
-        marker.on('popupopen', () => this.attachPopupHandlers(meta));
-        marker.addTo(this.favoritesLayer);
-        if (!this._hasRenderedFirst) { this._hasRenderedFirst = true; this.showLoading = false; }
       }
 
-      // 如果有收藏：默认以序号1为中心，并将缩放调整到能包含所有收藏（仅首次，不干扰用户后续操作）
-      if (firstCenter && !this._didInitCenter && !this.focusId) {
+      // 初次：仅在没有待异步地理编码任务时立即拟合
+      if (firstCenter && !this._didInitCenter && pendingTasks.length === 0) {
         try {
           if (latlngsForFit.length >= 1) {
             const b = L.latLngBounds(latlngsForFit);
@@ -287,6 +343,22 @@ export default {
           }
         } catch (e) {}
         this._didInitCenter = true;
+        this._didFinalFitFavorites = true;
+      }
+
+      // 全部异步完成后再次拟合收藏范围
+      if (pendingTasks.length) {
+        Promise.allSettled(pendingTasks).then(() => {
+          if (!this._didFinalFitFavorites) {
+            try {
+              const layers = Object.values(this.favoritesLayer._layers || {});
+              const bounds = L.latLngBounds(layers.map(l => l.getLatLng && l.getLatLng()).filter(Boolean));
+              if (bounds && bounds.isValid()) this.map.fitBounds(bounds, { padding: [40, 40], animate: false });
+            } catch (e) {}
+            this._didFinalFitFavorites = true;
+            this._didInitCenter = true;
+          }
+        });
       }
     },
 
@@ -311,9 +383,9 @@ export default {
               const existing = byId.get(idStr);
               const needGeocode = !existing || !Number.isFinite(existing.lat) || !Number.isFinite(existing.lng);
               if (!needGeocode) continue;
-              const address = `${p.name || ''} ${p.region || ''} ${p.county || ''} ${p.position || ''} ${this.country}`.trim();
-              const g = await this.geocodeByFreeApi(address);
-              if (g) {
+              const cacheKey = `${String(this.country)}|${idStr}`;
+              const cached = this._geoGet(cacheKey);
+              if (cached) {
                 const item = {
                   id: p.id,
                   name: p.name,
@@ -321,8 +393,8 @@ export default {
                   county: p.county,
                   rating: p.rating,
                   total_reviews: p.total_reviews,
-                  lat: g.lat,
-                  lng: g.lng,
+                  lat: cached.lat,
+                  lng: cached.lng,
                   hasImage: !!p.hasImage,
                   country: this.country,
                 };
@@ -331,6 +403,32 @@ export default {
                 } else {
                   data.push(item);
                   byId.set(idStr, item);
+                }
+              } else {
+                const metaC = this._getCountryMeta(String(this.country || '').toLowerCase());
+                const countryText = (metaC && metaC.labelEn) || (metaC && metaC.iso2) || '';
+                const address = `${p.name || ''} ${p.region || ''} ${p.county || ''} ${p.position || ''} ${countryText}`.trim();
+                const g = await this.geocodeByFreeApi(address, this.country);
+                if (g) {
+                  const item = {
+                    id: p.id,
+                    name: p.name,
+                    region: p.region,
+                    county: p.county,
+                    rating: p.rating,
+                    total_reviews: p.total_reviews,
+                    lat: g.lat,
+                    lng: g.lng,
+                    hasImage: !!p.hasImage,
+                    country: this.country,
+                  };
+                  this._geoPut(cacheKey, g.lat, g.lng);
+                  if (existing) {
+                    Object.assign(existing, item);
+                  } else {
+                    data.push(item);
+                    byId.set(idStr, item);
+                  }
                 }
               }
             }
@@ -371,9 +469,9 @@ export default {
               const existing = byId.get(idStr);
               const needGeocode = !existing || !Number.isFinite(existing.lat) || !Number.isFinite(existing.lng);
               if (!needGeocode) continue;
-              const address = `${p.name || ''} ${p.region || ''} ${p.county || ''} ${p.position || ''} ${this.country}`.trim();
-              const g = await this.geocodeByFreeApi(address);
-              if (g) {
+              const cacheKey = `${String(this.country)}|${idStr}`;
+              const cached = this._geoGet(cacheKey);
+              if (cached) {
                 const item = {
                   id: p.id,
                   name: p.name,
@@ -381,8 +479,8 @@ export default {
                   county: p.county,
                   rating: p.rating,
                   total_reviews: p.total_reviews,
-                  lat: g.lat,
-                  lng: g.lng,
+                  lat: cached.lat,
+                  lng: cached.lng,
                   hasImage: !!p.hasImage,
                   country: this.country,
                 };
@@ -391,6 +489,32 @@ export default {
                 } else {
                   data.push(item);
                   byId.set(idStr, item);
+                }
+              } else {
+                const metaC = this._getCountryMeta(String(this.country || '').toLowerCase());
+                const countryText = (metaC && metaC.labelEn) || (metaC && metaC.iso2) || '';
+                const address = `${p.name || ''} ${p.region || ''} ${p.county || ''} ${p.position || ''} ${countryText}`.trim();
+                const g = await this.geocodeByFreeApi(address, this.country);
+                if (g) {
+                  const item = {
+                    id: p.id,
+                    name: p.name,
+                    region: p.region,
+                    county: p.county,
+                    rating: p.rating,
+                    total_reviews: p.total_reviews,
+                    lat: g.lat,
+                    lng: g.lng,
+                    hasImage: !!p.hasImage,
+                    country: this.country,
+                  };
+                  this._geoPut(cacheKey, g.lat, g.lng);
+                  if (existing) {
+                    Object.assign(existing, item);
+                  } else {
+                    data.push(item);
+                    byId.set(idStr, item);
+                  }
                 }
               }
             }
@@ -458,10 +582,16 @@ export default {
         if (ca && Number.isFinite(ca.lat) && Number.isFinite(ca.lng)) {
           latlng = [Number(ca.lat), Number(ca.lng)];
         } else if (ca) {
-          const g = await this.geocodeByFreeApi(`${ca.name} ${ca.region || ''} ${ca.county || ''}`.trim());
-          if (g) latlng = [g.lat, g.lng];
+          const cacheKey = `custom|${id}`;
+          const cached = this._geoGet(cacheKey);
+          if (cached) {
+            latlng = [cached.lat, cached.lng];
+          } else {
+            const g = await this.geocodeByFreeApi(`${ca.name} ${ca.region || ''} ${ca.county || ''}`.trim(), 'custom');
+            if (g) { latlng = [g.lat, g.lng]; this._geoPut(cacheKey, g.lat, g.lng); }
+          }
         }
-        meta = ca ? { id, name: ca.name, region: ca.region, county: ca.county, rating: ca.rating, country: 'custom', hasImage: !!(ca.hasImage1 || ca.hasImage2 || ca.hasImage3) } : null;
+        meta = ca ? { id, name: ca.name, region: ca.region, county: ca.county, rating: (Number.isFinite(ca && ca.rating) ? ca.rating : 0), country: 'custom', hasImage: !!(ca.hasImage1 || ca.hasImage2 || ca.hasImage3) } : null;
       } else {
         try {
           const arr = await fetchAttractionsGeoByIds(this.country, [id]);
@@ -475,10 +605,19 @@ export default {
           try {
             const rows = await fetchAttractionsPositionsByIds(this.country, [id]);
             const p = (Array.isArray(rows) && rows[0]) || null;
-            const address = p ? `${p.name || ''} ${p.region || ''} ${p.county || ''} ${p.position || ''} ${this.country}`.trim() : '';
-            if (address) {
-              const g = await this.geocodeByFreeApi(address);
-              if (g) { latlng = [g.lat, g.lng]; meta = p || meta; }
+            const cacheKey = `${String(this.country)}|${id}`;
+            const cached = this._geoGet(cacheKey);
+            if (cached) {
+              latlng = [cached.lat, cached.lng];
+              meta = p || meta;
+            } else {
+              const metaC = this._getCountryMeta(String(this.country || '').toLowerCase());
+              const countryText = (metaC && metaC.labelEn) || (metaC && metaC.iso2) || '';
+              const address = p ? `${p.name || ''} ${p.region || ''} ${p.county || ''} ${p.position || ''} ${countryText}`.trim() : '';
+              if (address) {
+                const g = await this.geocodeByFreeApi(address, this.country);
+                if (g) { latlng = [g.lat, g.lng]; meta = p || meta; this._geoPut(cacheKey, g.lat, g.lng); }
+              }
             }
           } catch (e) {}
         }
@@ -501,29 +640,245 @@ export default {
       }
     },
 
-    // 使用 Google 或 高德 的地理编码（通过 Vite 环境变量注入 key）；若无可用 key 则返回 null
-    async geocodeByFreeApi(address) {
-      const googleKey = import.meta.env.VITE_GOOGLE_MAPS_KEY;
-      const amapKey = import.meta.env.VITE_AMAP_KEY;
-      try {
-        if (googleKey) {
-          const url = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(address)}&key=${googleKey}`;
-          const r = await fetch(url);
-          const j = await r.json();
-          const g = j && j.results && j.results[0] && j.results[0].geometry && j.results[0].geometry.location;
-          if (g && Number.isFinite(g.lat) && Number.isFinite(g.lng)) return { lat: g.lat, lng: g.lng };
-        } else if (amapKey) {
-          const url = `https://restapi.amap.com/v3/geocode/geo?address=${encodeURIComponent(address)}&key=${amapKey}`;
-          const r = await fetch(url);
-          const j = await r.json();
-          if (j && j.geocodes && j.geocodes[0] && typeof j.geocodes[0].location === 'string') {
-            const [lng, lat] = j.geocodes[0].location.split(',').map(parseFloat);
-            if (Number.isFinite(lat) && Number.isFinite(lng)) return { lat, lng };
+    // 前端兜底地理编码：
+    // 顺序（中国优先）：
+    // - 中国：高德地址 → 高德POI（需 VITE_AMAP_KEY）
+    // - Photon（免钥匙）
+    // - Open-Meteo（免钥匙）
+    // - Nominatim（带 country 与 viewbox）
+    // - OpenCage → Geoapify → LocationIQ → MapQuest → Positionstack（有相应 key 时）
+    async geocodeByFreeApi(address, hintCountry) {
+      const trimAddr = String(address || '').trim();
+      if (!trimAddr) return null;
+
+      const env = import.meta && import.meta.env ? import.meta.env : {};
+      const amapKey = env.VITE_AMAP_KEY;
+      // 去掉 Google API 使用
+      const openCageKey = env.VITE_OPENCAGE_KEY;
+      const geoapifyKey = env.VITE_GEOAPIFY_KEY;
+      const locationIqKey = env.VITE_LOCATIONIQ_KEY;
+      const mapQuestKey = env.VITE_MAPQUEST_KEY;
+      const positionstackKey = env.VITE_POSITIONSTACK_KEY;
+
+      const countryKey = String(hintCountry || this.country || '').toLowerCase();
+      const countryMeta = this._getCountryMeta(countryKey);
+      const isChina = countryMeta && countryMeta.iso2 === 'cn';
+      const iso2 = (countryMeta && countryMeta.iso2) || '';
+      const viewbox = countryMeta && countryMeta.viewbox;
+      // 为部分服务准备中心点偏置
+      let biasLat = null, biasLng = null;
+      if (viewbox && viewbox.length === 4) {
+        const [left, top, right, bottom] = viewbox;
+        biasLat = (top + bottom) / 2;
+        biasLng = (left + right) / 2;
+      }
+      // 英文国家名用于部分服务的文本增强
+      const countryLabelEn = (countryMeta && countryMeta.labelEn) || '';
+
+      // Helper: safe fetch JSON
+      const getJson = async (url) => {
+        try {
+          const r = await fetch(url, { headers: { 'accept-language': 'zh-CN,zh;q=0.9,en;q=0.8' } });
+          if (!r.ok) return null;
+          return await r.json();
+        } catch (_) { return null; }
+      };
+
+      // 1) 中国优先：高德地址 → 高德POI（并将 GCJ-02 转为 WGS84）
+      if (isChina && amapKey) {
+        // 高德地址优先
+        const url1 = `https://restapi.amap.com/v3/geocode/geo?address=${encodeURIComponent(trimAddr)}&key=${amapKey}`;
+        const j1 = await getJson(url1);
+        try {
+          if (j1 && Array.isArray(j1.geocodes) && j1.geocodes[0] && typeof j1.geocodes[0].location === 'string') {
+            const [lng, lat] = j1.geocodes[0].location.split(',').map(parseFloat);
+            if (Number.isFinite(lat) && Number.isFinite(lng)) {
+              const [wlat, wlng] = this.gcj02ToWgs84(lat, lng);
+              return { lat: wlat, lng: wlng };
+            }
           }
+        } catch (_) {}
+        // 回退到高德 POI（文本检索）
+        const url2 = `https://restapi.amap.com/v3/place/text?keywords=${encodeURIComponent(trimAddr)}&key=${amapKey}&children=0&offset=1&page=1&extensions=base`;
+        const j2 = await getJson(url2);
+        try {
+          if (j2 && Array.isArray(j2.pois) && j2.pois[0] && typeof j2.pois[0].location === 'string') {
+            const [lng, lat] = j2.pois[0].location.split(',').map(parseFloat);
+            if (Number.isFinite(lat) && Number.isFinite(lng)) {
+              const [wlat, wlng] = this.gcj02ToWgs84(lat, lng);
+              return { lat: wlat, lng: wlng };
+            }
+          }
+        } catch (_) {}
+      }
+
+      // 2) Photon（可带 bbox / 语言 / 偏置）
+      {
+        const params = new URLSearchParams({ q: trimAddr, limit: '1', lang: 'zh' });
+        if (viewbox) params.append('bbox', viewbox.join(','));
+        if (biasLat !== null && biasLng !== null) { params.append('lat', String(biasLat)); params.append('lon', String(biasLng)); }
+        const url = `https://photon.komoot.io/api/?${params.toString()}`;
+        const j = await getJson(url);
+        try {
+          const feat = j && Array.isArray(j.features) && j.features[0];
+          const coords = feat && feat.geometry && Array.isArray(feat.geometry.coordinates) && feat.geometry.coordinates;
+          if (coords && Number.isFinite(coords[0]) && Number.isFinite(coords[1])) return { lat: coords[1], lng: coords[0] };
+        } catch (_) {}
+      }
+
+      // 3) Open-Meteo Geocoding（带 country_code）
+      {
+        const params = new URLSearchParams({ name: trimAddr, count: '1', language: 'zh' });
+        if (iso2) params.append('country_code', iso2);
+        const url = `https://geocoding-api.open-meteo.com/v1/search?${params.toString()}`;
+        const j = await getJson(url);
+        try {
+          const r = j && Array.isArray(j.results) && j.results[0];
+          if (r && Number.isFinite(r.latitude) && Number.isFinite(r.longitude)) return { lat: r.latitude, lng: r.longitude };
+        } catch (_) {}
+      }
+
+      // 4) Nominatim（带国家范围与 viewbox）
+      {
+        const params = new URLSearchParams({ format: 'json', q: trimAddr, limit: '1', addressdetails: '0' });
+        if (iso2) params.append('countrycodes', iso2);
+        if (viewbox) {
+          params.append('viewbox', viewbox.join(','));
+          params.append('bounded', '1');
         }
-      } catch (e) {}
+        const url = `https://nominatim.openstreetmap.org/search?${params.toString()}`;
+        const j = await getJson(url);
+        try {
+          const r = Array.isArray(j) && j[0];
+          const lat = r && parseFloat(r.lat);
+          const lng = r && parseFloat(r.lon);
+          if (Number.isFinite(lat) && Number.isFinite(lng)) return { lat, lng };
+        } catch (_) {}
+      }
+
+      // 5) OpenCage（带 countrycode）
+      if (openCageKey) {
+        const url = `https://api.opencagedata.com/geocode/v1/json?q=${encodeURIComponent(trimAddr)}&key=${openCageKey}&limit=1&no_annotations=1${iso2?`&countrycode=${iso2}`:''}`;
+        const j = await getJson(url);
+        try {
+          const r = j && Array.isArray(j.results) && j.results[0];
+          const g = r && r.geometry;
+          if (g && Number.isFinite(g.lat) && Number.isFinite(g.lng)) return { lat: g.lat, lng: g.lng };
+        } catch (_) {}
+      }
+
+      // 6) Geoapify（带 countrycode）
+      if (geoapifyKey) {
+        const url = `https://api.geoapify.com/v1/geocode/search?text=${encodeURIComponent(trimAddr)}&limit=1&lang=zh&${iso2?`filter=countrycode:${iso2}&`:''}apiKey=${geoapifyKey}`;
+        const j = await getJson(url);
+        try {
+          const feat = j && Array.isArray(j.features) && j.features[0];
+          const coords = feat && feat.geometry && feat.geometry.coordinates;
+          if (coords && Number.isFinite(coords[0]) && Number.isFinite(coords[1])) return { lat: coords[1], lng: coords[0] };
+        } catch (_) {}
+      }
+
+      // 7) LocationIQ（带 countrycodes）
+      if (locationIqKey) {
+        const url = `https://us1.locationiq.com/v1/search?key=${locationIqKey}&q=${encodeURIComponent(trimAddr)}&format=json&limit=1${iso2?`&countrycodes=${iso2}`:''}`;
+        const j = await getJson(url);
+        try {
+          const r = Array.isArray(j) && j[0];
+          const lat = r && parseFloat(r.lat);
+          const lng = r && parseFloat(r.lon);
+          if (Number.isFinite(lat) && Number.isFinite(lng)) return { lat, lng };
+        } catch (_) {}
+      }
+
+      // 8) MapQuest（文本追加英文国家名以提升匹配）
+      if (mapQuestKey) {
+        const q = countryLabelEn ? `${trimAddr} ${countryLabelEn}` : trimAddr;
+        const url = `https://www.mapquestapi.com/geocoding/v1/address?key=${mapQuestKey}&location=${encodeURIComponent(q)}`;
+        const j = await getJson(url);
+        try {
+          const loc = j && Array.isArray(j.results) && j.results[0] && Array.isArray(j.results[0].locations) && j.results[0].locations[0];
+          const g = loc && loc.latLng;
+          if (g && Number.isFinite(g.lat) && Number.isFinite(g.lng)) return { lat: g.lat, lng: g.lng };
+        } catch (_) {}
+      }
+
+      // 9) Positionstack（带 country）
+      if (positionstackKey) {
+        const url = `https://api.positionstack.com/v1/forward?access_key=${positionstackKey}&query=${encodeURIComponent(trimAddr)}&limit=1${iso2?`&country=${iso2}`:''}`;
+        const j = await getJson(url);
+        try {
+          const r = j && Array.isArray(j.data) && j.data[0];
+          const lat = r && parseFloat(r.latitude);
+          const lng = r && parseFloat(r.longitude);
+          if (Number.isFinite(lat) && Number.isFinite(lng)) return { lat, lng };
+        } catch (_) {}
+      }
+
       return null;
     },
+
+    // 国家元数据：ISO2 代码 + 视图框（Nominatim 用）
+    _getCountryMeta(countryKey) {
+      const map = {
+        china:     { iso2: 'cn', viewbox: [73.5, 53.6, 134.8, 18.1], labelEn: 'China' },
+        japan:     { iso2: 'jp', viewbox: [122.9, 45.6, 153.0, 24.0], labelEn: 'Japan' },
+        america:   { iso2: 'us', viewbox: [-125.0, 49.5, -66.9, 24.5], labelEn: 'United States' },
+        usa:       { iso2: 'us', viewbox: [-125.0, 49.5, -66.9, 24.5], labelEn: 'United States' },
+        unitedstates: { iso2: 'us', viewbox: [-125.0, 49.5, -66.9, 24.5], labelEn: 'United States' },
+        canada:    { iso2: 'ca', viewbox: [-141.0, 83.1, -52.6, 41.7], labelEn: 'Canada' },
+        mexico:    { iso2: 'mx', viewbox: [-118.5, 32.7, -86.5, 14.5], labelEn: 'Mexico' },
+        australia: { iso2: 'au', viewbox: [112.9, -10.7, 153.6, -43.6], labelEn: 'Australia' },
+        iceland:   { iso2: 'is', viewbox: [-24.6, 66.7, -13.5, 63.1], labelEn: 'Iceland' },
+        denmark:   { iso2: 'dk', viewbox: [7.5, 57.8, 15.5, 54.5], labelEn: 'Denmark' },
+        newzealand:{ iso2: 'nz', viewbox: [166.4, -34.5, 178.6, -47.6], labelEn: 'New Zealand' },
+        singapore: { iso2: 'sg', viewbox: [103.6, 1.48, 104.1, 1.20], labelEn: 'Singapore' },
+        malaysia:  { iso2: 'my', viewbox: [99.6, 7.5, 119.6, 0.9], labelEn: 'Malaysia' },
+        thailand:  { iso2: 'th', viewbox: [97.3, 20.5, 105.6, 5.6], labelEn: 'Thailand' },
+        vietnam:   { iso2: 'vn', viewbox: [102.1, 23.5, 109.7, 8.4], labelEn: 'Vietnam' },
+        switzerland:{ iso2: 'ch', viewbox: [5.9, 47.9, 10.7, 45.7], labelEn: 'Switzerland' },
+        // 自创景点或未知国家：不给 viewbox，仅返回空对象
+        custom:    { iso2: '', viewbox: null, labelEn: '' },
+      };
+      return map[countryKey] || null;
+    },
+
+    // —— 坐标系转换（高德 GCJ-02 -> WGS84）——
+    _outOfChina(lat, lng) {
+      return !(lat >= 0.8293 && lat <= 55.8271 && lng >= 72.004 && lng <= 137.8347);
+    },
+    _transformLat(x, y) {
+      const PI = Math.PI;
+      let ret = -100.0 + 2.0 * x + 3.0 * y + 0.2 * y * y + 0.1 * x * y + 0.2 * Math.sqrt(Math.abs(x));
+      ret += (20.0 * Math.sin(6.0 * x * PI) + 20.0 * Math.sin(2.0 * x * PI)) * 2.0 / 3.0;
+      ret += (20.0 * Math.sin(y * PI) + 40.0 * Math.sin(y / 3.0 * PI)) * 2.0 / 3.0;
+      ret += (160.0 * Math.sin(y / 12.0 * PI) + 320 * Math.sin(y * PI / 30.0)) * 2.0 / 3.0;
+      return ret;
+    },
+    _transformLng(x, y) {
+      const PI = Math.PI;
+      let ret = 300.0 + x + 2.0 * y + 0.1 * x * x + 0.1 * x * y + 0.1 * Math.sqrt(Math.abs(x));
+      ret += (20.0 * Math.sin(6.0 * x * PI) + 20.0 * Math.sin(2.0 * x * PI)) * 2.0 / 3.0;
+      ret += (20.0 * Math.sin(x * PI) + 40.0 * Math.sin(x / 3.0 * PI)) * 2.0 / 3.0;
+      ret += (150.0 * Math.sin(x / 12.0 * PI) + 300.0 * Math.sin(x / 30.0 * PI)) * 2.0 / 3.0;
+      return ret;
+    },
+    gcj02ToWgs84(lat, lng) {
+      if (this._outOfChina(lat, lng)) return [lat, lng];
+      const PI = Math.PI;
+      const a = 6378245.0;
+      const ee = 0.00669342162296594323;
+      let dLat = this._transformLat(lng - 105.0, lat - 35.0);
+      let dLng = this._transformLng(lng - 105.0, lat - 35.0);
+      const radLat = lat / 180.0 * PI;
+      let magic = Math.sin(radLat);
+      magic = 1 - ee * magic * magic;
+      const sqrtMagic = Math.sqrt(magic);
+      dLat = (dLat * 180.0) / ((a * (1 - ee)) / (magic * sqrtMagic) * PI);
+      dLng = (dLng * 180.0) / (a / sqrtMagic * Math.cos(radLat) * PI);
+      return [lat - dLat, lng - dLng];
+    },
+
+    // 预留：如需根据中文地址抽取城市，可在此实现
 
     // 自定义图标
     createFavoriteIcon(text, isPending) {
@@ -613,6 +968,45 @@ export default {
       const raw = typeof rating === 'number' ? rating : parseFloat(String(rating || '').replace('%', '').trim());
       const v = Number.isFinite(raw) ? Math.max(0, Math.min(100, raw)) : 0;
       return v;
+    },
+
+    // —— 地理编码浏览器缓存 ——
+    _geoCacheKey() { return 'geoCache_v1'; },
+    _geoLoad() {
+      if (this._geoCache) return this._geoCache;
+      try {
+        const raw = localStorage.getItem(this._geoCacheKey());
+        const obj = raw ? JSON.parse(raw) : {};
+        this._geoCache = (obj && typeof obj === 'object') ? obj : {};
+      } catch (e) { this._geoCache = {}; }
+      return this._geoCache;
+    },
+    _geoSave() {
+      try {
+        const obj = this._geoCache || {};
+        // 简易裁剪，最多保留 2000 条
+        const keys = Object.keys(obj);
+        if (keys.length > 2000) {
+          const arr = keys.map(k => ({ k, ts: obj[k]?.ts || 0 })).sort((a,b)=>a.ts-b.ts);
+          const toDrop = arr.slice(0, keys.length - 2000);
+          for (const it of toDrop) delete obj[it.k];
+        }
+        localStorage.setItem(this._geoCacheKey(), JSON.stringify(obj));
+      } catch (e) {}
+    },
+    _geoGet(key) {
+      const cache = this._geoLoad();
+      const rec = cache && cache[key];
+      if (!rec) return null;
+      const lat = Number(rec.lat), lng = Number(rec.lng);
+      if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+      return { lat, lng };
+    },
+    _geoPut(key, lat, lng) {
+      if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+      const cache = this._geoLoad();
+      cache[key] = { lat, lng, ts: Date.now() };
+      this._geoSave();
     },
 
     // 列表筛选：从 localStorage 读取
@@ -765,7 +1159,9 @@ export default {
 :deep(.popup-main) { display: grid; grid-template-columns: 1fr auto; grid-template-rows: auto auto; column-gap: 8px; row-gap: 2px; }
 :deep(.popup-name) { grid-column: 1 / 3; font-weight: 800; max-width: 220px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 :deep(.popup-meta) { color: #64748b; font-size: 12px; }
-:deep(.popup-rating) { color: #fff; font-weight: 800; padding: 2px 6px; font-size: 12px; border-radius: 6px; align-self: start; }
+:deep(.popup-rating) { color: #fff; font-weight: 800; padding: 2px 6px; font-size: 12px; border-radius: 6px; align-self: start; display: inline-flex; align-items: center; gap: 4px; }
+:deep(.popup-rating-label) { opacity: 0.9; font-weight: 700; }
+:deep(.popup-rating-value) { font-weight: 900; }
 
 /* 居中加载指示，不拦截地图操作 */
 .map-loading-overlay { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; pointer-events: none; z-index: 1500; }
