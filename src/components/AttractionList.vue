@@ -1054,6 +1054,21 @@
         } catch (e) { return {}; }
       },
 
+      // 从浏览器地理编码缓存中移除某个自创景点的经纬度
+      removeGeoCacheForCustom(id) {
+        try {
+          const storeKey = 'geoCache_v1';
+          const raw = localStorage.getItem(storeKey);
+          if (!raw) return;
+          const obj = JSON.parse(raw) || {};
+          const cacheKey = `custom|${String(id)}`;
+          if (obj && typeof obj === 'object' && Object.prototype.hasOwnProperty.call(obj, cacheKey)) {
+            delete obj[cacheKey];
+            localStorage.setItem(storeKey, JSON.stringify(obj));
+          }
+        } catch (e) {}
+      },
+
             onTabNameInput(tab, evt) {
         try {
           const el = evt && evt.target;
@@ -1824,6 +1839,7 @@
             if (String(it.country) === 'custom') {
               try { deleteCustomAttraction(it.id); } catch(e) {}
               try { deleteCustomImagesForId(it.id); } catch(e) {}
+              try { this.removeGeoCacheForCustom(it.id); } catch(e) {}
             }
             const key = this.thumbKey ? this.thumbKey(it) : (it.country + '-' + it.id);
             if (this.favThumbs && this.favThumbs[key]) { try { URL.revokeObjectURL(this.favThumbs[key]); } catch(e){}; this.$delete ? this.$delete(this.favThumbs, key) : delete this.favThumbs[key]; }
@@ -2255,6 +2271,7 @@ const all = this.sortedFavorites || [];
         if (String(t.country) === 'custom') {
           try { deleteCustomAttraction(t.id); } catch (e) {}
           try { deleteCustomImagesForId(t.id); } catch (e) {}
+          try { this.removeGeoCacheForCustom(t.id); } catch (e) {}
         }
         // 清理缩略图缓存（统一处理）
         const key = this.thumbKey(t);

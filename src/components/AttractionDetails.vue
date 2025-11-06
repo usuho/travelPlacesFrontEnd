@@ -336,7 +336,7 @@
       };
     }
   },
-  methods: {
+    methods: {
       openMapForThis() {
         try {
           if (this.fromMap) {
@@ -566,6 +566,19 @@
         // 从自创景点存储中删除
         try { deleteCustomAttraction(id); } catch(e) {}
         try { deleteCustomImagesForId(id); } catch(e) {}
+        // 同步清除浏览器地理编码缓存
+        try {
+          const storeKey = 'geoCache_v1';
+          const raw = localStorage.getItem(storeKey);
+          if (raw) {
+            const obj = JSON.parse(raw) || {};
+            const cacheKey = `custom|${String(id)}`;
+            if (obj && typeof obj === 'object' && Object.prototype.hasOwnProperty.call(obj, cacheKey)) {
+              delete obj[cacheKey];
+              localStorage.setItem(storeKey, JSON.stringify(obj));
+            }
+          }
+        } catch (e) {}
         // 从收藏 tabs 中移除
         try {
           const rawTabs = localStorage.getItem('favoriteTabs_all');

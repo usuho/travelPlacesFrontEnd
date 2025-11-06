@@ -54,6 +54,9 @@ export default {
       statsNeverRendered: 0,
       _favGeoPending: 0,
       _didFinalFitFavorites: false,
+      // 进入地图时的拟合控制与视图恢复
+      _blockFavFit: false,
+      _shouldRestoreView: false,
     };
   },
   computed: {
@@ -68,6 +71,10 @@ export default {
   async mounted() {
     this.loadFavoritesState();
     this.initMap();
+    // 从详情返回或从地图内跳到详情再返回时，尝试恢复之前的视图
+    this.tryRestoreMapViewMaybe();
+    // 若是从详情页进入地图，则不进行收藏范围拟合（只聚焦详情项）
+    if (this.fromDetails) this._blockFavFit = true;
     this.showLoading = true;
     await this.renderFavoritesMarkers();
     try { this.fetchAllGeoOnce().then(() => { this.renderAllInView && this.renderAllInView(); }); } catch (e) {}
@@ -270,7 +277,7 @@ export default {
                 } catch (e) {}
                 finally {
                   this._favGeoPending = Math.max(0, this._favGeoPending - 1);
-                  if (this._favGeoPending === 0 && !this._didFinalFitFavorites) {
+                  if (this._favGeoPending === 0 && !this._didFinalFitFavorites && !this._blockFavFit) {
                     try {
                       const layers = Object.values(this.favoritesLayer._layers || {});
                       const bounds = L.latLngBounds(layers.map(l => l.getLatLng && l.getLatLng()).filter(Boolean));
@@ -314,7 +321,7 @@ export default {
                 } catch (e) {}
                 finally {
                   this._favGeoPending = Math.max(0, this._favGeoPending - 1);
-                  if (this._favGeoPending === 0 && !this._didFinalFitFavorites) {
+                  if (this._favGeoPending === 0 && !this._didFinalFitFavorites && !this._blockFavFit) {
                     try {
                       const layers = Object.values(this.favoritesLayer._layers || {});
                       const bounds = L.latLngBounds(layers.map(l => l.getLatLng && l.getLatLng()).filter(Boolean));
@@ -332,7 +339,7 @@ export default {
       }
 
       // 初次：仅在没有待异步地理编码任务时立即拟合
-      if (firstCenter && !this._didInitCenter && pendingTasks.length === 0) {
+      if (firstCenter && !this._didInitCenter && pendingTasks.length === 0 && !this._blockFavFit) {
         try {
           if (latlngsForFit.length >= 1) {
             const b = L.latLngBounds(latlngsForFit);
@@ -349,7 +356,7 @@ export default {
       // 全部异步完成后再次拟合收藏范围
       if (pendingTasks.length) {
         Promise.allSettled(pendingTasks).then(() => {
-          if (!this._didFinalFitFavorites) {
+          if (!this._didFinalFitFavorites && !this._blockFavFit) {
             try {
               const layers = Object.values(this.favoritesLayer._layers || {});
               const bounds = L.latLngBounds(layers.map(l => l.getLatLng && l.getLatLng()).filter(Boolean));
@@ -884,7 +891,8 @@ export default {
     createFavoriteIcon(text, isPending) {
       const color = isPending ? '#C0C0C0' : '#FFD54F'; // 银色或黄色
       const html = `<div class="fav-marker" style="background:${color}">${text}</div>`;
-      return L.divIcon({ className: 'marker-wrapper', html, iconSize: [16, 16], iconAnchor: [8, 8], popupAnchor: [0, -8] });
+      // 放大为原来的 1.5 倍（16px -> 24px）并调整锚点
+      return L.divIcon({ className: 'marker-wrapper', html, iconSize: [24, 24], iconAnchor: [12, 12], popupAnchor: [0, -12] });
     },
     createAllIcon(rating) {
       const color = this.getRatingColor(rating);
@@ -898,6 +906,7 @@ export default {
 
     // 构建弹窗 DOM 字符串
     buildPopup(meta) {
+      const isCustom = String(meta.country || this.country) === 'custom';
       const rating = this.coerceRating(meta && meta.rating);
       const color = this.getRatingColor(rating);
       const imgId = `img_${meta.country || this.country}_${meta.id}`;
@@ -905,6 +914,7 @@ export default {
       const region = meta.region || '';
       const county = meta.county || '';
       const name = meta.name || '';
+      const ratingHtml = isCustom ? '' : `<div class=\"popup-rating\" style=\"background:${color}\">${rating}</div>`;
       // 使用 data- 属性传参，打开后绑定事件
       return `
         <div class="map-popup" data-id="${String(meta.id)}" data-country="${String(meta.country || this.country)}">
@@ -912,7 +922,7 @@ export default {
           <div class="popup-main">
             <div class="popup-name">${this.escapeHtml(name)}</div>
             <div class="popup-meta">${this.escapeHtml(county)} · ${this.escapeHtml(region)}</div>
-            <div class="popup-rating" style="background:${color}">${rating}</div>
+            ${ratingHtml}
           </div>
         </div>
       `;
@@ -924,6 +934,12 @@ export default {
       const imgId = `img_${meta.country || this.country}_${meta.id}`;
       const el = document.getElementById(imgId);
       if (el) {
+        // 图片加载失败时，保持灰色方形占位，避免破图图标
+        try {
+          el.addEventListener('error', () => {
+            try { el.style.display = 'none'; } catch (e) {}
+          }, { once: true, passive: true });
+        } catch (e) {}
         const rawAttr = el.getAttribute('src');
         const isCustom = String(meta.country || this.country) === 'custom';
         if (!rawAttr || isCustom) {
@@ -938,6 +954,8 @@ export default {
         const node = popupRoot || document.querySelector(`.map-popup[data-id="${id}"][data-country="${country}"]`);
         if (node) {
           node.addEventListener('click', () => {
+            // 在离开地图前保存当前地图视图（用于从详情返回后恢复）
+            try { this.saveMapView(); } catch (e) {}
             this.$router.push({ path: `/attraction/${country}/${id}` , query: { from: 'map' } });
           }, { once: true, passive: true });
         }
@@ -1058,16 +1076,48 @@ export default {
             if (url) { this.imageCache.set(key, url); return url; }
           }
         } else {
-          if (meta.hasImage) {
-            const base = getLastApiBase();
-            const country = String(meta.country || this.country);
-            const url = `${base}/api/attraction-image/${country}/${meta.id}/1`;
-            this.imageCache.set(key, url);
-            return url;
-          }
+          // 即使缺少 hasImage 标记，也尝试加载主图（仅在弹窗打开时触发）
+          const base = getLastApiBase();
+          const country = String(meta.country || this.country);
+          const url = `${base}/api/attraction-image/${country}/${meta.id}/1`;
+          this.imageCache.set(key, url);
+          return url;
         }
       } catch (e) {}
       return '';
+    },
+
+    // 保存当前地图视图（center + zoom）到 sessionStorage
+    saveMapView() {
+      try {
+        if (!this.map) return;
+        const c = this.map.getCenter();
+        const z = this.map.getZoom();
+        const payload = { country: String(this.country), center: [c.lat, c.lng], zoom: z };
+        sessionStorage.setItem('map_restore_payload', JSON.stringify(payload));
+        sessionStorage.setItem('map_restore_pending', '1');
+      } catch (e) {}
+    },
+    // 若存在待恢复的地图视图，则恢复并阻止收藏范围拟合
+    tryRestoreMapViewMaybe() {
+      try {
+        const pending = sessionStorage.getItem('map_restore_pending');
+        const raw = sessionStorage.getItem('map_restore_payload');
+        if (!pending || !raw) return;
+        const p = JSON.parse(raw);
+        if (!p || String(p.country) !== String(this.country)) return;
+        const center = Array.isArray(p.center) && p.center.length === 2 ? p.center : null;
+        const zoom = Number(p.zoom);
+        if (center && Number.isFinite(zoom)) {
+          this.map.setView(center, zoom);
+          this._shouldRestoreView = true;
+          this._blockFavFit = true;
+          this._didInitCenter = true;
+          this._didFinalFitFavorites = true;
+          // 一次性恢复后，清空标记
+          sessionStorage.removeItem('map_restore_pending');
+        }
+      } catch (e) {}
     },
   }
 }
@@ -1141,9 +1191,10 @@ export default {
 /* 收藏：数字 + 圆形（黄/银） */
 :deep(.marker-wrapper) { pointer-events: auto; }
 :deep(.fav-marker) {
-  width: 16px; height: 16px; border-radius: 50%;
+  /* 放大为 1.5 倍：16px -> 24px，文字同比例放大 */
+  width: 24px; height: 24px; border-radius: 50%;
   display: flex; align-items: center; justify-content: center;
-  font-weight: 800; font-size: 10px; color: #333; box-shadow: 0 0 0 2px #fff;
+  font-weight: 800; font-size: 15px; color: #333; box-shadow: 0 0 0 2px #fff;
 }
 
 /* 全部景点：蓝色圆点 */
