@@ -1169,8 +1169,12 @@
       },
       async exportActiveFavorites(fromChoice) {
         try {
-          // Use custom export choice dialog
-          if (!fromChoice) { this.showExportChoice = true; return; }
+          // When only one (or zero) favorite tab exists, bypass choice dialog
+          // Otherwise, require explicit choice if not already chosen
+          if (!fromChoice) {
+            const tabsCount = Array.isArray(this.favoriteTabs) ? this.favoriteTabs.length : 0;
+            if (tabsCount > 1) { this.showExportChoice = true; return; }
+          }
           const active = this.favoriteTabs.find(t => t.id === this.activeTabId);
           const items = Array.isArray(this.favorites) ? [...this.favorites] : [];
           const payload = {
@@ -1350,8 +1354,16 @@
       openExportDataUrl() {
         try { window.open(this.exportDataUrl, '_blank', 'noopener'); } catch (e) {}
       },
-      // Open export choice dialog explicitly
-      promptExportFavorites() { this.showExportChoice = true; },
+      // Open export, but skip dialog when only a single list exists
+      promptExportFavorites() {
+        try {
+          const tabsCount = Array.isArray(this.favoriteTabs) ? this.favoriteTabs.length : 0;
+          if (tabsCount <= 1) { this.exportActiveFavorites(true); return; }
+          this.showExportChoice = true;
+        } catch (e) {
+          this.showExportChoice = true;
+        }
+      },
       // Export choice dialog handlers
       exportChoiceCurrent() { try { this.showExportChoice = false; this.exportActiveFavorites(true); } catch (e) {} },
       exportChoiceAll() { try { this.showExportChoice = false; this.exportAllFavorites(); } catch (e) {} },
