@@ -42,3 +42,16 @@ export function deleteCustomAttraction(id) {
   }
   return false
 }
+
+// 合并更新指定自创景点（若不存在则忽略）
+export function updateCustomAttraction(id, patch) {
+  try {
+    const all = getAllCustomAttractions()
+    const idx = all.findIndex(a => String(a.id) === String(id))
+    if (idx < 0) return null
+    const updated = { ...all[idx], ...(patch || {}) }
+    all[idx] = updated
+    saveAllCustomAttractions(all)
+    return updated
+  } catch (e) { return null }
+}

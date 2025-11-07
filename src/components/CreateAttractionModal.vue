@@ -86,7 +86,7 @@
 </template>
 
 <script>
-  import { addCustomAttraction } from '../utils/customAttractions.js'
+  import { addCustomAttraction, updateCustomAttraction } from '../utils/customAttractions.js'
   import { getImageUrl as getCustomImageUrl, setImage as setCustomImage, deleteImage as deleteCustomImage } from '../utils/customImageStore.js'
 
 export default {
@@ -284,7 +284,9 @@ export default {
         try {
           const env = (import.meta && import.meta.env) ? import.meta.env : {};
           const amapKey = env.VITE_AMAP_KEY;
+          let didTryAmap = false;
           if (isChinesePosition && amapKey) {
+            didTryAmap = true;
             // 内联 GCJ-02 -> WGS84 转换
             const outOfChina = (lat, lng) => !(lat >= 0.8293 && lat <= 55.8271 && lng >= 72.004 && lng <= 137.8347);
             const tLat = (x, y) => {
@@ -344,16 +346,22 @@ export default {
                 }
               }
             } catch (_) {}
+            // 若已尝试高德但未成功，移除此景点的所有中国提示标记（下次不再按中文处理）
+            try { updateCustomAttraction(id, { disableChinaHint: true }); try { console.info('[Geo][Custom] disable China hint for this attraction due to AMap failure', { id }); } catch (_) {} } catch (_) {}
           }
         } catch (_) {}
 
         // 轻量地理编码：Photon → Open-Meteo → Nominatim
-        const headers = { 'accept-language': 'zh-CN,zh;q=0.9,en;q=0.8' };
+        // 若前面已针对中文地址优先尝试过高德且未命中，则后续服务统一使用英文并不再附加中国相关提示
+        const env2 = (import.meta && import.meta.env) ? import.meta.env : {};
+        const hasAmapKey = !!env2.VITE_AMAP_KEY;
+        const useEnglish = !!(isChinesePosition && hasAmapKey);
+        const headers = { 'accept-language': useEnglish ? 'en-US,en;q=0.9' : 'zh-CN,zh;q=0.9,en;q=0.8' };
         const getJson = async (url) => {
           try { const r = await fetch(url, { headers }); if (!r.ok) return null; return await r.json(); } catch (_) { return null; }
         };
         // 1) Photon
-        const params1 = new URLSearchParams({ q: addr, limit: '1', lang: 'zh' });
+        const params1 = new URLSearchParams({ q: addr, limit: '1', lang: (useEnglish ? 'en' : 'zh') });
         try { console.info('[Geo][Custom] try Photon', { url: `https://photon.komoot.io/api/?${params1.toString()}` }); } catch (_) {}
         const j1 = await getJson(`https://photon.komoot.io/api/?${params1.toString()}`);
         try {
@@ -362,9 +370,10 @@ export default {
           if (c && Number.isFinite(c[0]) && Number.isFinite(c[1])) { this._mergeGeoPut(`custom|${id}`, c[1], c[0]); return; }
         } catch (_) {}
         // 2) Open-Meteo
-        const params2 = new URLSearchParams({ name: addr, count: '1', language: 'zh' });
-        if (iso2) params2.append('country_code', iso2);
-        try { console.info('[Geo][Custom] try Open-Meteo', { url: `https://geocoding-api.open-meteo.com/v1/search?${params2.toString()}`, iso2 }); } catch (_) {}
+        const params2 = new URLSearchParams({ name: addr, count: '1', language: (useEnglish ? 'en' : 'zh') });
+        const iso2Fb = useEnglish ? '' : iso2;
+        if (iso2Fb) params2.append('country_code', iso2Fb);
+        try { console.info('[Geo][Custom] try Open-Meteo', { url: `https://geocoding-api.open-meteo.com/v1/search?${params2.toString()}` }); } catch (_) {}
         const j2 = await getJson(`https://geocoding-api.open-meteo.com/v1/search?${params2.toString()}`);
         try {
           const r = j2 && Array.isArray(j2.results) && j2.results[0];
@@ -372,8 +381,8 @@ export default {
         } catch (_) {}
         // 3) Nominatim
         const params3 = new URLSearchParams({ format: 'json', q: addr, limit: '1', addressdetails: '0' });
-        if (iso2) params3.append('countrycodes', iso2);
-        try { console.info('[Geo][Custom] try Nominatim', { url: `https://nominatim.openstreetmap.org/search?${params3.toString()}`, iso2 }); } catch (_) {}
+        if (iso2Fb) params3.append('countrycodes', iso2Fb);
+        try { console.info('[Geo][Custom] try Nominatim', { url: `https://nominatim.openstreetmap.org/search?${params3.toString()}` }); } catch (_) {}
         const j3 = await getJson(`https://nominatim.openstreetmap.org/search?${params3.toString()}`);
         try {
           const r = Array.isArray(j3) && j3[0];
