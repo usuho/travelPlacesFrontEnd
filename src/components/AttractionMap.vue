@@ -2,10 +2,10 @@
   <div class="map-page">
     <div id="map" class="map-container"></div>
     <div v-if="showLoading" class="map-loading-overlay"><div class="spinner"></div></div>
-    <!--<div class="map-stats">
+    <div class="map-stats">
       <div>已渲染(屏内)：{{ statsRendered }}</div>
       <div>未渲染(屏内)：{{ statsNeverRendered }}</div>
-    </div>-->
+    </div>
     <button class="back-button map-back-button" @click="handleBack">返回</button>
   </div>
 </template>
@@ -47,7 +47,7 @@ export default {
       showLoading: false,
       _hasRenderedFirst: false,
       // 限制与缓存
-      _visibleCap: 400,
+      _visibleCap: 300,
       allMarkersMeta: new Map(), // id -> meta（含 rating/lat/lng 等）
       // 统计显示
       statsRendered: 0,
@@ -60,6 +60,8 @@ export default {
       _overlapZoomThreshold: 14,
       _markersInteractive: true,
       _didAutoPanToFirst: false,
+      _allRenderSeq: 0,
+      _recomputeOverlapScheduled: false,
     };
   },
   computed: {
@@ -122,6 +124,69 @@ export default {
     async geocodeAllCustomIfNeeded() {
       try {
         const list = getAllCustomAttractions ? (getAllCustomAttractions() || []) : [];
+        // async, concurrency-limited geocoding for custom attractions
+        {
+          const toGeocode = [];
+          for (const ca of list) {
+            if (!ca || !ca.id) continue;
+            const idStr = String(ca.id);
+            if (this._hasFavMarker && this._hasFavMarker(idStr)) continue;
+            const cacheKey = `custom|${idStr}`;
+            const cached = this._geoGet && this._geoGet(cacheKey);
+            const meta = { id: idStr, name: ca.name || '', region: ca.region || '', county: ca.county || '', rating: Number.isFinite(ca && ca.rating) ? ca.rating : 0, country: 'custom', hasImage: !!(ca.hasImage1 || ca.hasImage2 || ca.hasImage3) };
+            if (cached && Number.isFinite(cached.lat) && Number.isFinite(cached.lng)) {
+              try {
+                const icon = this.createFavoriteIcon('', false);
+                const marker = L.marker([cached.lat, cached.lng], { icon, pane: 'favoritesPane', zIndexOffset: 1000 });
+                try { marker.options._meta = meta; } catch (e) {}
+                try { marker.options._origLatLng = L.latLng(cached.lat, cached.lng); } catch (e) {}
+                marker.bindPopup(this.buildPopup(meta));
+                marker.on('popupopen', () => this.attachPopupHandlers(meta));
+                marker.addTo(this.favoritesLayer);
+              } catch (e) {}
+            } else {
+              const _addr = `${ca.position || ''} ${ca.name || ''} ${ca.region || ''} ${ca.county || ''}`.trim();
+              if (!_addr) continue;
+              const disableChinaHint = !!(ca && ca.disableChinaHint);
+              const isChinesePosition = !disableChinaHint && /[\u4e00-\u9fa5]/.test(String(ca.position || ''));
+              const hintKey = isChinesePosition ? 'china' : 'custom';
+              toGeocode.push({ idStr, meta, _addr, hintKey, cacheKey });
+            }
+          }
+          if (toGeocode.length) {
+            const concurrency = 3;
+            const workers = [];
+            for (let w = 0; w < concurrency; w++) {
+              workers.push((async () => {
+                while (toGeocode.length) {
+                  const item = toGeocode.shift();
+                  if (!item) break;
+                  const { idStr, meta, _addr, hintKey, cacheKey } = item;
+                  try { console.info('[Geo] start geocode (custom all - from list)', { id: idStr, address: _addr, hintCountry: hintKey }); } catch (_) {}
+                  try {
+                    const g = await this.geocodeByFreeApi(_addr, hintKey, { amapLast: false, fallbackHintCountry: 'custom' });
+                    if (g && Number.isFinite(g.lat) && Number.isFinite(g.lng)) {
+                      this._geoPut && this._geoPut(cacheKey, g.lat, g.lng);
+                      try {
+                        const icon = this.createFavoriteIcon('', false);
+                        const marker = L.marker([g.lat, g.lng], { icon, pane: 'favoritesPane', zIndexOffset: 1000 });
+                        try { marker.options._meta = meta; } catch (e) {}
+                        try { marker.options._origLatLng = L.latLng(g.lat, g.lng); } catch (e) {}
+                        marker.bindPopup(this.buildPopup(meta));
+                        marker.on('popupopen', () => this.attachPopupHandlers(meta));
+                        marker.addTo(this.favoritesLayer);
+                      } catch (e) {}
+                    }
+                  } catch (e) {}
+                }
+              })());
+            }
+            Promise.allSettled(workers).then(() => { try { this.scheduleRecomputeOverlapAll(); } catch (e) {} });
+          } else {
+            try { this.scheduleRecomputeOverlapAll(); } catch (e) {}
+          }
+          return; // prevent falling back to sequential path below
+        }
         for (const ca of list) {
           if (!ca || !ca.id) continue;
           const idStr = String(ca.id);
@@ -166,7 +231,7 @@ export default {
           } catch (e) {}
         }
         // 完成后统一重算错位
-        try { this.recomputeOverlapAll(); } catch (e) {}
+        try { this.scheduleRecomputeOverlapAll(); } catch (e) {}
       } catch (e) {}
     },
     handleBack() {
@@ -260,7 +325,7 @@ export default {
       this.map.on('zoomend', () => {
         updateInView();
         // 重新计算重叠分组的错位（基于像素的位移随缩放需重算）
-        try { this.recomputeOverlapAll(); } catch (e) {}
+        try { this.scheduleRecomputeOverlapAll(); } catch (e) {}
         // 修复缩放后弹窗内图片/点击失效：对已打开的弹窗重新绑定处理
         try { this.rebindOpenPopupHandlers(); } catch (e) {}
       });
@@ -270,7 +335,7 @@ export default {
         this.map.on('dragend', () => { try { const el = document.getElementById('map'); if (el) el.classList.remove('dragging-map'); } catch (e) {} });
       } catch (e) {}
       // 初始化一次布局
-      try { this.recomputeOverlapAll(); } catch (e) {}
+      try { this.scheduleRecomputeOverlapAll(); } catch (e) {}
     },
 
     // 在缩放后为当前打开的弹窗重新绑定图片加载与点击跳转，保证自创/普通景点弹窗可用
@@ -375,7 +440,7 @@ export default {
         marker.on('popupopen', () => this.attachPopupHandlers(meta));
         marker.addTo(this.favoritesLayer);
         // 处理重叠：收藏标记任何缩放都要并排，增量重算
-        try { this.recomputeOverlapAll(); } catch (e) {}
+        try { this.scheduleRecomputeOverlapAll(); } catch (e) {}
         if (!this._hasRenderedFirst) { this._hasRenderedFirst = true; this.showLoading = false; }
       };
 
@@ -667,7 +732,7 @@ export default {
         marker.addTo(this.allLayer);
         }
         // 统一重算所有分组的错位（收藏 + 普通）
-        try { this.recomputeOverlapAll(); } catch (e) {}
+        try { this.scheduleRecomputeOverlapAll(); } catch (e) {}
       } catch (e) {}
     },
 
@@ -739,6 +804,79 @@ export default {
 
       // 按好评率从高到低排序
       visibleList.sort((a, b) => this.getNumericRating(b.rating) - this.getNumericRating(a.rating));
+
+      // Incremental async rendering (diff only) to avoid blocking interactions
+      const favIdSet_async = new Set();
+      try { for (const f of (this.favorites || [])) { if (String(f.country || this.country) === String(this.country)) favIdSet_async.add(String(f.id)); } } catch (e) {}
+
+      // Determine target ids within cap
+      const limit_async = Math.min(visibleList.length, this._visibleCap);
+      const targetIds = new Set();
+      for (let _i = 0; _i < limit_async; _i++) {
+        const r = visibleList[_i];
+        const id = String(r.id);
+        if (!favIdSet_async.has(id)) targetIds.add(id);
+      }
+
+      // Remove markers that are no longer visible
+      for (const [id, m] of this.allMarkers.entries()) {
+        if (!targetIds.has(id)) {
+          try { this.allLayer.removeLayer(m); } catch (e) {}
+          this.allMarkers.delete(id);
+          this.allMarkersMeta.delete(id);
+        }
+      }
+
+      // Collect items to add
+      const toAdd = [];
+      for (let _i = 0; _i < limit_async; _i++) {
+        const r = visibleList[_i];
+        const id = String(r.id);
+        if (targetIds.has(id) && !this.allMarkers.has(id)) toAdd.push(r);
+      }
+
+      const seq_async = ++this._allRenderSeq;
+      let i_async = 0;
+      const chunkSize_async = 60;
+      const processChunk_async = () => {
+        if (seq_async !== this._allRenderSeq) return; // aborted by a newer render
+        let count = 0;
+        while (i_async < toAdd.length && count < chunkSize_async) {
+          const r = toAdd[i_async++];
+          const id = String(r.id);
+          try { this._geoPut(`${String(r.country || this.country)}|${id}`, Number(r.lat), Number(r.lng)); } catch (e) {}
+          const icon = this.createAllIcon(r.rating);
+          const marker = L.marker([r.lat, r.lng], { icon, pane: 'allPane', zIndexOffset: 0 });
+          marker.bindPopup(this.buildPopup(r));
+          marker.on('popupopen', () => this.attachPopupHandlers(r));
+          marker.addTo(this.allLayer);
+          this.allMarkers.set(id, marker);
+          this.allMarkersMeta.set(id, r);
+          count++;
+        }
+        // update stats progressively
+        this.statsRendered = this.allMarkers.size;
+        this.statsNeverRendered = Math.max(0, visibleList.length - this.statsRendered);
+        if (!this._hasRenderedFirst && this.statsRendered > 0) {
+          this._hasRenderedFirst = true;
+          this.showLoading = false;
+        }
+        if (i_async < toAdd.length) {
+          this._scheduleIdle(processChunk_async);
+        } else {
+          // after all chunks
+          try { this.scheduleRecomputeOverlapAll(); } catch (e) {}
+        }
+      };
+      if (toAdd.length) {
+        this._scheduleIdle(processChunk_async);
+      } else {
+        // still update stats and schedule overlap if needed
+        this.statsRendered = this.allMarkers.size;
+        this.statsNeverRendered = Math.max(0, visibleList.length - this.statsRendered);
+        try { this.scheduleRecomputeOverlapAll(); } catch (e) {}
+      }
+      return;
 
       // 清空现有普通景点标记（保留收藏层与聚焦层）
       try { this.allLayer.clearLayers(); } catch (e) {}
@@ -1384,6 +1522,31 @@ export default {
           }
         }
       } catch (e) {}
+    },
+    // schedule heavy overlap recompute to keep UI responsive
+    scheduleRecomputeOverlapAll() {
+      if (this._recomputeOverlapScheduled) return;
+      this._recomputeOverlapScheduled = true;
+      try {
+        requestAnimationFrame(() => {
+          this._recomputeOverlapScheduled = false;
+          try { this.recomputeOverlapAll(); } catch (e) {}
+        });
+      } catch (_) {
+        setTimeout(() => {
+          this._recomputeOverlapScheduled = false;
+          try { this.recomputeOverlapAll(); } catch (e) {}
+        }, 0);
+      }
+    },
+    // small idle scheduler helper
+    _scheduleIdle(fn) {
+      try {
+        if (typeof window !== 'undefined' && 'requestIdleCallback' in window) {
+          return window.requestIdleCallback(fn, { timeout: 100 });
+        }
+      } catch (_) {}
+      return setTimeout(fn, 0);
     },
     _repositionFavOverlapGroups() {
       try {
