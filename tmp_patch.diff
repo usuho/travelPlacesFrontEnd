@@ -1,0 +1,9 @@
+*** Begin Patch
+*** Update File: src/components/AttractionDetails.vue
+@@
+-.main-image-skeleton { height: 500px; border-radius: 24px; }
++.main-image-skeleton { height: 200px; border-radius: 24px; }
+@@
+-  .main-image-skeleton { height: 500px;; border-radius: 24px; }
++  .main-image-skeleton { height: 200px;; border-radius: 24px; }
+*** End Patch

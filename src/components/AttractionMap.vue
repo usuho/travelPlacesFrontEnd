@@ -320,7 +320,7 @@ export default {
       });
 
       // 仅渲染视野内标记（普通景点）；收藏不随视野清空
-      const updateInView = () => { this.renderAllInView && this.renderAllInView(); };
+      const updateInView = () => { this.renderAllInView && this.renderAllInView(true); };
       this.map.on('moveend', updateInView);
       this.map.on('zoomend', () => {
         updateInView();
@@ -789,7 +789,7 @@ export default {
       } catch (e) { this._allGeoData = []; }
     },
 
-    renderAllInView() {
+    renderAllInView(isInteractive = false) {
       if (!this.map) return;
       const bounds = this.map.getBounds();
       const filters = this.getActiveFilters ? this.getActiveFilters() : { minReviews: 0, region: '', county: '' };
@@ -837,7 +837,7 @@ export default {
 
       const seq_async = ++this._allRenderSeq;
       let i_async = 0;
-      const chunkSize_async = 1;
+      const chunkSize_async = isInteractive ? 1 : 60;
       const processChunk_async = () => {
         if (seq_async !== this._allRenderSeq) return; // aborted by a newer render
         let count = 0;

@@ -1069,7 +1069,7 @@
   100% { background-position: 200% 0; }
 }
 
-.main-image-skeleton { height: 500px; border-radius: 24px; }
+.main-image-skeleton { height: 350px; border-radius: 24px; }
 .secondary-image-skeleton { height: 250px; border-radius: 20px; }
 
 
@@ -1750,7 +1750,7 @@
 
   /* 图片展示区域 */
 
-  .main-image-skeleton { height: 500px;; border-radius: 24px; }
+  .main-image-skeleton { height: 200px;; border-radius: 24px; }
   .secondary-image-skeleton { height: 130px; border-radius: 20px; }
   
   .images-section {
