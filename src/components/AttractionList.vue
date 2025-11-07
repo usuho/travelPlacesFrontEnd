@@ -648,6 +648,25 @@
       </div>
     </teleport>
 
+    <!-- Import Paste Dialog -->
+    <teleport to="body">
+      <div v-if="showImportPaste" class="confirm-backdrop" @click="cancelImportPaste">
+        <div class="confirm-dialog" @click.stop>
+          <button class="confirm-close" aria-label="关闭" @click="cancelImportPaste">×</button>
+          <div class="confirm-message">
+            无法读取所选文件，请粘贴json文件内文本导入
+          </div>
+          <div class="export-area-wrap">
+            <textarea v-model="importPasteText" class="export-textarea" placeholder="在此粘贴 JSON 文本"></textarea>
+          </div>
+          <div class="confirm-actions">
+            <button class="btn-cancel" @click="cancelImportPaste">取消</button>
+            <button class="btn-primary" @click="confirmImportPaste">确认</button>
+          </div>
+        </div>
+      </div>
+    </teleport>
+
     <!-- Export Choice Dialog -->
     <teleport to="body">
       <div v-if="showExportChoice" class="confirm-backdrop" @click="closeExportChoice">
@@ -757,6 +776,9 @@
         exportJsonText: '',
         exportFileName: '',
         exportDataUrl: '',
+        // 导入失败改为粘贴方式
+        showImportPaste: false,
+        importPasteText: '',
         // 长按相关（卡片）
         pressTimer: null,
         longPressThreshold: 500,
@@ -1352,6 +1374,11 @@
               });
             }
           } catch (e) {
+            // 文件读取失败时，弹出粘贴 JSON 的对话框
+            try { evt && evt.target && (evt.target.value = ''); } catch(_) {}
+            this.importPasteText = '';
+            this.showImportPaste = true;
+            return;
             try { alert('无法读取所选文件，请确认为 JSON 格式后重试。'); } catch(_) {}
             try { evt.target.value = ''; } catch(_) {}
             return;
@@ -1474,6 +1501,131 @@
           });
         } catch (e) {
           try { evt && evt.target && (evt.target.value = ''); } catch (e2) {}
+        }
+      },
+
+      async doImportFromParsedData(data, evtTarget) {
+        // Multi-tabs import: append all tabs to the end
+        if (data && data.type === 'favorites-export-multi' && Array.isArray(data.tabs)) {
+          let baseOrder = this.favoriteTabs.reduce((m, t) => Math.max(m, t.order || 0), 0) + 1;
+          const importOne = async (tab) => {
+            const newTab = { id: this.uid(), name: tab.tabName || '新的收藏', items: [], order: baseOrder++ };
+            const items = [];
+            const arr = Array.isArray(tab.items) ? tab.items : [];
+            for (const entry of arr) {
+              if (!entry || !entry.kind) continue;
+              if (entry.kind === 'custom' && entry.data) {
+                let custom = entry.data;
+                if (!custom.id) custom.id = 'custom_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
+                const existed = findCustomAttractionById(custom.id);
+                if (existed && JSON.stringify(existed) !== JSON.stringify(custom)) {
+                  custom = { ...custom, id: 'custom_' + Date.now() + '_' + Math.random().toString(36).slice(2, 5) };
+                }
+                try {
+                  const allRaw = localStorage.getItem('customAttractions');
+                  const all = allRaw ? (JSON.parse(allRaw) || []) : [];
+                  const idx = all.findIndex(a => String(a.id) === String(custom.id));
+                  if (idx >= 0) all[idx] = custom; else all.push(custom);
+                  localStorage.setItem('customAttractions', JSON.stringify(all));
+                } catch (e) {}
+                try {
+                  if (entry.images && typeof entry.images === 'object') {
+                    if (entry.images.main) await setCustomImage(`${custom.id}:main`, entry.images.main);
+                    if (entry.images.sec0) await setCustomImage(`${custom.id}:sec0`, entry.images.sec0);
+                    if (entry.images.sec1) await setCustomImage(`${custom.id}:sec1`, entry.images.sec1);
+                  }
+                } catch (e) {}
+                items.push({ id: custom.id, name: custom.name, region: custom.region, county: custom.county, country: 'custom', pending: !!entry.pending });
+              } else if (entry.kind === 'ref' && entry.data) {
+                const it = entry.data;
+                items.push({ id: it.id, name: it.name, region: it.region, county: it.county, country: it.country, rating: it.rating, pending: !!entry.pending });
+              }
+            }
+            items.forEach((it, idx) => (it.order = idx + 1));
+            newTab.items = items;
+            this.favoriteTabs.push(newTab);
+          };
+          for (const t of data.tabs) { await importOne(t); }
+          this.normalizeTabsOrder();
+          this.saveFavorites();
+          try { this.setActiveTab(this.favoriteTabs[this.favoriteTabs.length - 1].id); } catch (e) {}
+          try { evtTarget && (evtTarget.value = ''); } catch (e) {}
+          this.$nextTick(() => { try { this.sortedFavorites.forEach(f => this.ensureFavThumb(f)); } catch(e) {} });
+          return;
+        }
+        if (!data || data.type !== 'favorites-export' || !Array.isArray(data.items)) return;
+        const newTab = { id: this.uid(), name: data.tabName || '导入的收藏', items: [], order: (this.favoriteTabs.reduce((m, t) => Math.max(m, t.order || 0), 0) + 1) };
+        const items = [];
+        for (const entry of data.items) {
+          if (!entry || !entry.kind) continue;
+          if (entry.kind === 'custom' && entry.data) {
+            let custom = entry.data;
+            if (!custom.id) custom.id = 'custom_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
+            const existed = findCustomAttractionById(custom.id);
+            if (existed && JSON.stringify(existed) !== JSON.stringify(custom)) {
+              custom = { ...custom, id: 'custom_' + Date.now() + '_' + Math.random().toString(36).slice(2, 5) };
+            }
+            try {
+              const allRaw = localStorage.getItem('customAttractions');
+              const all = allRaw ? (JSON.parse(allRaw) || []) : [];
+              const idx = all.findIndex(a => String(a.id) === String(custom.id));
+              if (idx >= 0) all[idx] = custom; else all.push(custom);
+              localStorage.setItem('customAttractions', JSON.stringify(all));
+            } catch (e) {}
+            try {
+              if (entry.images && typeof entry.images === 'object') {
+                if (entry.images.main) await setCustomImage(`${custom.id}:main`, entry.images.main);
+                if (entry.images.sec0) await setCustomImage(`${custom.id}:sec0`, entry.images.sec0);
+                if (entry.images.sec1) await setCustomImage(`${custom.id}:sec1`, entry.images.sec1);
+              }
+            } catch (e) {}
+            items.push({
+              id: custom.id,
+              name: custom.name,
+              region: custom.region,
+              county: custom.county,
+              country: 'custom',
+              pending: !!entry.pending
+            });
+          } else if (entry.kind === 'ref' && entry.data) {
+            const it = entry.data;
+            items.push({
+              id: it.id,
+              name: it.name,
+              region: it.region,
+              county: it.county,
+              country: it.country,
+              rating: it.rating,
+              pending: !!entry.pending
+            });
+          }
+        }
+        items.forEach((it, idx) => (it.order = idx + 1));
+        newTab.items = items;
+        this.favoriteTabs.push(newTab);
+        this.normalizeTabsOrder();
+        this.saveFavorites();
+        this.setActiveTab(newTab.id);
+        try { evtTarget && (evtTarget.value = ''); } catch (e) {}
+        this.$nextTick(() => {
+          try { this.sortedFavorites.forEach(f => this.ensureFavThumb(f)); } catch(e) {}
+        });
+      },
+
+      cancelImportPaste() {
+        this.showImportPaste = false;
+        this.importPasteText = '';
+      },
+      async confirmImportPaste() {
+        try {
+          const text = String(this.importPasteText || '').trim();
+          if (!text) { this.showImportPaste = false; return; }
+          const data = JSON.parse(text);
+          await this.doImportFromParsedData(data, null);
+          this.showImportPaste = false;
+          this.importPasteText = '';
+        } catch (e) {
+          try { alert('粘贴的内容不是有效的 JSON。'); } catch(_) {}
         }
       },
 
