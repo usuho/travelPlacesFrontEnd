@@ -232,6 +232,7 @@ export default {
             const obj = JSON.parse(raw) || {}
             const cacheKey = `custom|${id}`
             if (obj && typeof obj === 'object' && Object.prototype.hasOwnProperty.call(obj, cacheKey)) {
+              try { console.info('[Geo][Custom] clear cached geocode due to edit', { id, cacheKey }); } catch (_) {}
               delete obj[cacheKey]
               localStorage.setItem(storeKey, JSON.stringify(obj))
             }
@@ -274,6 +275,7 @@ export default {
         // 构造与地图一致的地址（position 优先）
         const addr = `${attraction.position || ''} ${attraction.name || ''} ${attraction.region || ''} ${attraction.county || ''}`.trim();
         if (!addr) return;
+        try { console.groupCollapsed('[Geo][Custom] prefetch start'); console.info('id', id); console.info('address', addr); } catch (_) {}
 
         // 选择性国家偏置（汉字 → 中国）
         const isChineseText = /[\u4e00-\u9fa5]/.test(addr);
@@ -286,6 +288,7 @@ export default {
         };
         // 1) Photon
         const params1 = new URLSearchParams({ q: addr, limit: '1', lang: 'zh' });
+        try { console.info('[Geo][Custom] try Photon', { url: `https://photon.komoot.io/api/?${params1.toString()}` }); } catch (_) {}
         const j1 = await getJson(`https://photon.komoot.io/api/?${params1.toString()}`);
         try {
           const f = j1 && Array.isArray(j1.features) && j1.features[0];
@@ -295,6 +298,7 @@ export default {
         // 2) Open-Meteo
         const params2 = new URLSearchParams({ name: addr, count: '1', language: 'zh' });
         if (iso2) params2.append('country_code', iso2);
+        try { console.info('[Geo][Custom] try Open-Meteo', { url: `https://geocoding-api.open-meteo.com/v1/search?${params2.toString()}`, iso2 }); } catch (_) {}
         const j2 = await getJson(`https://geocoding-api.open-meteo.com/v1/search?${params2.toString()}`);
         try {
           const r = j2 && Array.isArray(j2.results) && j2.results[0];
@@ -303,13 +307,15 @@ export default {
         // 3) Nominatim
         const params3 = new URLSearchParams({ format: 'json', q: addr, limit: '1', addressdetails: '0' });
         if (iso2) params3.append('countrycodes', iso2);
+        try { console.info('[Geo][Custom] try Nominatim', { url: `https://nominatim.openstreetmap.org/search?${params3.toString()}`, iso2 }); } catch (_) {}
         const j3 = await getJson(`https://nominatim.openstreetmap.org/search?${params3.toString()}`);
         try {
           const r = Array.isArray(j3) && j3[0];
           const lat = r && parseFloat(r.lat); const lng = r && parseFloat(r.lon);
           if (Number.isFinite(lat) && Number.isFinite(lng)) { this._mergeGeoPut(`custom|${id}`, lat, lng); return; }
         } catch (_) {}
-      } catch (e) {}
+        try { console.groupEnd(); } catch (_) {}
+      } catch (e) { try { console.groupEnd(); } catch (_) {} }
     },
 
     _mergeGeoPut(key, lat, lng) {
