@@ -362,7 +362,7 @@ export default {
                   const routeKey = String(this.country || '').toLowerCase();
                   const hasMeta = !!this._getCountryMeta(routeKey);
                   const isChineseText = /[\u4e00-\u9fa5]/.test(_addr);
-                  const hintKey = hasMeta ? routeKey : (isChineseText ? 'china' : 'custom');
+                  const hintKey = (String(routeKey) === 'custom') ? (isChineseText ? 'china' : 'custom') : routeKey;
                   try { console.info('[Geo] start geocode (custom favorite)', { id: String(fav.id), address: _addr, hintCountry: hintKey }); } catch(_) {}
                   const g = await this.geocodeByFreeApi(_addr, hintKey);
                   if (g) { this._geoPut(cacheKey, g.lat, g.lng); renderOne([g.lat, g.lng], meta, orderText, isPending); }
@@ -781,7 +781,7 @@ export default {
             const routeKey = String(this.country || '').toLowerCase();
             const hasMeta = !!this._getCountryMeta(routeKey);
             const isChineseText = /[\u4e00-\u9fa5]/.test(_addr);
-            const hintKey = hasMeta ? routeKey : (isChineseText ? 'china' : 'custom');
+            const hintKey = (String(routeKey) === 'custom') ? (isChineseText ? 'china' : 'custom') : routeKey;
             try { console.info('[Geo] start geocode (focus custom)', { id, address: _addr, hintCountry: hintKey }); } catch(_) {}
             // 与收藏缺经纬度的异步规则保持一致：异步地理编码，完成后再渲染与缩放
             this._favGeoPending++;

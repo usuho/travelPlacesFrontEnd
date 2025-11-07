@@ -280,6 +280,72 @@ export default {
         // 选择性国家偏置（汉字 → 中国）
         const isChineseText = /[\u4e00-\u9fa5]/.test(addr);
         const iso2 = isChineseText ? 'cn' : '';
+        // 若中文优先使用高德地理编码（需 VITE_AMAP_KEY）
+        try {
+          const env = (import.meta && import.meta.env) ? import.meta.env : {};
+          const amapKey = env.VITE_AMAP_KEY;
+          if (isChineseText && amapKey) {
+            // 内联 GCJ-02 -> WGS84 转换
+            const outOfChina = (lat, lng) => !(lat >= 0.8293 && lat <= 55.8271 && lng >= 72.004 && lng <= 137.8347);
+            const tLat = (x, y) => {
+              const PI = Math.PI; let ret = -100.0 + 2.0 * x + 3.0 * y + 0.2 * y * y + 0.1 * x * y + 0.2 * Math.sqrt(Math.abs(x));
+              ret += (20.0 * Math.sin(6.0 * x * PI) + 20.0 * Math.sin(2.0 * x * PI)) * 2.0 / 3.0;
+              ret += (20.0 * Math.sin(y * PI) + 40.0 * Math.sin(y / 3.0 * PI)) * 2.0 / 3.0;
+              ret += (160.0 * Math.sin(y / 12.0 * PI) + 320 * Math.sin(y * PI / 30.0)) * 2.0 / 3.0; return ret; };
+            const tLng = (x, y) => {
+              const PI = Math.PI; let ret = 300.0 + x + 2.0 * y + 0.1 * x * x + 0.1 * x * y + 0.1 * Math.sqrt(Math.abs(x));
+              ret += (20.0 * Math.sin(6.0 * x * PI) + 20.0 * Math.sin(2.0 * x * PI)) * 2.0 / 3.0;
+              ret += (20.0 * Math.sin(x * PI) + 40.0 * Math.sin(x / 3.0 * PI)) * 2.0 / 3.0;
+              ret += (150.0 * Math.sin(x / 12.0 * PI) + 300.0 * Math.sin(x / 30.0 * PI)) * 2.0 / 3.0; return ret; };
+            const gcj02ToWgs84 = (lat, lng) => {
+              if (outOfChina(lat, lng)) return [lat, lng];
+              const PI = Math.PI, a = 6378245.0, ee = 0.00669342162296594323;
+              let dLat = tLat(lng - 105.0, lat - 35.0), dLng = tLng(lng - 105.0, lat - 35.0);
+              const radLat = lat / 180.0 * PI; let magic = Math.sin(radLat); magic = 1 - ee * magic * magic; const sqrtMagic = Math.sqrt(magic);
+              dLat = (dLat * 180.0) / ((a * (1 - ee)) / (magic * sqrtMagic) * PI);
+              dLng = (dLng * 180.0) / (a / sqrtMagic * Math.cos(radLat) * PI);
+              return [lat - dLat, lng - dLng]; };
+
+            const headers = { 'accept-language': 'zh-CN,zh;q=0.9,en;q=0.8' };
+            const url1 = `https://restapi.amap.com/v3/geocode/geo?address=${encodeURIComponent(addr)}&key=${amapKey}`;
+            try { console.info('[Geo][Custom] try AMap geocode', { url: url1 }); } catch (_) {}
+            try {
+              const r1 = await fetch(url1, { headers });
+              if (r1 && r1.ok) {
+                const j1 = await r1.json();
+                if (j1 && Array.isArray(j1.geocodes) && j1.geocodes[0] && typeof j1.geocodes[0].location === 'string') {
+                  const [lng, lat] = j1.geocodes[0].location.split(',').map(parseFloat);
+                  if (Number.isFinite(lat) && Number.isFinite(lng)) {
+                    const [wlat, wlng] = gcj02ToWgs84(lat, lng);
+                    this._mergeGeoPut(`custom|${id}`, wlat, wlng);
+                    try { console.info('[Geo][Custom] success AMap geocode', { provider: 'amap-geocode', gcj02: { lat, lng }, wgs84: { lat: wlat, lng: wlng } }); } catch (_) {}
+                    try { console.groupEnd && console.groupEnd(); } catch (_) {}
+                    return;
+                  }
+                }
+              }
+            } catch (_) {}
+
+            const url2 = `https://restapi.amap.com/v3/place/text?keywords=${encodeURIComponent(addr)}&key=${amapKey}&children=0&offset=1&page=1&extensions=base`;
+            try { console.info('[Geo][Custom] try AMap POI', { url: url2 }); } catch (_) {}
+            try {
+              const r2 = await fetch(url2, { headers });
+              if (r2 && r2.ok) {
+                const j2 = await r2.json();
+                if (j2 && Array.isArray(j2.pois) && j2.pois[0] && typeof j2.pois[0].location === 'string') {
+                  const [lng, lat] = j2.pois[0].location.split(',').map(parseFloat);
+                  if (Number.isFinite(lat) && Number.isFinite(lng)) {
+                    const [wlat, wlng] = gcj02ToWgs84(lat, lng);
+                    this._mergeGeoPut(`custom|${id}`, wlat, wlng);
+                    try { console.info('[Geo][Custom] success AMap POI', { provider: 'amap-poi', gcj02: { lat, lng }, wgs84: { lat: wlat, lng: wlng } }); } catch (_) {}
+                    try { console.groupEnd && console.groupEnd(); } catch (_) {}
+                    return;
+                  }
+                }
+              }
+            } catch (_) {}
+          }
+        } catch (_) {}
 
         // 轻量地理编码：Photon → Open-Meteo → Nominatim
         const headers = { 'accept-language': 'zh-CN,zh;q=0.9,en;q=0.8' };
