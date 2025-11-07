@@ -277,14 +277,14 @@ export default {
         if (!addr) return;
         try { console.groupCollapsed('[Geo][Custom] prefetch start'); console.info('id', id); console.info('address', addr); } catch (_) {}
 
-        // 选择性国家偏置（汉字 → 中国）
-        const isChineseText = /[\u4e00-\u9fa5]/.test(addr);
-        const iso2 = isChineseText ? 'cn' : '';
-        // 若中文优先使用高德地理编码（需 VITE_AMAP_KEY）
+        // 选择性国家偏置（仅当 position 含中文 → 中国）
+        const isChinesePosition = /[\u4e00-\u9fa5]/.test(String(attraction.position || ''));
+        const iso2 = isChinesePosition ? 'cn' : '';
+        // 若 position 含中文则优先使用高德地理编码（需 VITE_AMAP_KEY）
         try {
           const env = (import.meta && import.meta.env) ? import.meta.env : {};
           const amapKey = env.VITE_AMAP_KEY;
-          if (isChineseText && amapKey) {
+          if (isChinesePosition && amapKey) {
             // 内联 GCJ-02 -> WGS84 转换
             const outOfChina = (lat, lng) => !(lat >= 0.8293 && lat <= 55.8271 && lng >= 72.004 && lng <= 137.8347);
             const tLat = (x, y) => {
