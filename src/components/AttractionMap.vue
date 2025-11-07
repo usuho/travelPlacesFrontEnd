@@ -79,7 +79,7 @@ export default {
     // 记录最近一次非自创的国家，用于从自创详情进入地图时作为普通景点的回退来源
     try { if (String(this.country) !== 'custom') localStorage.setItem('lastNonCustomCountry', String(this.country)); } catch (e) {}
     // 从详情返回或从地图内跳到详情再返回时，尝试恢复之前的视图
-    this.tryRestoreMapViewMaybe();
+    if (!this.fromDetails) this.tryRestoreMapViewMaybe();
     // 若是从详情页进入地图，则不进行收藏范围拟合（只聚焦详情项）
     if (this.fromDetails) this._blockFavFit = true;
     this.showLoading = true;
@@ -390,7 +390,13 @@ export default {
         vietnam: { center: [14.0583, 108.2772], zoom: 5 },
         switzerland: { center: [46.8182, 8.2275], zoom: 6 },
       };
-      const key = String(this.country || '').toLowerCase();
+      // 若从详情页且路由国家为 custom，则优先使用列表国家（query.listCountry）作为默认视角
+      let key = String(this.country || '').toLowerCase();
+      try {
+        const q = this.$route && this.$route.query ? this.$route.query : {};
+        const lc = q && q.listCountry ? String(q.listCountry).toLowerCase() : '';
+        if (key === 'custom' && lc) key = lc;
+      } catch (e) {}
       const base = presets[key] || { center: [20, 0], zoom: 2 };
       return { center: base.center, zoom: Math.min((base.zoom || 2) + 2, 18) };
     },

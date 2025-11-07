@@ -361,7 +361,22 @@
             return;
           }
           // 非地图进入：保持原逻辑，跳到站内地图
-          this.$router.push({ path: `/map/${this.country}`, query: { focusId: this.id, from: 'details' } });
+          // 自创景点时传入列表国家，便于地图默认定位
+          let listCountry = null;
+          try {
+            const last = localStorage.getItem('lastAttractionsRoute') || '';
+            const m = last.match(/\/attractions\/([^\/?#]+)/i);
+            if (m && m[1] && m[1].toLowerCase() !== 'custom') listCountry = m[1];
+          } catch (e) {}
+          if (!listCountry) {
+            try {
+              const lastC = localStorage.getItem('lastNonCustomCountry') || '';
+              if (lastC && lastC.toLowerCase() !== 'custom') listCountry = lastC;
+            } catch (e) {}
+          }
+          const query = { focusId: this.id, from: 'details' };
+          if (String(this.country) === 'custom' && listCountry) query.listCountry = String(listCountry);
+          this.$router.push({ path: `/map/${this.country}`, query });
         } catch(e) {}
       },
       buildMapQuery() {
