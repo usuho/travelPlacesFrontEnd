@@ -157,6 +157,11 @@ export default {
         this.favorites = at && Array.isArray(at.items) ? [...at.items] : [];
       }
       // 不再按国家过滤，跨国家收藏也一并展示；排序保证序号稳定
+      // 强制与列表页一致：仅使用当前激活收藏列表
+      try {
+        const __at = this.favoriteTabs.find(t => t.id === this.activeTabId);
+        this.favorites = __at && Array.isArray(__at.items) ? [...__at.items] : [];
+      } catch (e) {}
       this.favorites.sort((a, b) => (a.order || 0) - (b.order || 0));
     },
 

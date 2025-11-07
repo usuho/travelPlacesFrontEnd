@@ -1,3 +1,4 @@
 {
-    "chatgpt.openOnStartup": true
+    "chatgpt.openOnStartup": true,
+    "terminal.integrated.cwd": "D:\\App Projects\\travelPlaces\\travelPlacesFrontEnd"
 }
