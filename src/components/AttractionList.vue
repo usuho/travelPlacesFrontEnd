@@ -584,7 +584,7 @@
             <input
               ref="importFileInput"
               type="file"
-              accept="application/json,.json"
+              accept=".json,application/json,application/*+json,text/json,text/plain"
               class="hidden-file-input"
               @change="handleImportFile"
             />
@@ -1136,6 +1136,12 @@
       onImportClick() {
         try {
           const input = this.$refs.importFileInput;
+          if (!input) return;
+          // Prefer showPicker when available (Chrome/Android)
+          if (typeof input.showPicker === 'function') {
+            try { input.showPicker(); return; } catch (e) {}
+          }
+          // Fallback to click; ensure element is in DOM and not display:none on strict browsers
           if (input && input.click) input.click();
         } catch (e) {}
       },
@@ -1332,7 +1338,24 @@
         try {
           const file = evt && evt.target && evt.target.files && evt.target.files[0];
           if (!file) return;
-          const text = await file.text();
+          // Some older mobile browsers lack file.text(); fallback to FileReader
+          let text = '';
+          try {
+            if (typeof file.text === 'function') {
+              text = await file.text();
+            } else {
+              text = await new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = () => resolve(String(reader.result || ''));
+                reader.onerror = (e) => reject(e);
+                try { reader.readAsText(file); } catch (e) { reject(e); }
+              });
+            }
+          } catch (e) {
+            try { alert('无法读取所选文件，请确认为 JSON 格式后重试。'); } catch(_) {}
+            try { evt.target.value = ''; } catch(_) {}
+            return;
+          }
           const data = JSON.parse(text);
           // Multi-tabs import: append all tabs to the end
           if (data && data.type === 'favorites-export-multi' && Array.isArray(data.tabs)) {

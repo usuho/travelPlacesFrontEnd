@@ -837,7 +837,7 @@ export default {
 
       const seq_async = ++this._allRenderSeq;
       let i_async = 0;
-      const chunkSize_async = isInteractive ? 1 : 60;
+      const chunkSize_async = isInteractive ? 1 : 25;
       const processChunk_async = () => {
         if (seq_async !== this._allRenderSeq) return; // aborted by a newer render
         let count = 0;
