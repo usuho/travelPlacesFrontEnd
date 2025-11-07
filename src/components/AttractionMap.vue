@@ -47,7 +47,7 @@ export default {
       showLoading: false,
       _hasRenderedFirst: false,
       // 限制与缓存
-      _visibleCap: 300,
+      _visibleCap: 400,
       allMarkersMeta: new Map(), // id -> meta（含 rating/lat/lng 等）
       // 统计显示
       statsRendered: 0,
@@ -837,7 +837,7 @@ export default {
 
       const seq_async = ++this._allRenderSeq;
       let i_async = 0;
-      const chunkSize_async = 60;
+      const chunkSize_async = 1;
       const processChunk_async = () => {
         if (seq_async !== this._allRenderSeq) return; // aborted by a newer render
         let count = 0;
