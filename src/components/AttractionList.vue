@@ -733,15 +733,15 @@
         :style="favoritesContextMenuStyle"
         @contextmenu.prevent
       >
-        <button class="context-menu-item fav-delete" @click.stop="onFavoritesContextMenuRemove">
-          {{ (favoritesContextMenuTarget && String(favoritesContextMenuTarget.country) === 'custom') ? '删除' : '移除' }}
-        </button>
         <button
           class="context-menu-item fav-pending"
           :class="{ active: favoritesContextMenuTarget && !!favoritesContextMenuTarget.pending }"
           @click.stop="onFavoritesContextMenuPending"
         >
           {{ favoritesContextMenuTarget && favoritesContextMenuTarget.pending ? '取消' : '待定' }}
+        </button>
+        <button class="context-menu-item fav-delete" @click.stop="onFavoritesContextMenuRemove">
+          {{ (favoritesContextMenuTarget && String(favoritesContextMenuTarget.country) === 'custom') ? '删除' : '移除' }}
         </button>
       </div>
     </teleport>
@@ -803,6 +803,8 @@
           favoritesContextMenuTarget: null,
           favoritesContextMenuOutsideHandler: null,
           favoritesContextMenuDismissHandler: null,
+          favoritesContextMenuInteractionLock: false,
+          favoritesContextMenuLockTimer: null,
           // 自创景点弹窗
         showCreateModal: false,
         // 导出回退（适配部分移动端如锤子浏览器）
@@ -1097,6 +1099,11 @@
         clearTimeout(this.clickGuardTimer);
         this.clickGuardTimer = null;
       }
+      if (this.favoritesContextMenuLockTimer) {
+        clearTimeout(this.favoritesContextMenuLockTimer);
+        this.favoritesContextMenuLockTimer = null;
+      }
+      this.favoritesContextMenuInteractionLock = false;
       try {
         window.removeEventListener('resize', this.updateSwipeEnabled);
         if (this._onListBack) window.removeEventListener('popstate', this._onListBack);
@@ -2323,6 +2330,12 @@
       },
       // 点击收藏菜单中的项：跳转详情并以收藏顺序驱动导航
       handleMenuItemClick(f, idx, evt) {
+        if (this.favoritesContextMenuVisible || this.favoritesContextMenuInteractionLock) {
+          if (evt && typeof evt.preventDefault === 'function') evt.preventDefault();
+          if (evt && typeof evt.stopPropagation === 'function') evt.stopPropagation();
+          this.closeFavoritesContextMenu({ keepLock: true, unlockDelay: 250 });
+          return;
+        }
         this.closeFavoritesContextMenu();
         if (this.dragging) return;
         try {
@@ -2429,6 +2442,7 @@ const all = this.sortedFavorites || [];
         this.favoritesContextMenuTarget = f;
         this.updateFavoritesContextMenuPosition(evt);
         this.favoritesContextMenuVisible = true;
+        this.engageFavoritesContextMenuLock();
         this.$nextTick(() => {
           this.ensureFavoritesContextMenuInBounds();
           this.attachFavoritesContextMenuGuards();
@@ -2500,13 +2514,20 @@ const all = this.sortedFavorites || [];
         this.favoritesContextMenuOutsideHandler = (evt) => {
           const menu = this.$refs.favoritesContextMenu;
           if (menu && menu.contains && menu.contains(evt.target)) return;
-          this.closeFavoritesContextMenu();
+          if (evt) {
+            if (typeof evt.preventDefault === 'function') evt.preventDefault();
+            if (typeof evt.stopImmediatePropagation === 'function') evt.stopImmediatePropagation();
+            if (typeof evt.stopPropagation === 'function') evt.stopPropagation();
+          }
+          this.closeFavoritesContextMenu({ keepLock: true, unlockDelay: 250 });
         };
         this.favoritesContextMenuDismissHandler = () => {
           this.closeFavoritesContextMenu();
         };
         document.addEventListener('mousedown', this.favoritesContextMenuOutsideHandler, true);
         document.addEventListener('touchstart', this.favoritesContextMenuOutsideHandler, true);
+        document.addEventListener('click', this.favoritesContextMenuOutsideHandler, true);
+        document.addEventListener('touchend', this.favoritesContextMenuOutsideHandler, true);
         document.addEventListener('scroll', this.favoritesContextMenuDismissHandler, true);
         window.addEventListener('resize', this.favoritesContextMenuDismissHandler, { passive: true });
         window.addEventListener('blur', this.favoritesContextMenuDismissHandler);
@@ -2515,6 +2536,8 @@ const all = this.sortedFavorites || [];
         if (this.favoritesContextMenuOutsideHandler) {
           document.removeEventListener('mousedown', this.favoritesContextMenuOutsideHandler, true);
           document.removeEventListener('touchstart', this.favoritesContextMenuOutsideHandler, true);
+          document.removeEventListener('click', this.favoritesContextMenuOutsideHandler, true);
+          document.removeEventListener('touchend', this.favoritesContextMenuOutsideHandler, true);
           this.favoritesContextMenuOutsideHandler = null;
         }
         if (this.favoritesContextMenuDismissHandler) {
@@ -2524,12 +2547,36 @@ const all = this.sortedFavorites || [];
           this.favoritesContextMenuDismissHandler = null;
         }
       },
-      closeFavoritesContextMenu() {
-        if (!this.favoritesContextMenuVisible && !this.favoritesContextMenuOutsideHandler && !this.favoritesContextMenuDismissHandler) return;
+      engageFavoritesContextMenuLock() {
+        if (this.favoritesContextMenuLockTimer) {
+          clearTimeout(this.favoritesContextMenuLockTimer);
+          this.favoritesContextMenuLockTimer = null;
+        }
+        this.favoritesContextMenuInteractionLock = true;
+      },
+      scheduleFavoritesContextMenuUnlock(delay = 50) {
+        if (this.favoritesContextMenuLockTimer) {
+          clearTimeout(this.favoritesContextMenuLockTimer);
+          this.favoritesContextMenuLockTimer = null;
+        }
+        this.favoritesContextMenuLockTimer = setTimeout(() => {
+          this.favoritesContextMenuInteractionLock = false;
+          this.favoritesContextMenuLockTimer = null;
+        }, Math.max(0, delay));
+      },
+      closeFavoritesContextMenu(options = {}) {
+        const { keepLock = false, unlockDelay } = options || {};
+        if (keepLock) this.engageFavoritesContextMenuLock();
+        if (!this.favoritesContextMenuVisible && !this.favoritesContextMenuOutsideHandler && !this.favoritesContextMenuDismissHandler) {
+          if (keepLock) this.scheduleFavoritesContextMenuUnlock(unlockDelay == null ? 250 : unlockDelay);
+          return;
+        }
         this.favoritesContextMenuVisible = false;
         this.favoritesContextMenuTarget = null;
         this.favoritesContextMenuStyle = {};
         this.detachFavoritesContextMenuGuards();
+        const delay = unlockDelay == null ? (keepLock ? 250 : 50) : unlockDelay;
+        this.scheduleFavoritesContextMenuUnlock(delay);
       },
       onFavoritesContextMenuRemove() {
         const t = this.favoritesContextMenuTarget;
@@ -2607,7 +2654,19 @@ const all = this.sortedFavorites || [];
         const t = e.target;
         const inAnyBtn = btns.some(b => b && b.contains && b.contains(t));
         const inContextMenu = ctxMenu && ctxMenu.contains && ctxMenu.contains(t);
+        if (menu.contains(t) && !inContextMenu && this.favoritesContextMenuVisible) {
+          if (e && typeof e.preventDefault === 'function') e.preventDefault();
+          if (e && typeof e.stopPropagation === 'function') e.stopPropagation();
+          this.closeFavoritesContextMenu({ keepLock: true, unlockDelay: 250 });
+          return;
+        }
         if (!menu.contains(t) && !inAnyBtn && !inContextMenu) {
+          if (this.favoritesContextMenuVisible) {
+            if (e && typeof e.preventDefault === 'function') e.preventDefault();
+            if (e && typeof e.stopPropagation === 'function') e.stopPropagation();
+            this.closeFavoritesContextMenu({ keepLock: true, unlockDelay: 250 });
+            return;
+          }
           if (e && typeof e.preventDefault === 'function') e.preventDefault();
           if (e && typeof e.stopPropagation === 'function') e.stopPropagation();
           this.setClickGuard();
@@ -5226,8 +5285,6 @@ const all = this.sortedFavorites || [];
   .filters-section { padding: 16px; } /* 原 32px 的一半 */
   .filters-grid { gap: 12px; } /* 原 24px 的一半 */
 }
-
-
 .favorites-context-menu {
   position: fixed;
   z-index: 1200;
