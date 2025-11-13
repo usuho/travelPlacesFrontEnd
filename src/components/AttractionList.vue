@@ -543,6 +543,7 @@
               @touchmove="onFavTouchMove($event)"
               @touchend="onFavTouchEnd(f, i, $event)"
               @click.stop="handleMenuItemClick(f, i, $event)"
+              @contextmenu.prevent.stop="onFavoriteContextMenu(f, i, $event)"
             >
               <div :class="['fav-right-actions', { visible: isFavRightActionsVisible(f) }]">
                 <button class="fav-pending" :class="{ active: !!f.pending }" @click.stop="togglePending(f)">{{ f.pending ? "取消" : "待定" }}</button>
@@ -722,6 +723,28 @@
         </div>
       </div>
     </teleport>
+
+    <!-- 桌面端收藏项右键菜单 -->
+    <teleport to="body">
+      <div
+        v-if="favoritesContextMenuVisible"
+        ref="favoritesContextMenu"
+        class="favorites-context-menu"
+        :style="favoritesContextMenuStyle"
+        @contextmenu.prevent
+      >
+        <button class="context-menu-item fav-delete" @click.stop="onFavoritesContextMenuRemove">
+          {{ (favoritesContextMenuTarget && String(favoritesContextMenuTarget.country) === 'custom') ? '删除' : '移除' }}
+        </button>
+        <button
+          class="context-menu-item fav-pending"
+          :class="{ active: favoritesContextMenuTarget && !!favoritesContextMenuTarget.pending }"
+          @click.stop="onFavoritesContextMenuPending"
+        >
+          {{ favoritesContextMenuTarget && favoritesContextMenuTarget.pending ? '取消' : '待定' }}
+        </button>
+      </div>
+    </teleport>
   </div>
 </template>
   
@@ -775,6 +798,11 @@
           favoritesMenuStyle: {},
           favoritesListStyle: {},
           favThumbs: {},
+          favoritesContextMenuVisible: false,
+          favoritesContextMenuStyle: {},
+          favoritesContextMenuTarget: null,
+          favoritesContextMenuOutsideHandler: null,
+          favoritesContextMenuDismissHandler: null,
           // 自创景点弹窗
         showCreateModal: false,
         // 导出回退（适配部分移动端如锤子浏览器）
@@ -1031,6 +1059,7 @@
 
       showFavorites(val) {
         this.resetSwipeState(true);
+        this.closeFavoritesContextMenu();
         if (val) {
           this.$nextTick(() => {
             this.updateFavoritesListScroll();
@@ -1063,6 +1092,7 @@
 
     beforeDestroy() {
       this.clearSwipeResetTimer();
+      this.closeFavoritesContextMenu();
       if (this.clickGuardTimer) {
         clearTimeout(this.clickGuardTimer);
         this.clickGuardTimer = null;
@@ -2293,6 +2323,7 @@
       },
       // 点击收藏菜单中的项：跳转详情并以收藏顺序驱动导航
       handleMenuItemClick(f, idx, evt) {
+        this.closeFavoritesContextMenu();
         if (this.dragging) return;
         try {
           const color = this.getRatingColor(f.rating);
@@ -2389,6 +2420,127 @@ const all = this.sortedFavorites || [];
           window.removeEventListener('scroll', this.updateFavoritesMenuPosition);
         }
       },
+      onFavoriteContextMenu(f, idx, evt) {
+        if (!f) return;
+        if (this.isTouchDevice && this.isTouchDevice()) return;
+        this.closeFavoritesContextMenu();
+        if (evt && typeof evt.preventDefault === 'function') evt.preventDefault();
+        if (evt && typeof evt.stopPropagation === 'function') evt.stopPropagation();
+        this.favoritesContextMenuTarget = f;
+        this.updateFavoritesContextMenuPosition(evt);
+        this.favoritesContextMenuVisible = true;
+        this.$nextTick(() => {
+          this.ensureFavoritesContextMenuInBounds();
+          this.attachFavoritesContextMenuGuards();
+        });
+      },
+      updateFavoritesContextMenuPosition(evt) {
+        let x = 0;
+        let y = 0;
+        try {
+          if (evt && evt.clientX != null && evt.clientY != null) {
+            x = evt.clientX;
+            y = evt.clientY;
+          } else {
+            const menu = this.$refs.favoritesMenu && this.$refs.favoritesMenu.getBoundingClientRect
+              ? this.$refs.favoritesMenu.getBoundingClientRect()
+              : null;
+            if (menu) {
+              x = menu.left || 0;
+              y = menu.top || 0;
+            }
+          }
+          const padding = 8;
+          const approxWidth = 184;
+          const approxHeight = 120;
+          const vw = window.innerWidth || document.documentElement.clientWidth || 0;
+          const vh = window.innerHeight || document.documentElement.clientHeight || 0;
+          if (x + approxWidth + padding > vw) x = Math.max(padding, vw - approxWidth - padding);
+          if (y + approxHeight + padding > vh) y = Math.max(padding, vh - approxHeight - padding);
+          if (x < padding) x = padding;
+          if (y < padding) y = padding;
+        } catch (e) {}
+        this.favoritesContextMenuStyle = {
+          left: x + 'px',
+          top: y + 'px',
+        };
+      },
+      ensureFavoritesContextMenuInBounds() {
+        const menu = this.$refs.favoritesContextMenu;
+        if (!menu || !menu.getBoundingClientRect) return;
+        const rect = menu.getBoundingClientRect();
+        const vw = window.innerWidth || document.documentElement.clientWidth || 0;
+        const vh = window.innerHeight || document.documentElement.clientHeight || 0;
+        let x = rect.left;
+        let y = rect.top;
+        let changed = false;
+        const padding = 8;
+        if (rect.right > vw - padding) {
+          x = Math.max(padding, vw - rect.width - padding);
+          changed = true;
+        }
+        if (rect.bottom > vh - padding) {
+          y = Math.max(padding, vh - rect.height - padding);
+          changed = true;
+        }
+        if (rect.left < padding) {
+          x = padding;
+          changed = true;
+        }
+        if (rect.top < padding) {
+          y = padding;
+          changed = true;
+        }
+        if (changed) {
+          this.favoritesContextMenuStyle = { left: x + 'px', top: y + 'px' };
+        }
+      },
+      attachFavoritesContextMenuGuards() {
+        if (this.favoritesContextMenuOutsideHandler || this.favoritesContextMenuDismissHandler) return;
+        this.favoritesContextMenuOutsideHandler = (evt) => {
+          const menu = this.$refs.favoritesContextMenu;
+          if (menu && menu.contains && menu.contains(evt.target)) return;
+          this.closeFavoritesContextMenu();
+        };
+        this.favoritesContextMenuDismissHandler = () => {
+          this.closeFavoritesContextMenu();
+        };
+        document.addEventListener('mousedown', this.favoritesContextMenuOutsideHandler, true);
+        document.addEventListener('touchstart', this.favoritesContextMenuOutsideHandler, true);
+        document.addEventListener('scroll', this.favoritesContextMenuDismissHandler, true);
+        window.addEventListener('resize', this.favoritesContextMenuDismissHandler, { passive: true });
+        window.addEventListener('blur', this.favoritesContextMenuDismissHandler);
+      },
+      detachFavoritesContextMenuGuards() {
+        if (this.favoritesContextMenuOutsideHandler) {
+          document.removeEventListener('mousedown', this.favoritesContextMenuOutsideHandler, true);
+          document.removeEventListener('touchstart', this.favoritesContextMenuOutsideHandler, true);
+          this.favoritesContextMenuOutsideHandler = null;
+        }
+        if (this.favoritesContextMenuDismissHandler) {
+          document.removeEventListener('scroll', this.favoritesContextMenuDismissHandler, true);
+          window.removeEventListener('resize', this.favoritesContextMenuDismissHandler);
+          window.removeEventListener('blur', this.favoritesContextMenuDismissHandler);
+          this.favoritesContextMenuDismissHandler = null;
+        }
+      },
+      closeFavoritesContextMenu() {
+        if (!this.favoritesContextMenuVisible && !this.favoritesContextMenuOutsideHandler && !this.favoritesContextMenuDismissHandler) return;
+        this.favoritesContextMenuVisible = false;
+        this.favoritesContextMenuTarget = null;
+        this.favoritesContextMenuStyle = {};
+        this.detachFavoritesContextMenuGuards();
+      },
+      onFavoritesContextMenuRemove() {
+        const t = this.favoritesContextMenuTarget;
+        this.closeFavoritesContextMenu();
+        if (t) this.removeFavorite(t);
+      },
+      onFavoritesContextMenuPending() {
+        const t = this.favoritesContextMenuTarget;
+        this.closeFavoritesContextMenu();
+        if (t) this.togglePending(t);
+      },
       refreshCustomFavorites() {
         try {
           const updateItem = (it) => {
@@ -2450,10 +2602,12 @@ const all = this.sortedFavorites || [];
           this.$refs.favoritesButtonDesktop,
           this.$refs.favoritesButtonMobile,
         ].filter(Boolean);
+        const ctxMenu = this.$refs.favoritesContextMenu;
         if (!menu || !btns.length) return;
         const t = e.target;
         const inAnyBtn = btns.some(b => b && b.contains && b.contains(t));
-        if (!menu.contains(t) && !inAnyBtn) {
+        const inContextMenu = ctxMenu && ctxMenu.contains && ctxMenu.contains(t);
+        if (!menu.contains(t) && !inAnyBtn && !inContextMenu) {
           if (e && typeof e.preventDefault === 'function') e.preventDefault();
           if (e && typeof e.stopPropagation === 'function') e.stopPropagation();
           this.setClickGuard();
@@ -2642,6 +2796,7 @@ const all = this.sortedFavorites || [];
       },
       removeFavorite(f) {
         if (!f) return;
+        this.closeFavoritesContextMenu();
         // 任何收藏（含非自创）都弹确认
         this.itemDeleteTarget = { ...f };
         this.itemDeleteConfirmVisible = true;
@@ -2704,6 +2859,7 @@ const all = this.sortedFavorites || [];
       },
       togglePending(f) {
         if (!f) return;
+        this.closeFavoritesContextMenu();
         f.pending = !f.pending;
         // 收起任意展开
         this.favActionId = null;
@@ -3042,6 +3198,8 @@ const all = this.sortedFavorites || [];
       },
       // 菜单内长按拖拽
       startMenuItemPress(index, evt) {
+        if (evt && typeof evt.button === 'number' && evt.button !== 0) return;
+        this.closeFavoritesContextMenu();
         const e = evt.touches ? evt.touches[0] : evt;
         const startX = e.clientX;
         const startY = e.clientY;
@@ -5067,6 +5225,31 @@ const all = this.sortedFavorites || [];
   .scroll-content { padding-top: 20px; } /* 原 40px 的一半 */
   .filters-section { padding: 16px; } /* 原 32px 的一半 */
   .filters-grid { gap: 12px; } /* 原 24px 的一半 */
+}
+
+
+.favorites-context-menu {
+  position: fixed;
+  z-index: 1200;
+  min-width: 170px;
+  background: #fff;
+  border-radius: 12px;
+  border: 1px solid rgba(15,23,42,0.08);
+  box-shadow: 0 18px 36px rgba(15,23,42,0.22);
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.favorites-context-menu .context-menu-item {
+  width: 100%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.favorites-context-menu .fav-delete,
+.favorites-context-menu .fav-pending {
+  width: 100%;
 }
 
 </style>
