@@ -1570,6 +1570,89 @@ export default {
             }
           }
         }
+        this._resolveFavoriteCollisions && this._resolveFavoriteCollisions();
+      } catch (e) {}
+    },
+    // screen-space anti-collision pass dedicated to favorite markers
+    _resolveFavoriteCollisions() {
+      try {
+        if (!this.map || !this.favoritesLayer) return;
+        const markers = Object.values(this.favoritesLayer._layers || {});
+        if (markers.length <= 1) return;
+        const iconSize = 24; // matches favorite div icon diameter
+        const minDist = iconSize; // keep markers touching but not overlapping
+        const maxShift = 64; // cap displacement so markers stay near originals
+        const nodes = [];
+        for (let idx = 0; idx < markers.length; idx++) {
+          const marker = markers[idx];
+          if (!marker || typeof marker.getLatLng !== 'function') continue;
+          const origin = (marker.options && marker.options._origLatLng) ? marker.options._origLatLng : marker.getLatLng();
+          const current = marker.getLatLng();
+          if (!origin || !current) continue;
+          const basePoint = this.map.latLngToLayerPoint(origin);
+          const screenPoint = this.map.latLngToLayerPoint(current);
+          nodes.push({
+            marker,
+            base: { x: basePoint.x, y: basePoint.y },
+            point: { x: screenPoint.x, y: screenPoint.y },
+            seed: idx + 1,
+          });
+        }
+        if (nodes.length <= 1) return;
+        const hasOverlap = nodes.some((node, i) => {
+          for (let j = i + 1; j < nodes.length; j++) {
+            const other = nodes[j];
+            const dx = other.point.x - node.point.x;
+            const dy = other.point.y - node.point.y;
+            if (Math.hypot(dx, dy) < (minDist - 0.5)) return true;
+          }
+          return false;
+        });
+        if (!hasOverlap) return;
+        const iterations = 12;
+        const epsilon = 0.001;
+        for (let iter = 0; iter < iterations; iter++) {
+          let moved = false;
+          for (let i = 0; i < nodes.length; i++) {
+            for (let j = i + 1; j < nodes.length; j++) {
+              const a = nodes[i];
+              const b = nodes[j];
+              let dx = b.point.x - a.point.x;
+              let dy = b.point.y - a.point.y;
+              let dist = Math.hypot(dx, dy);
+              if (dist >= minDist) continue;
+              moved = true;
+              if (dist < epsilon) {
+                const angle = ((a.seed * 57) + iter * 23) * Math.PI / 180;
+                dx = Math.cos(angle);
+                dy = Math.sin(angle) || 0.5;
+                dist = 1;
+              }
+              const overlap = (minDist - dist) / 2;
+              const nx = dx / dist;
+              const ny = dy / dist;
+              a.point.x -= nx * overlap;
+              a.point.y -= ny * overlap;
+              b.point.x += nx * overlap;
+              b.point.y += ny * overlap;
+            }
+          }
+          for (const node of nodes) {
+            const offsetX = node.point.x - node.base.x;
+            const offsetY = node.point.y - node.base.y;
+            const offsetDist = Math.hypot(offsetX, offsetY);
+            if (offsetDist > maxShift) {
+              const scale = maxShift / offsetDist;
+              node.point.x = node.base.x + offsetX * scale;
+              node.point.y = node.base.y + offsetY * scale;
+            }
+          }
+          if (!moved) break;
+        }
+        for (const node of nodes) {
+          const target = L.point(node.point.x, node.point.y);
+          node.marker.setLatLng(this.map.layerPointToLatLng(target));
+        }
       } catch (e) {}
     },
     // schedule heavy overlap recompute to keep UI responsive
