@@ -750,6 +750,7 @@
           tabDragIndex: null,
           tabDragItem: null,
           tabDragX: 0,
+          tabDragY: 0,
           tabOffsetX: 0,
           tabPlaceholderIndex: null,
           tabPlaceholderWidth: 0,
@@ -1915,6 +1916,7 @@
         const dragEl = tabEls[index];
         const rect = dragEl ? dragEl.getBoundingClientRect() : null;
         this.tabDragX = startX;
+        this.tabDragY = startY;
         this.tabOffsetX = rect ? (startX - rect.left) : 0;
         this.tabDragItem = this.sortedTabs[index];
         this.tabPlaceholderIndex = index;
@@ -1938,7 +1940,7 @@
         this.$nextTick(() => {
           try { if (this.$refs.favTabs) this.$refs.favTabs.scrollLeft = this.tabStartScrollLeft; } catch(e) {}
           // evaluate edge auto-scroll immediately based on start point
-          this.maybeTabAutoScroll({ clientX: startX });
+          this.maybeTabAutoScroll({ clientX: startX, clientY: startY });
         });
       },
       attachTabDragListeners() {
@@ -1972,6 +1974,7 @@
         const p = evt.touches ? evt.touches[0] : evt;
         if (!p) return;
         this.tabDragX = p.clientX;
+        this.tabDragY = p.clientY;
         this.tabGhostLeft = p.clientX - this.tabOffsetX;
         // update placeholder index by comparing midpoints
         const tabs = this.$refs.favTabs;
@@ -2037,16 +2040,32 @@
         this.tabFixedWidths = [];
         this.tabGhostTop = 0;
         this.tabGhostLeft = 0;
+        this.tabDragY = 0;
         this.stopTabAutoScroll();
         this.detachTabDragListeners();
       },
       maybeTabAutoScroll(point, mode = 'tab') {
         const tabs = this.$refs.favTabs;
         if (!tabs) { this.stopTabAutoScroll(); return; }
+
         const r = tabs.getBoundingClientRect();
         const x = point.clientX;
+        const y = point.clientY;
+
+        // 只在“靠近选项卡行”的纵向带状区域内才允许自动滚动
+        const margin = 100; // 上下各 32px，可按手感调整
+        const bandTop = r.top;
+        const bandBottom = r.bottom + margin;
+
+        if (typeof y === 'number' && (y < bandTop || y > bandBottom)) {
+          // 指针垂直位置离选项卡行太远，停止此模式的自动滚动
+          if (this.tabAutoScrollMode === mode) this.stopTabAutoScroll();
+          return;
+        }
+
         const threshold = Math.min(80, r.width / 3);
         let velocity = 0;
+
         if (x < r.left + threshold) {
           const dist = x - (r.left + threshold);
           velocity = Math.max(-12, (dist / threshold) * 12);
@@ -2054,6 +2073,7 @@
           const dist = x - (r.right - threshold);
           velocity = Math.min(12, (dist / threshold) * 12);
         }
+
         if (velocity !== 0) {
           this.tabAutoScrollMode = mode;
           this.tabAutoScrollVelocity = velocity;
@@ -2062,6 +2082,7 @@
           this.stopTabAutoScroll();
         }
       },
+
       runTabAutoScrollLoop() {
         if (this.tabAutoScrollFrame) {
           window.cancelAnimationFrame(this.tabAutoScrollFrame);
@@ -2070,12 +2091,25 @@
           const mode = this.tabAutoScrollMode;
           const usingTabDrag = mode === 'tab' && this.tabDragging;
           const usingItemDrag = mode === 'item' && this.dragging;
+
           if (!usingTabDrag && !usingItemDrag) { this.stopTabAutoScroll(); return; }
+
           const tabs = this.$refs.favTabs;
           if (!tabs) { this.stopTabAutoScroll(); return; }
-          // Recompute velocity each frame based on current pointer and container rect
+
           const r = tabs.getBoundingClientRect();
           const x = usingTabDrag ? this.tabDragX : this.dragX;
+          const y = usingTabDrag ? this.tabDragY : this.dragY;
+
+          // 每一帧都检查：只有当手指还在“靠近选项卡行”的纵向带状区域内才继续滚动
+          const margin = 100;
+          const bandTop = r.top;
+          const bandBottom = r.bottom + margin;
+          if (typeof y === 'number' && (y < bandTop || y > bandBottom)) {
+            this.stopTabAutoScroll();
+            return;
+          }
+
           const threshold = Math.min(100, r.width / 3);
           let v = 0;
           if (x < r.left + threshold) {
@@ -2086,15 +2120,22 @@
             v = Math.min(14, (dist / threshold) * 14);
           }
           this.tabAutoScrollVelocity = v;
-          if (Math.abs(this.tabAutoScrollVelocity) < 0.5) { this.stopTabAutoScroll(); return; }
+
+          if (Math.abs(this.tabAutoScrollVelocity) < 0.5) {
+            this.stopTabAutoScroll();
+            return;
+          }
+
           const maxScroll = tabs.scrollWidth - tabs.clientWidth;
           let next = tabs.scrollLeft + this.tabAutoScrollVelocity;
           if (next < 0) next = 0;
           if (next > maxScroll) next = maxScroll;
+
           if (next !== tabs.scrollLeft) {
             tabs.scrollLeft = next;
+
             if (usingTabDrag) {
-              // After scrolling, recompute placeholder index for accuracy
+              // 滚动后重新计算占位索引
               const tabEls = Array.from(tabs.querySelectorAll('.fav-tab'));
               const rects = tabEls.map(el => el.getBoundingClientRect());
               const centers = rects.map(r => (r.left + r.right) / 2);
@@ -2104,16 +2145,19 @@
               }
               this.tabPlaceholderIndex = Math.max(0, Math.min(target, this.sortedTabs.length));
             } else if (usingItemDrag) {
+              // 拖拽收藏项时维持 tab hover 逻辑
               this.handleTabHoverDuringItemDrag({ clientX: x, clientY: this.dragY });
             }
           } else {
             this.stopTabAutoScroll();
             return;
           }
+
           this.tabAutoScrollFrame = window.requestAnimationFrame(step);
         };
         this.tabAutoScrollFrame = window.requestAnimationFrame(step);
       },
+
       stopTabAutoScroll() {
         if (this.tabAutoScrollFrame) {
           window.cancelAnimationFrame(this.tabAutoScrollFrame);
