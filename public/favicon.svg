@@ -1,0 +1,76 @@
+<svg width="256" height="256" viewBox="0 0 256 256" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#CFF7FF"/>
+      <stop offset="70%" stop-color="#5CB8FF"/>
+    </linearGradient>
+    <radialGradient id="sun" cx="0.82" cy="0.18" r="0.32">
+      <stop offset="0%" stop-color="#FFEFB7" stop-opacity="0.9"/>
+      <stop offset="100%" stop-color="#FFEFB7" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="grassBack" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#D8FF9F"/>
+      <stop offset="100%" stop-color="#61D55B"/>
+    </linearGradient>
+    <linearGradient id="grassFront" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#6EDC67"/>
+      <stop offset="100%" stop-color="#2EA548"/>
+    </linearGradient>
+    <linearGradient id="post" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#7A5134"/>
+      <stop offset="100%" stop-color="#503221"/>
+    </linearGradient>
+    <linearGradient id="postHighlight" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#9E6A41"/>
+      <stop offset="100%" stop-color="#6B4227"/>
+    </linearGradient>
+    <linearGradient id="plankTop" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#FFE4C1"/>
+      <stop offset="50%" stop-color="#FFC588"/>
+      <stop offset="100%" stop-color="#F5954F"/>
+    </linearGradient>
+    <linearGradient id="plankMid" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#FFD5AA"/>
+      <stop offset="50%" stop-color="#FFA463"/>
+      <stop offset="100%" stop-color="#EE7E3F"/>
+    </linearGradient>
+    <linearGradient id="plankBot" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#FFBD7D"/>
+      <stop offset="50%" stop-color="#FF8D39"/>
+      <stop offset="100%" stop-color="#E35C23"/>
+    </linearGradient>
+    <filter id="softShadow" x="-30%" y="-30%" width="160%" height="200%">
+      <feDropShadow dx="0" dy="10" stdDeviation="12" flood-color="#2b7a36" flood-opacity="0.25"/>
+    </filter>
+  </defs>
+
+  <rect width="256" height="256" rx="36" fill="url(#sky)"/>
+  <rect width="256" height="256" rx="36" fill="url(#sun)"/>
+
+  <g fill="#fff" opacity="0.95">
+    <path d="M40 85c0-15 12-27 27-27 7 0 13 3 18 7 5-7 13-11 22-11 16 0 28 12 28 27 0 2 0 4-1 6H41c-1-2-1-4-1-6z" opacity="0.85"/>
+    <path d="M150 70c0-11 9-20 21-20 6 0 12 3 16 7 4-5 11-8 18-8 13 0 24 10 24 22 0 2 0 4-1 6h-78z" opacity="0.8"/>
+    <path d="M160 110c0-13 11-23 24-23 6 0 12 3 16 7 5-5 12-8 19-8 15 0 27 11 27 25 0 2 0 5-1 7h-85c-0.7-2-1-5-1-8z" opacity="0.9"/>
+  </g>
+
+  <path d="M-12 178 Q128 208 268 178 L268 266 L-12 266 Z" fill="url(#grassBack)"/>
+  <path d="M-10 210 Q128 242 266 210 L266 266 L-10 266 Z" fill="url(#grassFront)" opacity="0.92"/>
+  <path d="M0 228 Q64 214 128 232 T256 228 L256 266 L0 266 Z" fill="#55CC65" opacity="0.4"/>
+
+  <g filter="url(#softShadow)">
+    <rect x="112" y="78" width="32" height="128" rx="13" fill="url(#post)"/>
+    <rect x="115" y="78" width="26" height="128" rx="11" fill="url(#postHighlight)"/>
+
+    <g>
+      <rect x="60" y="50" width="110" height="28" rx="14" fill="url(#plankTop)"/>
+      <rect x="92" y="88" width="128" height="32" rx="16" fill="url(#plankMid)"/>
+      <rect x="110" y="130" width="140" height="32" rx="16" fill="url(#plankBot)"/>
+    </g>
+  </g>
+
+  <g fill="#FFF5E8">
+    <circle cx="86" cy="64" r="4"/>
+    <circle cx="164" cy="104" r="4"/>
+    <circle cx="210" cy="146" r="4"/>
+  </g>
+</svg>
