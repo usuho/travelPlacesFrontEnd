@@ -2053,14 +2053,16 @@
         const y = point.clientY;
 
         // 只在“靠近选项卡行”的纵向带状区域内才允许自动滚动
-        const margin = 100; // 上下各 32px，可按手感调整
-        const bandTop = r.top;
-        const bandBottom = r.bottom + margin;
+        if (mode === 'item') {
+          const margin = 120; 
+          const bandTop = r.top;
+          const bandBottom = r.bottom + margin;
 
-        if (typeof y === 'number' && (y < bandTop || y > bandBottom)) {
-          // 指针垂直位置离选项卡行太远，停止此模式的自动滚动
-          if (this.tabAutoScrollMode === mode) this.stopTabAutoScroll();
-          return;
+          if (typeof y === 'number' && (y < bandTop || y > bandBottom)) {
+            // 指针垂直位置离选项卡行太远，停止此模式的自动滚动
+            if (this.tabAutoScrollMode === mode) this.stopTabAutoScroll();
+            return;
+          }
         }
 
         const threshold = Math.min(80, r.width / 3);
@@ -2101,13 +2103,15 @@
           const x = usingTabDrag ? this.tabDragX : this.dragX;
           const y = usingTabDrag ? this.tabDragY : this.dragY;
 
-          // 每一帧都检查：只有当手指还在“靠近选项卡行”的纵向带状区域内才继续滚动
-          const margin = 100;
-          const bandTop = r.top;
-          const bandBottom = r.bottom + margin;
-          if (typeof y === 'number' && (y < bandTop || y > bandBottom)) {
-            this.stopTabAutoScroll();
-            return;
+          if (usingItemDrag) {
+             // 每一帧都检查：只有当手指还在“靠近选项卡行”的纵向带状区域内才继续滚动
+            const margin = 120;
+            const bandTop = r.top;
+            const bandBottom = r.bottom + margin;
+            if (typeof y === 'number' && (y < bandTop || y > bandBottom)) {
+              this.stopTabAutoScroll();
+              return;
+            }
           }
 
           const threshold = Math.min(100, r.width / 3);
