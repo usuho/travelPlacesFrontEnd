@@ -466,7 +466,13 @@
       >
         <!-- Tabs: replace plain title with horizontally scrollable tabs -->
         <div class="fav-tabs-wrap" ref="favTabsWrap">
-          <div class="fav-tabs" ref="favTabs" @wheel.prevent="onTabsWheel">
+          <div
+            class="fav-tabs"
+            ref="favTabs"
+            :class="{ draggingTabs: tabDragging }"
+            @wheel.prevent="onTabsWheel"
+            @touchmove="onTabsTouchMove"
+          >
             <template v-for="(tab, ti) in sortedTabs" :key="tab.id">
               <div
                 v-if="tabDragging && tabPlaceholderIndex === ti"
@@ -1954,6 +1960,11 @@
         this.tabUpListener = null;
       },
       onTabDragMove(evt) {
+        try {
+          if (evt && typeof evt.preventDefault === 'function' && evt.cancelable) {
+            evt.preventDefault();
+          }
+        } catch (e) {}
         const p = evt.touches ? evt.touches[0] : evt;
         if (!p) return;
         this.tabDragX = p.clientX;
@@ -2133,6 +2144,16 @@
             }
           }
         } catch (e) {}
+      },
+      onTabsTouchMove(evt) {
+        // While dragging tabs, prevent native horizontal scrolling of the tab bar
+        if (this.tabDragging) {
+          try {
+            if (evt && typeof evt.preventDefault === 'function' && evt.cancelable) {
+              evt.preventDefault();
+            }
+          } catch (e) {}
+        }
       },
       getDraggedTabWidth() {
         // Measure dragged tab DOM width to match exactly
@@ -3762,6 +3783,10 @@ const all = this.sortedFavorites || [];
   overflow-x: auto;
   -ms-overflow-style: none; /* IE/Edge */
   scrollbar-width: none; /* Firefox */
+}
+.fav-tabs.draggingTabs {
+  /* Disable touch panning while dragging tabs to avoid native scroll */
+  touch-action: none;
 }
 .fav-tabs::-webkit-scrollbar { display: none; }
 .fav-tab {
