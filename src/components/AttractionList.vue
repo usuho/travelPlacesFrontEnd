@@ -1946,20 +1946,24 @@
         this.tabUpListener = (e) => this.finishTabDrag(e);
         window.addEventListener('mousemove', this.tabMoveListener, true);
         window.addEventListener('mouseup', this.tabUpListener, true);
-        window.addEventListener('touchmove', this.tabMoveListener, { passive: false });
+        // Use capture:true and passive:false so we can reliably prevent native scrolling during tab drag
+        window.addEventListener('touchmove', this.tabMoveListener, { passive: false, capture: true });
         window.addEventListener('touchend', this.tabUpListener, true);
       },
       detachTabDragListeners() {
         try {
           window.removeEventListener('mousemove', this.tabMoveListener, true);
           window.removeEventListener('mouseup', this.tabUpListener, true);
-          window.removeEventListener('touchmove', this.tabMoveListener, true);
+          // Must match the addEventListener options to actually remove the listener
+          window.removeEventListener('touchmove', this.tabMoveListener, { capture: true });
           window.removeEventListener('touchend', this.tabUpListener, true);
         } catch(e) {}
         this.tabMoveListener = null;
         this.tabUpListener = null;
       },
       onTabDragMove(evt) {
+        // Ignore stray events if not in tab-drag state
+        if (!this.tabDragging) return;
         try {
           if (evt && typeof evt.preventDefault === 'function' && evt.cancelable) {
             evt.preventDefault();
