@@ -162,7 +162,7 @@ export default {
                 const marker = L.marker([cached.lat, cached.lng], { icon, pane: 'favoritesPane', zIndexOffset: 1000 });
                 try { marker.options._meta = meta; } catch (e) {}
                 try { marker.options._origLatLng = L.latLng(cached.lat, cached.lng); } catch (e) {}
-                marker.bindPopup(this.buildPopup(meta));
+                this.bindPopupNoAutoPan(marker, meta);
                 marker.on('popupopen', () => this.attachPopupHandlers(meta));
                 marker.addTo(this.favoritesLayer);
               } catch (e) {}
@@ -194,7 +194,7 @@ export default {
                         const marker = L.marker([g.lat, g.lng], { icon, pane: 'favoritesPane', zIndexOffset: 1000 });
                         try { marker.options._meta = meta; } catch (e) {}
                         try { marker.options._origLatLng = L.latLng(g.lat, g.lng); } catch (e) {}
-                        marker.bindPopup(this.buildPopup(meta));
+                        this.bindPopupNoAutoPan(marker, meta);
                         marker.on('popupopen', () => this.attachPopupHandlers(meta));
                         marker.addTo(this.favoritesLayer);
                       } catch (e) {}
@@ -223,7 +223,7 @@ export default {
               const marker = L.marker([cached.lat, cached.lng], { icon, pane: 'favoritesPane', zIndexOffset: 1000 });
               try { marker.options._meta = meta; } catch (e) {}
               try { marker.options._origLatLng = L.latLng(cached.lat, cached.lng); } catch (e) {}
-              marker.bindPopup(this.buildPopup(meta));
+              this.bindPopupNoAutoPan(marker, meta);
               marker.on('popupopen', () => this.attachPopupHandlers(meta));
               marker.addTo(this.favoritesLayer);
             } catch (e) {}
@@ -245,7 +245,7 @@ export default {
                 const marker = L.marker([g.lat, g.lng], { icon, pane: 'favoritesPane', zIndexOffset: 1000 });
                 try { marker.options._meta = meta; } catch (e) {}
                 try { marker.options._origLatLng = L.latLng(g.lat, g.lng); } catch (e) {}
-                marker.bindPopup(this.buildPopup(meta));
+                this.bindPopupNoAutoPan(marker, meta);
                 marker.on('popupopen', () => this.attachPopupHandlers(meta));
                 marker.addTo(this.favoritesLayer);
               } catch (e) {}
@@ -342,7 +342,10 @@ export default {
       });
 
       // 仅渲染视野内标记（普通景点）；收藏不随视野清空
-      const updateInView = () => { this.renderAllInView && this.renderAllInView(true); };
+      const updateInView = () => {
+        this.renderAllInView && this.renderAllInView(true);
+        this.closeOffscreenFavoritePopups && this.closeOffscreenFavoritePopups();
+      };
       this.map.on('moveend', updateInView);
       this.map.on('zoomend', () => {
         updateInView();
@@ -391,6 +394,24 @@ export default {
         if (!meta) return;
         // 重新绑定，确保图片与点击恢复
         this.attachPopupHandlers(meta);
+      } catch (_) {}
+    },
+    // Auto-close favorite/custom popups when their markers leave the current view
+    closeOffscreenFavoritePopups() {
+      try {
+        if (!this.map || !this.favoritesLayer) return;
+        const bounds = this.map.getBounds();
+        if (!bounds) return;
+        const layers = Object.values(this.favoritesLayer._layers || {});
+        for (const marker of layers) {
+          try {
+            if (typeof marker?.isPopupOpen !== 'function') continue;
+            if (!marker.isPopupOpen()) continue;
+            const latLng = marker.getLatLng && marker.getLatLng();
+            if (!latLng) continue;
+            if (!bounds.contains(latLng)) marker.closePopup && marker.closePopup();
+          } catch (_) {}
+        }
       } catch (_) {}
     },
 
@@ -463,7 +484,7 @@ export default {
         const marker = L.marker(latlng, { icon, pane: 'favoritesPane', zIndexOffset: 1000 });
         try { marker.options._meta = meta; } catch (e) {}
         try { marker.options._origLatLng = L.latLng(latlng[0], latlng[1]); } catch (e) {}
-        marker.bindPopup(this.buildPopup(meta));
+        this.bindPopupNoAutoPan(marker, meta);
         marker.on('popupopen', () => this.attachPopupHandlers(meta));
         marker.addTo(this.favoritesLayer);
         // 处理重叠：收藏标记任何缩放都要并排，增量重算
@@ -754,7 +775,7 @@ export default {
         const marker = L.marker(latlng, { icon, pane: 'allPane', zIndexOffset: 0 });
         try { marker.options._meta = r; } catch (e) {}
         try { marker.options._origLatLng = L.latLng(latlng[0], latlng[1]); } catch (e) {}
-        marker.bindPopup(this.buildPopup(r));
+          this.bindPopupNoAutoPan(marker, r);
         marker.on('popupopen', () => this.attachPopupHandlers(r));
         marker.addTo(this.allLayer);
         }
@@ -875,7 +896,7 @@ export default {
           try { this._geoPut(`${String(r.country || this.country)}|${id}`, Number(r.lat), Number(r.lng)); } catch (e) {}
           const icon = this.createAllIcon(r.rating);
           const marker = L.marker([r.lat, r.lng], { icon, pane: 'allPane', zIndexOffset: 0 });
-          marker.bindPopup(this.buildPopup(r));
+          this.bindPopupNoAutoPan(marker, r);
           marker.on('popupopen', () => this.attachPopupHandlers(r));
           marker.addTo(this.allLayer);
           this.allMarkers.set(id, marker);
@@ -953,7 +974,7 @@ export default {
         try { this._geoPut(`${String(r.country || this.country)}|${id}`, Number(r.lat), Number(r.lng)); } catch (e) {}
         const icon = this.createAllIcon(r.rating);
         const marker = L.marker([r.lat, r.lng], { icon, pane: 'allPane', zIndexOffset: 0 });
-        marker.bindPopup(this.buildPopup(r));
+        this.bindPopupNoAutoPan(marker, r);
         marker.on('popupopen', () => this.attachPopupHandlers(r));
         marker.addTo(this.allLayer);
         this.allMarkers.set(id, marker);
@@ -1055,7 +1076,7 @@ export default {
                     const metaLater = ca ? { id, name: ca.name, region: ca.region, county: ca.county, rating: (Number.isFinite(ca && ca.rating) ? ca.rating : 0), country: 'custom', hasImage: !!(ca.hasImage1 || ca.hasImage2 || ca.hasImage3) } : null;
                     if (metaLater) {
                       try { marker.options._meta = metaLater; } catch (e) {}
-                      marker.bindPopup(this.buildPopup(metaLater));
+                      this.bindPopupNoAutoPan(marker, metaLater);
                       marker.on('popupopen', () => this.attachPopupHandlers(metaLater));
                     }
                     marker.addTo(this.focusedLayer);
@@ -1122,7 +1143,7 @@ export default {
         const marker = L.marker(latlng, { icon, pane: 'focusPane', zIndexOffset: 500 });
         if (meta) {
           try { marker.options._meta = meta; } catch (e) {}
-          marker.bindPopup(this.buildPopup(meta));
+          this.bindPopupNoAutoPan(marker, meta);
           marker.on('popupopen', () => this.attachPopupHandlers(meta));
         }
         marker.addTo(this.focusedLayer);
@@ -1632,6 +1653,13 @@ export default {
           </div>
         </div>
       `;
+    },
+    // ͳһ���� popup ������ת���ԣ���ֹ Leaflet �Զ����λ���ڵ�ͼ
+    bindPopupNoAutoPan(marker, meta) {
+      try {
+        if (!marker) return;
+        marker.bindPopup(this.buildPopup(meta), { autoPan: false });
+      } catch (_) {}
     },
 
     attachPopupHandlers(meta) {
