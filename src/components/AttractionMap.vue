@@ -39,6 +39,7 @@ export default {
       // 资源缓存
       imageCache: new Map(),
       apiChosenBase: null,
+      normalsCountry: null,
       // 渲染缓存与状态
       favMarkers: new Map(),
       allMarkers: new Map(),
@@ -78,6 +79,7 @@ export default {
     this.initMap();
     // 记录最近一次非自创的国家，用于从自创详情进入地图时作为普通景点的回退来源
     try { if (String(this.country) !== 'custom') localStorage.setItem('lastNonCustomCountry', String(this.country)); } catch (e) {}
+    this.normalsCountry = this.determineNormalsCountry();
     // 从详情返回或从地图内跳到详情再返回时，尝试恢复之前的视图
     if (!this.fromDetails) this.tryRestoreMapViewMaybe();
     // 若是从详情页进入地图，则不进行收藏范围拟合（只聚焦详情项）
@@ -90,14 +92,16 @@ export default {
     }
     // 自创国家下，优先尝试使用上次非自创国家的快照，避免空白与二次加载
     if (String(this.country) === 'custom') {
-      try {
-        const lastCtry = localStorage.getItem('lastNonCustomCountry') || '';
-        const snap = this._loadNormalsSnapshot(lastCtry);
-        if (Array.isArray(snap) && snap.length) {
-          this._allGeoData = snap;
-          this.renderAllInView && this.renderAllInView();
-        }
-      } catch (e) {}
+      const normalsCountry = this.normalsCountry || '';
+      if (normalsCountry) {
+        try {
+          const snap = this._loadNormalsSnapshot(normalsCountry);
+          if (Array.isArray(snap) && snap.length) {
+            this._allGeoData = snap;
+            this.renderAllInView && this.renderAllInView();
+          }
+        } catch (e) {}
+      }
     }
     try { this.fetchAllGeoOnce().then(() => { this.renderAllInView && this.renderAllInView(); }); } catch (e) {}
 
@@ -121,6 +125,24 @@ export default {
     try { this.map && this.map.remove(); } catch (e) {}
   },
   methods: {
+    determineNormalsCountry() {
+      if (String(this.country) !== 'custom') return String(this.country || '');
+      const fromQuery = this.getListCountryFromQuery();
+      if (fromQuery) return fromQuery;
+      try {
+        const fallback = localStorage.getItem('lastNonCustomCountry') || '';
+        if (fallback && fallback.toLowerCase() !== 'custom') return fallback;
+      } catch (e) {}
+      return '';
+    },
+    getListCountryFromQuery() {
+      try {
+        const q = (this.$route && this.$route.query) ? this.$route.query : {};
+        const raw = q && q.listCountry ? String(q.listCountry).trim() : '';
+        if (raw && raw.toLowerCase() !== 'custom') return raw;
+      } catch (e) {}
+      return '';
+    },
     async geocodeAllCustomIfNeeded() {
       try {
         const list = getAllCustomAttractions ? (getAllCustomAttractions() || []) : [];
@@ -392,11 +414,10 @@ export default {
       };
       // 若从详情页且路由国家为 custom，则优先使用列表国家（query.listCountry）作为默认视角
       let key = String(this.country || '').toLowerCase();
-      try {
-        const q = this.$route && this.$route.query ? this.$route.query : {};
-        const lc = q && q.listCountry ? String(q.listCountry).toLowerCase() : '';
-        if (key === 'custom' && lc) key = lc;
-      } catch (e) {}
+      if (key === 'custom') {
+        const resolved = (this.normalsCountry && String(this.normalsCountry).toLowerCase()) || (this.getListCountryFromQuery().toLowerCase());
+        if (resolved) key = resolved;
+      }
       const base = presets[key] || { center: [20, 0], zoom: 2 };
       return { center: base.center, zoom: Math.min((base.zoom || 2) + 2, 18) };
     },
@@ -744,14 +765,15 @@ export default {
 
     async fetchAllGeoOnce() {
       if (Array.isArray(this._allGeoData) && this._allGeoData.length) return;
-      // 自创国家：不从后端拉取普通景点，保留快照数据（若有）
-      if (String(this.country) === 'custom') return;
+      const isCustomCountry = String(this.country) === 'custom';
+      const fetchCountry = isCustomCountry ? (this.normalsCountry || '') : String(this.country || '');
+      if (!fetchCountry) return;
       try {
         let data = [];
-        try { const res = await fetchAttractionsGeo(this.country); if (Array.isArray(res)) data = res; } catch (e) {}
-        // 前端补全：对缺失经纬度的普通景点进行地理编码（与收藏一致）。
+        try { const res = await fetchAttractionsGeo(fetchCountry); if (Array.isArray(res)) data = res; } catch (e) {}
+        // 前端补全：对缺失经纬度的普通景点尝试走浏览器缓存（与收藏一致）
         try {
-          const pos = await fetchAttractionsPositions(this.country);
+          const pos = await fetchAttractionsPositions(fetchCountry);
           if (Array.isArray(pos) && pos.length) {
             const byId = new Map();
             if (Array.isArray(data)) {
@@ -762,7 +784,7 @@ export default {
               const existing = byId.get(idStr);
               const needGeocode = !existing || !Number.isFinite(existing.lat) || !Number.isFinite(existing.lng);
               if (!needGeocode) continue;
-              const cacheKey = `${String(this.country)}|${idStr}`;
+              const cacheKey = `${String(fetchCountry)}|${idStr}`;
               const cached = this._geoGet(cacheKey);
               if (cached) {
                 const item = {
@@ -775,7 +797,7 @@ export default {
                   lat: cached.lat,
                   lng: cached.lng,
                   hasImage: !!p.hasImage,
-                  country: this.country,
+                  country: fetchCountry,
                 };
                 if (existing) {
                   Object.assign(existing, item);
@@ -790,8 +812,8 @@ export default {
           }
         } catch (e) {}
         this._allGeoData = Array.isArray(data) ? data : [];
-        // 保存普通景点的快照，供自创国家进入地图时快速显示
-        try { this._saveNormalsSnapshot(String(this.country), this._allGeoData); } catch (e) {}
+        // 缓存普通景点列表，供之后从自创国家进入地图时直接展示
+        try { this._saveNormalsSnapshot(String(fetchCountry), this._allGeoData); } catch (e) {}
       } catch (e) { this._allGeoData = []; }
     },
 
