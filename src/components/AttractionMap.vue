@@ -771,13 +771,18 @@ export default {
           if (bounds && !bounds.contains(L.latLng(r.lat, r.lng))) continue;
           if (this.passFilters && !this.passFilters(r, filters)) continue;
           const latlng = [r.lat, r.lng];
+          const ratingScore = this.getNumericRating(r.rating);
           const icon = this.createAllIcon(r.rating);
-        const marker = L.marker(latlng, { icon, pane: 'allPane', zIndexOffset: 0 });
-        try { marker.options._meta = r; } catch (e) {}
-        try { marker.options._origLatLng = L.latLng(latlng[0], latlng[1]); } catch (e) {}
+          const marker = L.marker(latlng, { icon, pane: 'allPane', zIndexOffset: 0 });
+          try {
+            marker.options._meta = r;
+            marker.options._ratingScore = ratingScore;
+            marker.options._origLatLng = L.latLng(latlng[0], latlng[1]);
+          } catch (e) {}
+          this.applyNormalMarkerZIndex(marker, ratingScore);
           this.bindPopupNoAutoPan(marker, r);
-        marker.on('popupopen', () => this.attachPopupHandlers(r));
-        marker.addTo(this.allLayer);
+          marker.on('popupopen', () => this.attachPopupHandlers(r));
+          marker.addTo(this.allLayer);
         }
         // 统一重算所有分组的错位（收藏 + 普通）
         try { this.scheduleRecomputeOverlapAll(); } catch (e) {}
@@ -893,9 +898,16 @@ export default {
         while (i_async < toAdd.length && count < chunkSize_async) {
           const r = toAdd[i_async++];
           const id = String(r.id);
+          const ratingScore = this.getNumericRating(r.rating);
           try { this._geoPut(`${String(r.country || this.country)}|${id}`, Number(r.lat), Number(r.lng)); } catch (e) {}
           const icon = this.createAllIcon(r.rating);
           const marker = L.marker([r.lat, r.lng], { icon, pane: 'allPane', zIndexOffset: 0 });
+          try {
+            marker.options._meta = r;
+            marker.options._ratingScore = ratingScore;
+            marker.options._origLatLng = L.latLng(r.lat, r.lng);
+          } catch (e) {}
+          this.applyNormalMarkerZIndex(marker, ratingScore);
           this.bindPopupNoAutoPan(marker, r);
           marker.on('popupopen', () => this.attachPopupHandlers(r));
           marker.addTo(this.allLayer);
@@ -972,8 +984,15 @@ export default {
         if (favIdSet.has(id)) continue;
         // 缓存普通景点的经纬度，提升下次加载速度
         try { this._geoPut(`${String(r.country || this.country)}|${id}`, Number(r.lat), Number(r.lng)); } catch (e) {}
+        const ratingScore = this.getNumericRating(r.rating);
         const icon = this.createAllIcon(r.rating);
         const marker = L.marker([r.lat, r.lng], { icon, pane: 'allPane', zIndexOffset: 0 });
+        try {
+          marker.options._meta = r;
+          marker.options._ratingScore = ratingScore;
+          marker.options._origLatLng = L.latLng(r.lat, r.lng);
+        } catch (e) {}
+        this.applyNormalMarkerZIndex(marker, ratingScore);
         this.bindPopupNoAutoPan(marker, r);
         marker.on('popupopen', () => this.attachPopupHandlers(r));
         marker.addTo(this.allLayer);
@@ -1708,6 +1727,27 @@ export default {
       const color = this.getRatingColor(rating);
       const html = `<div class="dot-marker" style="background:${color}"></div>`;
       return L.divIcon({ className: 'marker-wrapper', html, iconSize: [16, 16], iconAnchor: [8, 8], popupAnchor: [0, -8] });
+    },
+    applyNormalMarkerZIndex(marker, ratingScore) {
+      try {
+        if (!marker) return;
+        const score = Number.isFinite(ratingScore) ? ratingScore : this._getMarkerRatingScore(marker);
+        const safeScore = Number.isFinite(score) ? Math.max(0, score) : 0;
+        marker.setZIndexOffset(Math.round(safeScore * 10));
+        if (marker.options) marker.options._ratingScore = safeScore;
+      } catch (e) {}
+    },
+    _getMarkerRatingScore(marker) {
+      try {
+        const cached = marker && marker.options ? marker.options._ratingScore : undefined;
+        if (Number.isFinite(cached)) return cached;
+        const meta = marker && marker.options ? marker.options._meta : null;
+        const score = this.getNumericRating(meta && meta.rating);
+        if (marker && marker.options) marker.options._ratingScore = score;
+        return score;
+      } catch (e) {
+        return 0;
+      }
     },
     createFocusIcon() {
       const html = `<div class="focus-marker"></div>`;
