@@ -194,6 +194,13 @@ export default {
         return;
       }
 
+      const isMobile = window.innerWidth <= 768;
+      // 桌面端不播放 logo 变形动画，直接跳转
+      if (!isMobile) {
+        navigate();
+        return;
+      }
+
       const rect = heroEl.getBoundingClientRect();
       const isOffScreen =
         rect.bottom <= 0 || rect.top >= window.innerHeight;
@@ -209,8 +216,7 @@ export default {
 
       const startX = rect.left + rect.width / 2;
       const startY = rect.top + rect.height / 2;
-      const isMobile = window.innerWidth <= 768;
-      const cornerSize = isMobile ? 40 : 60;
+      const cornerSize = 40;
       const targetX = window.innerWidth - cornerSize / 2 - 12;
       const targetY = 12 + cornerSize / 2;
       const dx = targetX - startX;

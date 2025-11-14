@@ -31,7 +31,9 @@ const router = createRouter({
 // 在当前右上角 logo 位置创建一个过渡用 overlay
 router.beforeEach((to, from, next) => {
   try {
-    if (to.path === '/' && from.path !== '/') {
+    // 仅在移动端从非首页返回首页时创建 overlay
+    const isMobile = window.innerWidth <= 768;
+    if (isMobile && to.path === '/' && from.path !== '/') {
       const cornerLogo = document.querySelector('.corner-logo');
       if (cornerLogo) {
         const rect = cornerLogo.getBoundingClientRect();
@@ -63,4 +65,3 @@ app.use(router)
 app.directive('fly-in', flyIn);
 app.directive('fade-in', fadeIn);
 app.mount('#app')
-
