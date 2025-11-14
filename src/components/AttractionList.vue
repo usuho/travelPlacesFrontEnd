@@ -7,7 +7,7 @@
           返回
         </button>
         <div class="header-content">
-          <h1 class="page-title title-hero">{{translateCountry(country)}}的景点</h1>
+          <h1 class="page-title title-hero">{{translateCountry(country)}}</h1>
           <p class="page-subtitle">发现{{translateCountry(country)}}最受欢迎的旅行目的地</p>
         </div>
       </header>

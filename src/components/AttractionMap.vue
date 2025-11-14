@@ -993,6 +993,38 @@ export default {
         this.statsNeverRendered = Math.max(0, visibleList.length - this.statsRendered);
         try { this.scheduleRecomputeOverlapAll(); } catch (e) {}
       }
+
+      // 当视野内没有任何要显示的普通景点时，
+      // 且当前激活收藏列表为空，或收藏存在但无法得到任何有效经纬度，
+      // 自动将中心平移到第一个可显示的普通景点，保持当前缩放级别不变。
+      try {
+        const hasFavItems = Array.isArray(this.favorites) && this.favorites.length > 0;
+        const hasFavMarkers = !!(this.favoritesLayer && this.favoritesLayer._layers && Object.keys(this.favoritesLayer._layers).length > 0);
+        const favListEmpty = !hasFavItems;
+        const favGeoMissing = hasFavItems && !hasFavMarkers && this._favGeoPending === 0;
+        if (this.map && !this._didAutoPanToFirst && visibleList.length === 0 && (favListEmpty || favGeoMissing)) {
+          const currentZoom = this.map.getZoom();
+          const b = bounds;
+          const f = filters;
+          const candidates = (this._allGeoData || [])
+            .filter(r => Number.isFinite(r.lat) && Number.isFinite(r.lng))
+            .filter(r => (this.passFilters ? this.passFilters(r, f) : true))
+            .sort((a, b2) => this.getNumericRating(b2.rating) - this.getNumericRating(a.rating));
+          if (candidates.length) {
+            let target = null;
+            if (b && b.isValid && b.isValid()) {
+              target = candidates.find(r => !b.contains(L.latLng(r.lat, r.lng))) || candidates[0];
+            } else {
+              target = candidates[0];
+            }
+            if (target) {
+              this._didAutoPanToFirst = true;
+              try { this.map.setView([target.lat, target.lng], currentZoom, { animate: false }); } catch (e) {}
+            }
+          }
+        }
+      } catch (e) {}
+
       return;
 
       // ͨǣղز۽㣩
