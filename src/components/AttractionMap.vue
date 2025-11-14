@@ -2,17 +2,12 @@
   <div class="map-page">
     <div id="map" class="map-container"></div>
     <div v-if="showLoading" class="map-loading-overlay"><div class="spinner"></div></div>
-    <!--<div class="map-stats">
-      <div>已渲染(屏内)：{{ statsRendered }}</div>
-      <div>未渲染(屏内)：{{ statsNeverRendered }}</div>
-    </div>-->
     <button class="back-button map-back-button" @click="handleBack">返回</button>
   </div>
 </template>
 
 <script>
-// 使用 Leaflet + OSM 瓦片（免费）
-// 需要在前端安装依赖：npm i leaflet
+
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { findCustomAttractionById, getAllCustomAttractions } from '../utils/customAttractions.js';
@@ -25,37 +20,37 @@ export default {
     return {
       map: null,
       country: this.$route.params.country,
-      // 路由参数
+      // ·ɲ
       focusId: this.$route.query.focusId || null,
       fromDetails: this.$route.query.from === 'details',
-      // 收藏数据
+      // ղ
       favoriteTabs: [],
       activeTabId: null,
       favorites: [],
-      // 图层
+      // ͼ
       favoritesLayer: null,
       allLayer: null,
       focusedLayer: null,
-      // 资源缓存
+      // Դ
       imageCache: new Map(),
       apiChosenBase: null,
       normalsCountry: null,
-      // 渲染缓存与状态
+      // Ⱦ״̬
       favMarkers: new Map(),
       allMarkers: new Map(),
       _didInitCenter: false,
       _allGeoData: [],
       showLoading: false,
       _hasRenderedFirst: false,
-      // 限制与缓存
+      // 뻺
       _visibleCap: 400,
-      allMarkersMeta: new Map(), // id -> meta（含 rating/lat/lng 等）
-      // 统计显示
+      allMarkersMeta: new Map(), // id -> meta rating/lat/lng ȣ
+      // ͳʾ
       statsRendered: 0,
       statsNeverRendered: 0,
       _favGeoPending: 0,
       _didFinalFitFavorites: false,
-      // 进入地图时的拟合控制与视图恢复
+      // ͼʱϿͼָ
       _blockFavFit: false,
       _shouldRestoreView: false,
       _overlapZoomThreshold: 14,
@@ -77,20 +72,20 @@ export default {
   async mounted() {
     this.loadFavoritesState();
     this.initMap();
-    // 记录最近一次非自创的国家，用于从自创详情进入地图时作为普通景点的回退来源
+    // ¼һηԴĹңڴԴͼʱΪͨĻԴ
     try { if (String(this.country) !== 'custom') localStorage.setItem('lastNonCustomCountry', String(this.country)); } catch (e) {}
     this.normalsCountry = this.determineNormalsCountry();
-    // 从详情返回或从地图内跳到详情再返回时，尝试恢复之前的视图
+    // 鷵ػӵͼٷʱԻָ֮ǰͼ
     if (!this.fromDetails) this.tryRestoreMapViewMaybe();
-    // 若是从详情页进入地图，则不进行收藏范围拟合（只聚焦详情项）
+    // Ǵҳͼ򲻽ղطΧϣֻ۽
     if (this.fromDetails) this._blockFavFit = true;
     this.showLoading = true;
     await this.renderFavoritesMarkers();
-    // 自创国家：从列表进入时（非详情），对所有自创景点缺失经纬度的项进行一次自动地理编码
+    // Դңбʱ飩ԴȱʧγȵһԶ
     if (String(this.country) === 'custom' && !this.fromDetails) {
       try { await this.geocodeAllCustomIfNeeded(); } catch (e) {}
     }
-    // 自创国家下，优先尝试使用上次非自创国家的快照，避免空白与二次加载
+    // Դ£ȳʹϴηԴҵĿգհμ
     if (String(this.country) === 'custom') {
       const normalsCountry = this.normalsCountry || '';
       if (normalsCountry) {
@@ -107,7 +102,7 @@ export default {
 
     if (this.focusId) {
       await this.focusSpecificAttraction();
-      // 从详情页进入时，拦截浏览器返回到详情
+      // ҳʱص
       if (this.fromDetails) {
         try {
           history.pushState({ mapBackGuard: true }, document.title, location.href);
@@ -212,7 +207,7 @@ export default {
         for (const ca of list) {
           if (!ca || !ca.id) continue;
           const idStr = String(ca.id);
-          // 已有 marker 则跳过（可能已由收藏渲染）
+          //  marker ղȾ
           if (this._hasFavMarker && this._hasFavMarker(idStr)) continue;
           const cacheKey = `custom|${idStr}`;
           const cached = this._geoGet && this._geoGet(cacheKey);
@@ -229,7 +224,7 @@ export default {
             } catch (e) {}
             continue;
           }
-          // 无缓存：进行地理编码
+          // ޻棺е
           const _addr = `${ca.position || ''} ${ca.name || ''} ${ca.region || ''} ${ca.county || ''}`.trim();
           if (!_addr) continue;
           const disableChinaHint = !!(ca && ca.disableChinaHint);
@@ -252,21 +247,21 @@ export default {
             }
           } catch (e) {}
         }
-        // 完成后统一重算错位
+        // ɺͳһλ
         try { this.scheduleRecomputeOverlapAll(); } catch (e) {}
       } catch (e) {}
     },
     handleBack() {
       if (this.fromDetails) {
-        // 返回到进入地图前的详情页
+        // صͼǰҳ
         this.$router.back();
       } else {
-        // 回到列表页
+        // صбҳ
         this.$router.push({ path: `/attractions/${this.country}` });
       }
     },
 
-    // 读取收藏（与列表页保持一致的存储结构）
+    // ȡղأбҳһµĴ洢ṹ
     loadFavoritesState() {
       try {
         const raw = localStorage.getItem('favoriteTabs_all');
@@ -282,7 +277,7 @@ export default {
           this.activeTabId = this.favoriteTabs[0].id;
         }
       } catch (e) {}
-      // 默认取当前激活 tab；若从详情页进入（带 focusId），则合并所有 tab，确保焦点景点一定纳入收藏层渲染
+      // Ĭȡǰ tabҳ루 focusIdϲ tabȷ㾰һղزȾ
       if (this.fromDetails && this.focusId) {
         const map = new Map();
         for (const t of (this.favoriteTabs || [])) {
@@ -297,8 +292,8 @@ export default {
         const at = this.favoriteTabs.find(t => t.id === this.activeTabId);
         this.favorites = at && Array.isArray(at.items) ? [...at.items] : [];
       }
-      // 不再按国家过滤，跨国家收藏也一并展示；排序保证序号稳定
-      // 强制与列表页一致：仅使用当前激活收藏列表
+      // ٰҹˣղҲһչʾ֤ȶ
+      // ǿбҳһ£ʹõǰղб
       try {
         const __at = this.favoriteTabs.find(t => t.id === this.activeTabId);
         this.favorites = __at && Array.isArray(__at.items) ? [...__at.items] : [];
@@ -314,7 +309,7 @@ export default {
         attribution: '&copy; OpenStreetMap contributors'
       }).addTo(this.map);
 
-      // 使用单独的 pane 以控制层级
+      // ʹõ pane ԿƲ㼶
       try { this.map.createPane('allPane'); this.map.getPane('allPane').style.zIndex = 400; } catch(e) {}
       try { this.map.createPane('focusPane'); this.map.getPane('focusPane').style.zIndex = 500; } catch(e) {}
       try { this.map.createPane('favoritesPane'); this.map.getPane('favoritesPane').style.zIndex = 600; } catch(e) {}
@@ -323,11 +318,11 @@ export default {
       this.allLayer = L.layerGroup([], { pane: 'allPane' }).addTo(this.map);
       this.focusedLayer = L.layerGroup([], { pane: 'focusPane' }).addTo(this.map);
 
-      // 放大到一定级别时，打开最近的弹窗
+      // Ŵһʱĵ
       this.map.on('zoomend', () => {
         const z = this.map.getZoom();
         if (z >= 12) {
-          // 打开当前视野内一个弹窗（优先收藏）
+          // 򿪵ǰҰһղأ
           const layers = [...Object.values(this.favoritesLayer._layers || {}), ...Object.values(this.allLayer._layers || {})];
           for (const l of layers) {
             try {
@@ -341,7 +336,7 @@ export default {
         }
       });
 
-      // 仅渲染视野内标记（普通景点）；收藏不随视野清空
+      // ȾҰڱǣͨ㣩ղزҰ
       const updateInView = () => {
         this.renderAllInView && this.renderAllInView(true);
         this.closeOffscreenFavoritePopups && this.closeOffscreenFavoritePopups();
@@ -349,31 +344,31 @@ export default {
       this.map.on('moveend', updateInView);
       this.map.on('zoomend', () => {
         updateInView();
-        // 重新计算重叠分组的错位（基于像素的位移随缩放需重算）
+        // ¼صĴλصλ㣩
         try { this.scheduleRecomputeOverlapAll(); } catch (e) {}
-        // 修复缩放后弹窗内图片/点击失效：对已打开的弹窗重新绑定处理
+        // ޸ź󵯴ͼƬ/ʧЧѴ򿪵ĵ°󶨴
         try { this.rebindOpenPopupHandlers(); } catch (e) {}
       });
-      // 拖动时临时禁用标记指针事件，保证单指拖动；结束后恢复，可点击
+      // ϶ʱʱñָ¼ָ֤϶ָɵ
       try {
         this.map.on('dragstart', () => { try { const el = document.getElementById('map'); if (el) el.classList.add('dragging-map'); } catch (e) {} });
         this.map.on('dragend', () => { try { const el = document.getElementById('map'); if (el) el.classList.remove('dragging-map'); } catch (e) {} });
       } catch (e) {}
-      // 初始化一次布局
+      // ʼһβ
       try { this.scheduleRecomputeOverlapAll(); } catch (e) {}
     },
 
-    // 在缩放后为当前打开的弹窗重新绑定图片加载与点击跳转，保证自创/普通景点弹窗可用
+    // źΪǰ򿪵ĵ°ͼƬת֤Դ/ͨ㵯
     rebindOpenPopupHandlers() {
       try {
-        // 找到当前 DOM 中的弹窗根节点，读取其 data-id/country
+        // ҵǰ DOM еĵڵ㣬ȡ data-id/country
         const node = document.querySelector('.map-popup');
         if (!node) return;
         const id = node.getAttribute('data-id');
         const country = node.getAttribute('data-country') || this.country;
         if (!id) return;
 
-        // 在已知图层中查找对应的 marker 以获取其 meta
+        // ֪ͼвҶӦ marker Իȡ meta
         const layersToCheck = [];
         try { layersToCheck.push(...Object.values(this.favoritesLayer?._layers || {})); } catch (_) {}
         try { layersToCheck.push(...Object.values(this.allLayer?._layers || {})); } catch (_) {}
@@ -386,13 +381,13 @@ export default {
             if (m && String(m.id) === String(id) && String(m.country || this.country) === String(country)) { meta = m; break; }
           } catch (_) {}
         }
-        // 回退：从全量缓存中取
+        // ˣȫȡ
         if (!meta) {
           const m2 = this.allMarkersMeta && this.allMarkersMeta.get(String(id));
           if (m2) meta = m2;
         }
         if (!meta) return;
-        // 重新绑定，确保图片与点击恢复
+        // °󶨣ȷͼƬָ
         this.attachPopupHandlers(meta);
       } catch (_) {}
     },
@@ -416,7 +411,7 @@ export default {
     },
 
     getDefaultView() {
-      // 国家级缩放，粗略中心点（在原基础上放大 2 级）
+      // Ҽţĵ㣨ԭϷŴ 2 
       const presets = {
         japan: { center: [36.2048, 138.2529], zoom: 5 },
         china: { center: [35.8617, 104.1954], zoom: 4 },
@@ -433,7 +428,7 @@ export default {
         vietnam: { center: [14.0583, 108.2772], zoom: 5 },
         switzerland: { center: [46.8182, 8.2275], zoom: 6 },
       };
-      // 若从详情页且路由国家为 custom，则优先使用列表国家（query.listCountry）作为默认视角
+      // ҳ·ɹΪ customʹбңquery.listCountryΪĬӽ
       let key = String(this.country || '').toLowerCase();
       if (key === 'custom') {
         const resolved = (this.normalsCountry && String(this.normalsCountry).toLowerCase()) || (this.getListCountryFromQuery().toLowerCase());
@@ -447,7 +442,7 @@ export default {
       this.favoritesLayer.clearLayers();
       if (!this.favorites.length) return;
 
-      // 分离自创与非自创，并按国家分组批量查询
+      // ԴԴҷѯ
       const customs = this.favorites.filter(f => String(f.country) === 'custom');
       const normals = this.favorites.filter(f => String(f.country) !== 'custom');
 
@@ -469,7 +464,7 @@ export default {
         }
       }
 
-      // 逐个绘制（异步填坑：缺坐标则地理编码）。
+      // ƣ첽ӣȱ룩
       let firstCenter = null;
       const latlngsForFit = [];
       let nonPendingIndex = 0;
@@ -487,7 +482,7 @@ export default {
         this.bindPopupNoAutoPan(marker, meta);
         marker.on('popupopen', () => this.attachPopupHandlers(meta));
         marker.addTo(this.favoritesLayer);
-        // 处理重叠：收藏标记任何缩放都要并排，增量重算
+        // صղرκŶҪţ
         try { this.scheduleRecomputeOverlapAll(); } catch (e) {}
         if (!this._hasRenderedFirst) { this._hasRenderedFirst = true; this.showLoading = false; }
       };
@@ -498,13 +493,13 @@ export default {
         if (!isPending) nonPendingIndex++;
         const orderText = isPending ? '' : String(nonPendingIndex);
 
-        // 只要能在自创库中找到该 id，或收藏项标记为 custom，则按自创逻辑处理（不依赖当前路由国家）
+        // ֻҪԴҵ idղΪ customԴ߼ǰ·ɹң
         const isCustomFav = (String(fav.country) === 'custom') || !!findCustomAttractionById(String(fav.id));
         if (isCustomFav) {
           const ca = findCustomAttractionById(String(fav.id));
           const meta = {
             id: String(fav.id),
-            name: (fav.name || (ca && ca.name) || '未命名景点'),
+            name: (fav.name || (ca && ca.name) || 'δ'),
             region: (fav.region || (ca && ca.region) || ''),
             county: (fav.county || (ca && ca.county) || ''),
             rating: Number.isFinite(fav.rating) ? fav.rating : (ca && ca.rating) || 0,
@@ -524,17 +519,17 @@ export default {
               latlng = [cached.lat, cached.lng];
               renderOne(latlng, meta, orderText, isPending);
             } else {
-              // 仅在从详情页聚焦该项时才进行地理编码
+              // ڴҳ۽ʱŽе
               if (this.fromDetails && String(this.focusId) === String(fav.id)) {
                 this._favGeoPending++;
                 const task = (async () => {
                   try {
                     const _addr = `${ca.position || ''} ${ca.name || ''} ${ca.region || ''} ${ca.county || ''}`.trim();
                     const routeKey = String(this.country || '').toLowerCase();
-                    // 是否中文仅用于 hintCountry，AMap 放到最后兜底
+                    // ǷĽ hintCountryAMap ŵ󶵵
                     const disableChinaHint = !!(ca && ca.disableChinaHint);
                     const isChinesePosition = !disableChinaHint && /[\u4e00-\u9fa5]/.test(String(ca.position || ''));
-                    const hintKey = (String(routeKey) === 'custom') ? (isChinesePosition ? 'china' : 'custom') : routeKey;
+                    const hintKey = isChinesePosition ? 'china' : 'custom';
                     try { console.info('[Geo] start geocode (custom favorite - focus from details)', { id: String(fav.id), address: _addr, hintCountry: hintKey }); } catch(_) {}
                     const g = await this.geocodeByFreeApi(_addr, hintKey, { amapLast: true });
                     if (g) { this._geoPut(cacheKey, g.lat, g.lng); renderOne([g.lat, g.lng], meta, orderText, isPending); }
@@ -554,17 +549,17 @@ export default {
                 })();
                 pendingTasks.push(task);
               } else {
-                // 从列表进入地图：对自创景点也要进行地理编码（若无缓存）
+                // бͼԴҲҪе루޻棩
                 this._favGeoPending++;
                 const task = (async () => {
                   try {
                     const _addr = `${ca.position || ''} ${ca.name || ''} ${ca.region || ''} ${ca.county || ''}`.trim();
-                    const routeKey = String(this.country || '').toLowerCase();  // ✅ 增加这一行
+                    const routeKey = String(this.country || '').toLowerCase();
                     const disableChinaHint = !!(ca && ca.disableChinaHint);
                     const isChinesePosition = !disableChinaHint && /[\u4e00-\u9fa5]/.test(String(ca.position || ''));
                     const hintKey = (String(routeKey) === 'custom') ? (isChinesePosition ? 'china' : 'custom') : routeKey;
                     try { console.info('[Geo] start geocode (custom favorite - from list)', { id: String(fav.id), address: _addr, hintCountry: hintKey }); } catch(_) {}
-                    const g = await this.geocodeByFreeApi(_addr, hintKey, { amapLast: !!this.fromDetails, fallbackHintCountry: 'custom' });
+                    const g = await this.geocodeByFreeApi(_addr, hintKey, { amapLast: false, fallbackHintCountry: 'custom' });
                     if (g) {
                       this._geoPut(cacheKey, g.lat, g.lng);
                       renderOne([g.lat, g.lng], meta, orderText, isPending);
@@ -603,7 +598,7 @@ export default {
               const meta = { id: fav.id, name: fav.name || '', region: fav.region || '', county: fav.county || '', rating: fav.rating, country: ctry, hasImage: false };
               renderOne([cached.lat, cached.lng], meta, orderText, isPending);
             } else {
-              // 仅在从详情页聚焦该项时才进行地理编码
+              // ڴҳ۽ʱŽе
               if (this.fromDetails && String(this.focusId) === String(fav.id)) {
                 this._favGeoPending++;
                 const task = (async () => {
@@ -638,7 +633,7 @@ export default {
                 })();
                 pendingTasks.push(task);
               } else {
-                // 兼容：若该收藏其实是“自创”但缺少 country 标记，则仍进行自创地理编码
+                // ݣղʵǡԴȱ country ǣԽԴ
                 try {
                   const caMaybe = findCustomAttractionById(String(fav.id));
                   if (caMaybe) {
@@ -649,10 +644,13 @@ export default {
                         const disableChinaHint2 = !!(caMaybe && caMaybe.disableChinaHint);
                         const isChinesePosition2 = !disableChinaHint2 && /[\u4e00-\u9fa5]/.test(String(caMaybe.position || ''));
                         const hintKey2 = isChinesePosition2 ? 'china' : 'custom';
-                        try { console.info('[Geo] start geocode (custom favorite - legacy from list)', { id: String(fav.id), address: _addr2, hintCountry: hintKey2 }); } catch(_) {}
-                        const g2 = await this.geocodeByFreeApi(_addr2, hintKey2, { amapLast: !!this.fromDetails, fallbackHintCountry: 'custom' });
+                        // Align with focus custom logic: derive hint from routeKey when route is not 'custom'
+                        const routeKey2 = String(this.country || '').toLowerCase();
+                        const finalHint2 = (String(routeKey2) === 'custom') ? hintKey2 : routeKey2;
+                        try { console.info('[Geo] start geocode (custom favorite - legacy from list)', { id: String(fav.id), address: _addr2, hintCountry: finalHint2 }); } catch(_) {}
+                        const g2 = await this.geocodeByFreeApi(_addr2, finalHint2, { amapLast: false, fallbackHintCountry: 'custom' });
                         if (g2) {
-                          // 保存到自创命名空间
+                          // 浽Դռ
                           this._geoPut(`custom|${String(fav.id)}`, g2.lat, g2.lng);
                           const meta2 = { id: String(fav.id), name: caMaybe.name || '', region: caMaybe.region || '', county: caMaybe.county || '', rating: Number.isFinite(fav.rating) ? fav.rating : 0, country: 'custom', hasImage: !!(caMaybe.hasImage1 || caMaybe.hasImage2 || caMaybe.hasImage3) };
                           renderOne([g2.lat, g2.lng], meta2, orderText, isPending);
@@ -673,7 +671,44 @@ export default {
                     })();
                     pendingTasks.push(task2);
                   } else {
-                    try { console.info('[Geo] skip geocode (favorite normal - not focus from details)', { id: String(fav.id) }); } catch(_) {}
+                    // From list: geocode normal favorite as in details-focus flow
+                    this._favGeoPending++;
+                    const task3 = (async () => {
+                      try {
+                        const rows2 = await fetchAttractionsPositionsByIds(ctry, [fav.id]);
+                        const p2 = (Array.isArray(rows2) && rows2[0]) || null;
+                        const metaC2 = this._getCountryMeta(String(ctry || '').toLowerCase());
+                        const countryText2 = (metaC2 && metaC2.labelEn) || (metaC2 && metaC2.iso2) || '';
+                        const address2 = p2
+                          ? `${p2.position || ''} ${p2.name || ''} ${p2.region || ''} ${p2.county || ''} ${countryText2}`.trim()
+                          : `${fav.position || ''} ${fav.name || ''} ${fav.region || ''} ${fav.county || ''} ${countryText2}`.trim();
+                        if (address2) {
+                          const isChinese2 = /[\u4e00-\u9fa5]/.test(String(address2 || ''));
+                          const hintKeyNormal = isChinese2 ? 'china' : 'custom';
+                          // Match details focus: use route country as hint; keep provider order same as details (amapLast follows fromDetails)
+                          try { console.info('[Geo] start geocode (favorite normal - from list)', { id: String(fav.id), address: address2, hintCountry: ctry }); } catch(_) {}
+                          const g3 = await this.geocodeByFreeApi(address2, ctry, { amapLast: !!this.fromDetails });
+                          if (g3) {
+                            this._geoPut(cacheKey, g3.lat, g3.lng);
+                            const meta3 = { id: fav.id, name: fav.name || (p2 && p2.name) || '', region: fav.region || (p2 && p2.region) || '', county: fav.county || (p2 && p2.county) || '', rating: fav.rating, country: ctry, hasImage: !!(p2 && p2.hasImage) };
+                            renderOne([g3.lat, g3.lng], meta3, orderText, isPending);
+                          }
+                        }
+                      } catch (e) {}
+                      finally {
+                        this._favGeoPending = Math.max(0, this._favGeoPending - 1);
+                        if (this._favGeoPending === 0 && !this._didFinalFitFavorites && !this._blockFavFit) {
+                          try {
+                            const layers = Object.values(this.favoritesLayer._layers || {});
+                            const bounds = L.latLngBounds(layers.map(l => l.getLatLng && l.getLatLng()).filter(Boolean));
+                            if (bounds && bounds.isValid()) this.map.fitBounds(bounds, { padding: [40, 40], animate: false });
+                          } catch (e) {}
+                          this._didFinalFitFavorites = true;
+                          this._didInitCenter = true;
+                        }
+                      }
+                    })();
+                    pendingTasks.push(task3);
                   }
                 } catch (_) {
                   try { console.info('[Geo] skip geocode (favorite normal - not focus from details)', { id: String(fav.id) }); } catch(_) {}
@@ -684,7 +719,7 @@ export default {
         }
       }
 
-      // 初次：仅在没有待异步地理编码任务时立即拟合
+      // Σûд첽ʱ
       if (firstCenter && !this._didInitCenter && pendingTasks.length === 0 && !this._blockFavFit) {
         try {
           if (latlngsForFit.length >= 1) {
@@ -699,7 +734,7 @@ export default {
         this._didFinalFitFavorites = true;
       }
 
-      // 全部异步完成后再次拟合收藏范围
+      // ȫ첽ɺٴղطΧ
       if (pendingTasks.length) {
         Promise.allSettled(pendingTasks).then(() => {
           if (!this._didFinalFitFavorites && !this._blockFavFit) {
@@ -721,9 +756,9 @@ export default {
         let data = [];
         try { const res = await fetchAttractionsGeo(this.country); if (Array.isArray(res)) data = res; } catch (e) {}
 
-        // 前端补全：对缺失经纬度的普通景点进行地理编码（与收藏一致）。
-        // 1) 若远端无专用 geo 接口，使用 positions 全量补齐。
-        // 2) 即使远端有 geo 数据，也补齐其中缺失经纬度的项目。
+        // ǰ˲ȫȱʧγȵͨе루ղһ£
+        // 1) Զר geo ӿڣʹ positions ȫ롣
+        // 2) ʹԶ geo ݣҲȱʧγȵĿ
         try {
           const pos = await fetchAttractionsPositions(this.country);
           if (Array.isArray(pos) && pos.length) {
@@ -784,7 +819,7 @@ export default {
           marker.on('popupopen', () => this.attachPopupHandlers(r));
           marker.addTo(this.allLayer);
         }
-        // 统一重算所有分组的错位（收藏 + 普通）
+        // ͳһзĴλղ + ͨ
         try { this.scheduleRecomputeOverlapAll(); } catch (e) {}
       } catch (e) {}
     },
@@ -797,7 +832,7 @@ export default {
       try {
         let data = [];
         try { const res = await fetchAttractionsGeo(fetchCountry); if (Array.isArray(res)) data = res; } catch (e) {}
-        // 前端补全：对缺失经纬度的普通景点尝试走浏览器缓存（与收藏一致）
+        // ǰ˲ȫȱʧγȵͨ㳢棨ղһ£
         try {
           const pos = await fetchAttractionsPositions(fetchCountry);
           if (Array.isArray(pos) && pos.length) {
@@ -838,7 +873,7 @@ export default {
           }
         } catch (e) {}
         this._allGeoData = Array.isArray(data) ? data : [];
-        // 缓存普通景点列表，供之后从自创国家进入地图时直接展示
+        // ͨб֮Դҽͼʱֱչʾ
         try { this._saveNormalsSnapshot(String(fetchCountry), this._allGeoData); } catch (e) {}
       } catch (e) { this._allGeoData = []; }
     },
@@ -848,7 +883,7 @@ export default {
       const bounds = this.map.getBounds();
       const filters = this.getActiveFilters ? this.getActiveFilters() : { minReviews: 0, region: '', county: '' };
 
-      // 从全量数据中筛选出“当前屏幕内、通过过滤条件”的普通景点
+      // ȫɸѡǰĻڡͨͨ
       const visibleList = (this._allGeoData || []).filter(r => {
         if (!Number.isFinite(r.lat) || !Number.isFinite(r.lng)) return false;
         if (bounds && !bounds.contains(L.latLng(r.lat, r.lng))) return false;
@@ -856,7 +891,7 @@ export default {
         return true;
       });
 
-      // 按好评率从高到低排序
+      // ʴӸߵ
       visibleList.sort((a, b) => this.getNumericRating(b.rating) - this.getNumericRating(a.rating));
 
       // Incremental async rendering (diff only) to avoid blocking interactions
@@ -939,13 +974,13 @@ export default {
       }
       return;
 
-      // 清空现有普通景点标记（保留收藏层与聚焦层）
+      // ͨǣղز۽㣩
       try { this.allLayer.clearLayers(); } catch (e) {}
       this.allMarkers.clear();
       this.allMarkersMeta.clear();
 
-      // 按排序渲染，最多 600 个
-      // 重叠错位分组：同一经纬度的标记横向错开
+      // Ⱦ 600 
+      // صλ飺ͬһγȵıǺ
       const overlapGroups = new Map();
       const getOverlapKey = (r) => `${Number(r.lat).toFixed(6)},${Number(r.lng).toFixed(6)}`;
       const repositionGroup = (g) => {
@@ -955,13 +990,13 @@ export default {
           const center = L.latLng(g.center[0], g.center[1]);
           const z = this.map.getZoom();
           if (!Number.isFinite(z) || z < this._overlapZoomThreshold) {
-            // 缩放不够大：不做错开，保持重叠
+            // Ų󣺲ص
             for (let i = 0; i < n; i++) {
               try { g.markers[i].setLatLng(center); } catch (e) {}
             }
             return;
           }
-          const spacing = 18; // 普通点略小的间距
+          const spacing = 18; // ͨСļ
           const cp = this.map.latLngToLayerPoint(center);
           for (let i = 0; i < n; i++) {
             const dx = (i - (n - 1) / 2) * spacing;
@@ -972,7 +1007,7 @@ export default {
         } catch (e) {}
       };
 
-      // 当前国家内的收藏 ID 集合（避免同时渲染普通点与收藏点的重复）
+      // ǰڵղ ID ϣͬʱȾͨղصظ
       const favIdSet = new Set();
       try { for (const f of (this.favorites || [])) { if (String(f.country || this.country) === String(this.country)) favIdSet.add(String(f.id)); } } catch (e) {}
 
@@ -980,9 +1015,9 @@ export default {
       for (let i = 0; i < limit; i++) {
         const r = visibleList[i];
         const id = String(r.id);
-        // 若该景点已在收藏层渲染，跳过普通层，避免重复
+        // þղزȾͨ㣬ظ
         if (favIdSet.has(id)) continue;
-        // 缓存普通景点的经纬度，提升下次加载速度
+        // ͨľγȣ´μٶ
         try { this._geoPut(`${String(r.country || this.country)}|${id}`, Number(r.lat), Number(r.lng)); } catch (e) {}
         const ratingScore = this.getNumericRating(r.rating);
         const icon = this.createAllIcon(r.rating);
@@ -999,7 +1034,7 @@ export default {
         this.allMarkers.set(id, marker);
         this.allMarkersMeta.set(id, r);
 
-        // 处理重叠：记录分组并重新定位
+        // ص¼鲢¶λ
         try {
           const k = getOverlapKey(r);
           if (!overlapGroups.has(k)) overlapGroups.set(k, { center: [r.lat, r.lng], markers: [] });
@@ -1009,7 +1044,7 @@ export default {
         } catch (e) {}
       }
 
-      // 更新渲染统计
+      // Ⱦͳ
       this.statsRendered = this.allMarkers.size;
       this.statsNeverRendered = Math.max(0, visibleList.length - this.statsRendered);
       if (!this._hasRenderedFirst && this.statsRendered > 0) {
@@ -1017,7 +1052,7 @@ export default {
         this.showLoading = false;
       }
 
-      // 若当前视野内没有任何应显示的普通景点，则平移到屏幕外的第一个候选点（不改变缩放）
+      // ǰҰûκӦʾͨ㣬ƽƵĻĵһѡ㣨ıţ
       try {
         const hasFavMarkers = !!(this.favoritesLayer && this.favoritesLayer._layers && Object.keys(this.favoritesLayer._layers).length > 0);
         if (this.map && !this._didAutoPanToFirst && this.allMarkers.size === 0 && !hasFavMarkers) {
@@ -1046,13 +1081,10 @@ export default {
 
     async focusSpecificAttraction() {
       const id = String(this.focusId);
-      // 检查是否在收藏里（若是则不显橙色，只用收藏标记）
-      // 自创国家下，仅按 id 匹配，避免旧数据的 country 字段导致误判
       const inFav = (String(this.country) === 'custom')
         ? this.favorites.some(f => String(f.id) === id)
         : this.favorites.some(f => String(f.id) === id && String(f.country) === String(this.country));
 
-      // 获取坐标（自创或普通）
       let latlng = null;
       let meta = null;
 
@@ -1071,19 +1103,19 @@ export default {
             const _addr = `${ca.position || ''} ${ca.name || ''} ${ca.region || ''} ${ca.county || ''}`.trim();
             const routeKey = String(this.country || '').toLowerCase();
             const hasMeta = !!this._getCountryMeta(routeKey);
-            // 仅根据 position 是否包含中文决定是否优先使用中国（高德）
+
             const disableChinaHint = !!(ca && ca.disableChinaHint);
             const isChinesePosition = !disableChinaHint && /[\u4e00-\u9fa5]/.test(String(ca.position || ''));
             const hintKey = (String(routeKey) === 'custom') ? (isChinesePosition ? 'china' : 'custom') : routeKey;
             try { console.info('[Geo] start geocode (focus custom)', { id, address: _addr, hintCountry: hintKey, amapLast: !!this.fromDetails }); } catch(_) {}
-            // 与收藏缺经纬度的异步规则保持一致：异步地理编码，完成后再渲染与缩放
+
             this._favGeoPending++;
             (async () => {
               try {
                 const g = await this.geocodeByFreeApi(_addr, hintKey, { amapLast: !!this.fromDetails, fallbackHintCountry: 'custom' });
                 if (g) {
                   this._geoPut(cacheKey, g.lat, g.lng);
-                  // 渲染为“聚焦”标记并缩放到城市级
+
                   const cityZoom = 14;
                   const targetZoom = this.fromDetails ? cityZoom : this.getDefaultView().zoom;
                   const ll = [g.lat, g.lng];
@@ -1100,7 +1132,7 @@ export default {
                     }
                     marker.addTo(this.focusedLayer);
                   } catch (e) {}
-                  // 标记已进行一次自动平移，避免后续覆盖
+
                   if (this.fromDetails) this._didAutoPanToFirst = true;
                   try { this._hasRenderedFirst = true; this.showLoading = false; } catch (e) {}
                 }
@@ -1153,7 +1185,7 @@ export default {
       const cityZoom = 14;
       const targetZoom = this.fromDetails ? cityZoom : zoom;
       this.map.setView(latlng, targetZoom);
-      // 避免后续普通点渲染流程的自动平移覆盖聚焦视图
+
       if (this.fromDetails) this._didAutoPanToFirst = true;
 
       if (!inFav || !this._hasFavMarker(id)) {
@@ -1168,27 +1200,21 @@ export default {
         marker.addTo(this.focusedLayer);
       }
 
-      // 聚焦渲染完成后，停止加载动画（适用于从详情页进入且无收藏/普通点已渲染的情况）
+
       try {
         this._hasRenderedFirst = true;
         this.showLoading = false;
       } catch (e) {}
     },
 
-    // 前端兜底地理编码：
-    // 顺序（中国优先）：
-    // - 中国：高德地址 → 高德POI（需 VITE_AMAP_KEY）
-    // - Photon（免钥匙）
-    // - Open-Meteo（免钥匙）
-    // - Nominatim（带 country 与 viewbox）
-    // - OpenCage → Geoapify → LocationIQ → MapQuest → Positionstack（有相应 key 时）
+
     async geocodeByFreeApi(address, hintCountry, opts = {}) {
       const trimAddr = String(address || '').trim();
       if (!trimAddr) return null;
 
       const env = import.meta && import.meta.env ? import.meta.env : {};
       const amapKey = env.VITE_AMAP_KEY;
-      // 去掉 Google API 使用
+
       const openCageKey = env.VITE_OPENCAGE_KEY;
       const geoapifyKey = env.VITE_GEOAPIFY_KEY;
       const locationIqKey = env.VITE_LOCATIONIQ_KEY;
@@ -1202,21 +1228,16 @@ export default {
       let isChina = countryMeta && countryMeta.iso2 === 'cn';
       let iso2 = (countryMeta && countryMeta.iso2) || '';
       let viewbox = countryMeta && countryMeta.viewbox;
-      // 若发生从中国优先切换到其它（如自创）的回退，则在后续第三方服务禁用任何中文/中国提示
       let suppressChinaHints = false;
-      // 为部分服务准备中心点偏置
       let biasLat = null, biasLng = null;
       if (viewbox && viewbox.length === 4) {
         const [left, top, right, bottom] = viewbox;
         biasLat = (top + bottom) / 2;
         biasLng = (left + right) / 2;
       }
-      // 英文国家名用于部分服务的文本增强
       let countryLabelEn = (countryMeta && countryMeta.labelEn) || '';
 
-      // —— 调试日志：本次地理编码上下文 ——
       try {
-        // 使用 groupCollapsed 便于收起
         console.groupCollapsed('[Geo] start', { address: trimAddr, hintCountry: countryKey, iso2, isChina, amapLast: preferAmapLast, viewbox, bias: [biasLat, biasLng], countryLabelEn });
       } catch (_) {}
 
@@ -1236,9 +1257,7 @@ export default {
         }
       };
 
-      // 1) 中国优先：高德地址 → 高德POI（并将 GCJ-02 转为 WGS84）
       if (isChina && amapKey && !preferAmapLast) {
-        // 高德地址优先
         const url1 = `https://restapi.amap.com/v3/geocode/geo?address=${encodeURIComponent(trimAddr)}&key=${amapKey}`;
         const j1 = await getJson(url1, 'amap-geocode');
         try {
@@ -1251,7 +1270,6 @@ export default {
             }
           }
         } catch (_) {}
-        // 回退到高德 POI（文本检索）
         const url2 = `https://restapi.amap.com/v3/place/text?keywords=${encodeURIComponent(trimAddr)}&key=${amapKey}&children=0&offset=1&page=1&extensions=base`;
         const j2 = await getJson(url2, 'amap-poi');
         try {
@@ -1266,7 +1284,6 @@ export default {
         } catch (_) {}
       }
 
-      // 如果设置了 fallbackHint 且刚才是中国优先但未命中，则切换 hint 到 fallback 再进行后续尝试
       if (fallbackHint && !preferAmapLast && String(countryKey) === 'china') {
         try { console.info('[Geo] fallback hint switch', { from: countryKey, to: fallbackHint }); } catch(_) {}
         const fb = this._getCountryMeta(fallbackHint);
@@ -1274,9 +1291,7 @@ export default {
         isChina = fb && fb.iso2 === 'cn';
         iso2 = (fb && fb.iso2) || '';
         viewbox = fb && fb.viewbox;
-        // 从中国优先切换到其它国家（如自创），在后续第三方服务中强制使用英文且不带中国相关提示
         suppressChinaHints = true;
-        // 重算偏置
         biasLat = null; biasLng = null;
         if (viewbox && viewbox.length === 4) {
           const [left, top, right, bottom] = viewbox;
@@ -1286,7 +1301,6 @@ export default {
         countryLabelEn = (fb && fb.labelEn) || '';
       }
 
-      // 2) Photon（可带 bbox / 语言 / 偏置）
       {
         const params = new URLSearchParams({ q: trimAddr, limit: '1', lang: (suppressChinaHints ? 'en' : 'zh') });
         if (viewbox) params.append('bbox', viewbox.join(','));
@@ -1300,7 +1314,6 @@ export default {
         } catch (_) {}
       }
 
-      // 3) Open-Meteo Geocoding（带 country_code）
       {
         const params = new URLSearchParams({ name: trimAddr, count: '1', language: (suppressChinaHints ? 'en' : 'zh') });
         if (iso2) params.append('country_code', iso2);
@@ -1312,7 +1325,6 @@ export default {
         } catch (_) {}
       }
 
-      // 4) Nominatim（带国家范围与 viewbox）
       {
         const params = new URLSearchParams({ format: 'json', q: trimAddr, limit: '1', addressdetails: '0' });
         if (iso2) params.append('countrycodes', iso2);
@@ -1330,7 +1342,6 @@ export default {
         } catch (_) {}
       }
 
-      // 5) OpenCage（带 countrycode）
       if (openCageKey) {
         const url = `https://api.opencagedata.com/geocode/v1/json?q=${encodeURIComponent(trimAddr)}&key=${openCageKey}&limit=1&no_annotations=1${iso2?`&countrycode=${iso2}`:''}`;
         const j = await getJson(url, 'opencage');
@@ -1341,7 +1352,6 @@ export default {
         } catch (_) {}
       }
 
-      // 6) Geoapify（带 countrycode）
       if (geoapifyKey) {
         const langParam = suppressChinaHints ? 'en' : 'zh';
         const url = `https://api.geoapify.com/v1/geocode/search?text=${encodeURIComponent(trimAddr)}&limit=1&lang=${langParam}&${iso2?`filter=countrycode:${iso2}&`:''}apiKey=${geoapifyKey}`;
@@ -1353,7 +1363,6 @@ export default {
         } catch (_) {}
       }
 
-      // 7) LocationIQ（带 countrycodes）
       if (locationIqKey) {
         const url = `https://us1.locationiq.com/v1/search?key=${locationIqKey}&q=${encodeURIComponent(trimAddr)}&format=json&limit=1${iso2?`&countrycodes=${iso2}`:''}`;
         const j = await getJson(url, 'locationiq');
@@ -1365,7 +1374,6 @@ export default {
         } catch (_) {}
       }
 
-      // 8) MapQuest（文本追加英文国家名以提升匹配）
       if (mapQuestKey) {
         const q = countryLabelEn ? `${trimAddr} ${countryLabelEn}` : trimAddr;
         const url = `https://www.mapquestapi.com/geocoding/v1/address?key=${mapQuestKey}&location=${encodeURIComponent(q)}`;
@@ -1377,7 +1385,6 @@ export default {
         } catch (_) {}
       }
 
-      // 9) Positionstack（带 country）
       if (positionstackKey) {
         const url = `https://api.positionstack.com/v1/forward?access_key=${positionstackKey}&query=${encodeURIComponent(trimAddr)}&limit=1${iso2?`&country=${iso2}`:''}`;
         const j = await getJson(url, 'positionstack');
@@ -1389,7 +1396,6 @@ export default {
         } catch (_) {}
       }
 
-      // 10) Amap 兜底（不论是否中国地址，只要有 key 就尝试一次）
       if (amapKey) {
         try {
           const url1 = `https://restapi.amap.com/v3/geocode/geo?address=${encodeURIComponent(trimAddr)}&key=${amapKey}`;
@@ -1420,7 +1426,6 @@ export default {
       return null;
     },
 
-    // 国家元数据：ISO2 代码 + 视图框（Nominatim 用）
     _getCountryMeta(countryKey) {
       const map = {
         china:     { iso2: 'cn', viewbox: [73.5, 53.6, 134.8, 18.1], labelEn: 'China' },
@@ -1439,13 +1444,13 @@ export default {
         thailand:  { iso2: 'th', viewbox: [97.3, 20.5, 105.6, 5.6], labelEn: 'Thailand' },
         vietnam:   { iso2: 'vn', viewbox: [102.1, 23.5, 109.7, 8.4], labelEn: 'Vietnam' },
         switzerland:{ iso2: 'ch', viewbox: [5.9, 47.9, 10.7, 45.7], labelEn: 'Switzerland' },
-        // 自创景点或未知国家：不给 viewbox，仅返回空对象
+        // Դδ֪ң viewboxؿն
         custom:    { iso2: '', viewbox: null, labelEn: '' },
       };
       return map[countryKey] || null;
     },
 
-    // —— 坐标系转换（高德 GCJ-02 -> WGS84）——
+    //  ϵתߵ GCJ-02 -> WGS84
     _outOfChina(lat, lng) {
       return !(lat >= 0.8293 && lat <= 55.8271 && lng >= 72.004 && lng <= 137.8347);
     },
@@ -1481,16 +1486,16 @@ export default {
       return [lat - dLat, lng - dLng];
     },
 
-    // 预留：如需根据中文地址抽取城市，可在此实现
+    // ԤĵַȡУڴʵ
 
-    // 自定义图标
+    // Զͼ
     createFavoriteIcon(text, isPending) {
-      const color = isPending ? '#C0C0C0' : '#FFD54F'; // 银色或黄色
+      const color = isPending ? '#C0C0C0' : '#FFD54F'; // ɫɫ
       const html = `<div class="fav-marker" style="background:${color}">${text}</div>`;
-      // 放大为原来的 1.5 倍（16px -> 24px）并调整锚点
+      // ŴΪԭ 1.5 16px -> 24pxê
       return L.divIcon({ className: 'marker-wrapper', html, iconSize: [24, 24], iconAnchor: [12, 12], popupAnchor: [0, -12] });
     },
-    // 根据缩放级别，低缩放禁用标记的指针事件，保证单指拖动地图
+    // ż𣬵Žñǵָ¼ָ֤϶ͼ
     updateMarkersInteractivity() {
       try {
         if (!this.map) return;
@@ -1499,7 +1504,7 @@ export default {
         this._markersInteractive = !!interactive;
       } catch (e) {}
     },
-    // 统一重算重叠标记的错位布局
+    // ͳһصǵĴλ
     recomputeOverlapAll() {
       try {
         if (!this.map) return;
@@ -1525,7 +1530,7 @@ export default {
           const normCount = g.normal.length;
           if (favCount === 0 && normCount <= 1) continue;
           if (favCount === 0) {
-            // 只有普通：到达阈值才并排
+            // ֵֻͨŲ
             if (!Number.isFinite(z) || z < threshold) {
               for (const m of g.normal) { try { m.setLatLng(g.center); } catch (e) {} }
               continue;
@@ -1541,11 +1546,11 @@ export default {
             }
             continue;
           }
-          // 有收藏
+          // ղ
           const spacing = 22;
           const cp = this.map.latLngToLayerPoint(g.center);
           if (!Number.isFinite(z) || z < threshold) {
-            // 小缩放：收藏并排，其余重合为一个槽位（位于末尾）
+            // СţղزţغΪһλλĩβ
             const totalSlots = favCount + (normCount > 0 ? 1 : 0);
             const slots = [];
             for (let i = 0; i < totalSlots; i++) {
@@ -1561,8 +1566,8 @@ export default {
               for (const m of g.normal) { try { m.setLatLng(target); } catch (e) {} }
             }
           } else {
-            // 大缩放：非收藏一行并排；收藏单独在其上一行并排（不重叠到同一行）
-            // 非收藏行（基准行）
+            // ţղһвţղصһвţصͬһУ
+            // ղУ׼У
             if (normCount > 0) {
               const nSlots = [];
               for (let i = 0; i < normCount; i++) {
@@ -1574,9 +1579,9 @@ export default {
                 try { g.normal[i].setLatLng(nSlots[i]); } catch (e) {}
               }
             }
-            // 收藏行（在上方）
+            // ղУϷ
             if (favCount > 0) {
-              const vOffset = 26; // 垂直向上偏移像素，确保不与下方一行重叠
+              const vOffset = 26; // ֱƫأȷ·һص
               const fSlots = [];
               for (let i = 0; i < favCount; i++) {
                 const dx = (i - (favCount - 1) / 2) * spacing;
@@ -1754,7 +1759,7 @@ export default {
       return L.divIcon({ className: 'marker-wrapper', html, iconSize: [16, 16], iconAnchor: [8, 8], popupAnchor: [0, -8] });
     },
 
-    // 构建弹窗 DOM 字符串
+    //  DOM ַ
     buildPopup(meta) {
       const isCustom = String(meta.country || this.country) === 'custom';
       const rating = this.coerceRating(meta && meta.rating);
@@ -1765,19 +1770,19 @@ export default {
       const county = meta.county || '';
       const name = meta.name || '';
       const ratingHtml = isCustom ? '' : `<div class=\"popup-rating\" style=\"background:${color}\">${rating}</div>`;
-      // 使用 data- 属性传参，打开后绑定事件
+      // ʹ data- ԴΣ򿪺¼
       return `
         <div class="map-popup" data-id="${String(meta.id)}" data-country="${String(meta.country || this.country)}">
           <div class="popup-thumb"><img id="${imgId}" src="${imageSrc || ''}" alt="thumb"/></div>
           <div class="popup-main">
             <div class="popup-name">${this.escapeHtml(name)}</div>
-            <div class="popup-meta">${this.escapeHtml(county)} · ${this.escapeHtml(region)}</div>
+            <div class="popup-meta">${this.escapeHtml(county)}  ${this.escapeHtml(region)}</div>
             ${ratingHtml}
           </div>
         </div>
       `;
     },
-    // ͳһ���� popup ������ת���ԣ���ֹ Leaflet �Զ����λ���ڵ�ͼ
+    // ?????? popup ??????????????? Leaflet ????????????
     bindPopupNoAutoPan(marker, meta) {
       try {
         if (!marker) return;
@@ -1786,12 +1791,12 @@ export default {
     },
 
     attachPopupHandlers(meta) {
-      // 加载图片（若占位）。注意：el.src 在部分浏览器会被解析为绝对 URL，即使属性为空，
-      // 因此用 getAttribute('src') 判断是否真的为空；自创景点为稳妥总是尝试加载一次。
+      // ͼƬռλע⣺el.src ڲᱻΪ URLʹΪգ
+      //  getAttribute('src') жǷΪգԴΪǳԼһΡ
       const imgId = `img_${meta.country || this.country}_${meta.id}`;
       const el = document.getElementById(imgId);
       if (el) {
-        // 图片加载失败时，保持灰色方形占位，避免破图图标
+        // ͼƬʧʱֻɫռλͼͼ
         try {
           el.addEventListener('error', () => {
             try { el.style.display = 'none'; } catch (e) {}
@@ -1803,7 +1808,7 @@ export default {
           this.loadImage(meta).then(src => { if (src) el.src = src; });
         }
       }
-      // 点击弹窗跳转到详情
+      // ת
       try {
         const popupRoot = el && el.closest('.map-popup');
         const id = meta.id;
@@ -1811,9 +1816,9 @@ export default {
         const node = popupRoot || document.querySelector(`.map-popup[data-id="${id}"][data-country="${country}"]`);
         if (node) {
           node.addEventListener('click', () => {
-            // 在离开地图前保存当前地图视图（用于从详情返回后恢复）
+            // 뿪ͼǰ浱ǰͼͼڴ鷵غָ
             try { this.saveMapView(); } catch (e) {}
-            // 将地图中实际使用的背景色传入详情，保证一致
+            // ͼʵʹõıɫ飬֤һ
             try {
               const color = this.getRatingColor(meta && meta.rating);
               localStorage.setItem('selectedAttractionRatingColor', color);
@@ -1863,7 +1868,7 @@ export default {
       return v;
     },
 
-    // —— 地理编码浏览器缓存 ——
+    //   
     _geoCacheKey() { return 'geoCache_v1'; },
     _geoLoad() {
       if (this._geoCache) return this._geoCache;
@@ -1877,7 +1882,7 @@ export default {
     _geoSave() {
       try {
         const obj = this._geoCache || {};
-        // 简易裁剪，最多保留 2000 条
+        // ײüౣ 2000 
         const keys = Object.keys(obj);
         if (keys.length > 2000) {
           const arr = keys.map(k => ({ k, ts: obj[k]?.ts || 0 })).sort((a,b)=>a.ts-b.ts);
@@ -1888,7 +1893,7 @@ export default {
       } catch (e) {}
     },
     _geoGet(key) {
-      // 为跨页面/多实例互通，优先从 localStorage 直接读取最新缓存
+      // Ϊҳ/ʵͨȴ localStorage ֱӶȡ»
       let rec = null;
       try {
         const raw = localStorage.getItem(this._geoCacheKey());
@@ -1907,7 +1912,7 @@ export default {
       return { lat, lng };
     },
 
-    // —— 跨页面普通景点快照（仅用于快速显示，真实数据仍以后端为准） ——
+    //  ҳͨգڿʾʵԺΪ׼ 
     _snapshotKey(country) { return `allGeoSnapshot_${String(country||'')}`; },
     _saveNormalsSnapshot(country, arr) {
       try {
@@ -1928,7 +1933,7 @@ export default {
     },
     _geoPut(key, lat, lng) {
       if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
-      // 防止多实例/不同页面的并发覆盖：始终与 localStorage 最新内容合并再写回
+      // ֹʵ/ͬҳĲǣʼ localStorage ݺϲд
       let latest = {};
       try {
         const raw = localStorage.getItem(this._geoCacheKey());
@@ -1941,7 +1946,7 @@ export default {
       this._geoSave();
     },
 
-    // 列表筛选：从 localStorage 读取
+    // бɸѡ localStorage ȡ
     getActiveFilters() {
       let minReviews = 0, region = '', county = '';
       try { const v = localStorage.getItem('attractionMinReviews'); if (v!==null && v!=='') { const n = parseInt(v,10); if (Number.isFinite(n)) minReviews = n; } } catch(e) {}
@@ -1961,15 +1966,15 @@ export default {
     },
 
     getImageUrl(meta, imgId) {
-      // 先尝试同步可用的 URL，否则返回空字符串占位，等 popupopen 再异步填充
+      // ȳͬõ URL򷵻ؿַռλ popupopen 첽
       const key = `${meta.country || this.country}-${meta.id}-1`;
       if (this.imageCache.has(key)) return this.imageCache.get(key);
       if (String(meta.country || this.country) === 'custom') {
-        // 自创：尝试读取存储
+        // ԴԶȡ洢
         return '';
       } else {
         if (meta.hasImage) {
-          // 服务器直链（支持缓存）
+          // ֱֻ֧棩
           const base = getLastApiBase();
           const country = String(meta.country || this.country);
           return `${base}/api/attraction-image/${country}/${meta.id}/1`;
@@ -1990,7 +1995,7 @@ export default {
             if (url) { this.imageCache.set(key, url); return url; }
           }
         } else {
-          // 即使缺少 hasImage 标记，也尝试加载主图（仅在弹窗打开时触发）
+          // ʹȱ hasImage ǣҲԼͼڵʱ
           const base = getLastApiBase();
           const country = String(meta.country || this.country);
           const url = `${base}/api/attraction-image/${country}/${meta.id}/1`;
@@ -2001,7 +2006,7 @@ export default {
       return '';
     },
 
-    // 保存当前地图视图（center + zoom）到 sessionStorage
+    // 浱ǰͼͼcenter + zoom sessionStorage
     saveMapView() {
       try {
         if (!this.map) return;
@@ -2012,7 +2017,7 @@ export default {
         sessionStorage.setItem('map_restore_pending', '1');
       } catch (e) {}
     },
-    // 若存在待恢复的地图视图，则恢复并阻止收藏范围拟合
+    // ڴָĵͼͼָֹղطΧ
     tryRestoreMapViewMaybe() {
       try {
         const pending = sessionStorage.getItem('map_restore_pending');
@@ -2028,7 +2033,7 @@ export default {
           this._blockFavFit = true;
           this._didInitCenter = true;
           this._didFinalFitFavorites = true;
-          // 一次性恢复后，清空标记
+          // һԻָձ
           sessionStorage.removeItem('map_restore_pending');
         }
       } catch (e) {}
@@ -2047,7 +2052,7 @@ export default {
   z-index: 2000;
  }
 
-/* 复制列表/详情页的返回按钮视觉样式，保证一致 */
+/* б/ҳķذťӾʽ֤һ */
 .back-button {
   display: inline-flex;
   align-items: center;
@@ -2091,7 +2096,7 @@ export default {
   box-shadow: 0 4px 15px rgba(0, 122, 255, 0.3);
 }
 
-/* 再次覆盖，防止上面的 .back-button 设置了 position: relative 导致回到左上角 */
+/* ٴθǣֹ .back-button  position: relative »صϽ */
 .back-button.map-back-button {
   position: fixed !important;
   left: 16px !important;
@@ -2102,23 +2107,23 @@ export default {
   z-index: 2000 !important;
 }
 
-/* 收藏：数字 + 圆形（黄/银） */
+/* ղأ + ԲΣ/ */
 :deep(.marker-wrapper) { pointer-events: auto; }
 :deep(#map.dragging-map .marker-wrapper) { pointer-events: none; }
 :deep(.fav-marker) {
-  /* 放大为 1.5 倍：16px -> 24px，文字同比例放大 */
+  /* ŴΪ 1.5 16px -> 24pxͬŴ */
   width: 24px; height: 24px; border-radius: 50%;
   display: flex; align-items: center; justify-content: center;
   font-weight: 800; font-size: 15px; color: #333; box-shadow: 0 0 0 2px #fff;
 }
 
-/* 全部景点：蓝色圆点 */
+/* ȫ㣺ɫԲ */
 :deep(.dot-marker) { width: 16px; height: 16px; border-radius: 50%; background: #3b82f6; border: 2px solid #fff; box-shadow: 0 1px 3px rgba(0,0,0,.2); }
 
-/* 详情聚焦：橙色圆形 */
+/* ۽ɫԲ */
 :deep(.focus-marker) { width: 16px; height: 16px; border-radius: 50%; background: #ff9800; border: 2px solid #fff; box-shadow: 0 1px 3px rgba(0,0,0,.2); }
 
-/* 弹窗样式 */
+/* ʽ */
 :deep(.map-popup) { display: flex; gap: 8px; align-items: center; cursor: pointer; }
 :deep(.popup-thumb) { width: 40px; height: 40px; border-radius: 8px; overflow: hidden; background: #eee; flex: 0 0 auto; }
 :deep(.popup-thumb img) { width: 40px; height: 40px; object-fit: cover; display: block; }
@@ -2129,12 +2134,12 @@ export default {
 :deep(.popup-rating-label) { opacity: 0.9; font-weight: 700; }
 :deep(.popup-rating-value) { font-weight: 900; }
 
-/* 居中加载指示，不拦截地图操作 */
+/* мָʾصͼ */
 .map-loading-overlay { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; pointer-events: none; z-index: 1500; }
 .spinner { width: 36px; height: 36px; border: 4px solid rgba(0,0,0,0.15); border-top-color: rgba(0,0,0,0.6); border-radius: 50%; animation: spin 0.9s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
-/* 右上角统计面板 */
+/* Ͻͳ */
 .map-stats {
   position: fixed;
   top: calc(env(safe-area-inset-top) + 12px);
@@ -2157,4 +2162,6 @@ export default {
   overscroll-behavior: contain;
 }
 </style>
+
+
 
