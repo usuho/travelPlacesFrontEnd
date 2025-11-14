@@ -181,7 +181,7 @@ export default {
                   const { idStr, meta, _addr, hintKey, cacheKey } = item;
                   try { console.info('[Geo] start geocode (custom all - from list)', { id: idStr, address: _addr, hintCountry: hintKey }); } catch (_) {}
                   try {
-                    const g = await this.geocodeByFreeApi(_addr, hintKey, { amapLast: false, fallbackHintCountry: 'custom' });
+                    const g = await this.geocodeByFreeApi(_addr, hintKey, { amapLast: hintKey !== 'china', fallbackHintCountry: 'custom' });
                     if (g && Number.isFinite(g.lat) && Number.isFinite(g.lng)) {
                       this._geoPut && this._geoPut(cacheKey, g.lat, g.lng);
                       try {
@@ -232,7 +232,7 @@ export default {
           const hintKey = isChinesePosition ? 'china' : 'custom';
           try { console.info('[Geo] start geocode (custom all - from list)', { id: idStr, address: _addr, hintCountry: hintKey }); } catch (_) {}
           try {
-            const g = await this.geocodeByFreeApi(_addr, hintKey, { amapLast: false, fallbackHintCountry: 'custom' });
+            const g = await this.geocodeByFreeApi(_addr, hintKey, { amapLast: hintKey !== 'china', fallbackHintCountry: 'custom' });
             if (g && Number.isFinite(g.lat) && Number.isFinite(g.lng)) {
               this._geoPut && this._geoPut(cacheKey, g.lat, g.lng);
               try {
@@ -511,6 +511,13 @@ export default {
             try { console.info('[Geo] use direct custom latlng', { id: String(fav.id), lat: Number(ca.lat), lng: Number(ca.lng) }); } catch(_) {}
             latlng = [Number(ca.lat), Number(ca.lng)];
             renderOne(latlng, meta, orderText, isPending);
+            // 从详情页进入时，直接聚焦到该自创景点
+            if (this.fromDetails && String(this.focusId) === String(fav.id)) {
+              try { this.map.setView(latlng, 14); } catch (e) {}
+              this._didAutoPanToFirst = true;
+              this._hasRenderedFirst = true;
+              this.showLoading = false;
+            }
           } else if (ca) {
             const cacheKey = `custom|${String(fav.id)}`;
             const cached = this._geoGet(cacheKey);
@@ -518,6 +525,13 @@ export default {
               try { console.info('[Geo] use cache', { source: 'browser', key: cacheKey, id: String(fav.id), lat: cached.lat, lng: cached.lng }); } catch(_) {}
               latlng = [cached.lat, cached.lng];
               renderOne(latlng, meta, orderText, isPending);
+              // 从详情页进入时，使用缓存也需立即聚焦
+              if (this.fromDetails && String(this.focusId) === String(fav.id)) {
+                try { this.map.setView(latlng, 14); } catch (e) {}
+                this._didAutoPanToFirst = true;
+                this._hasRenderedFirst = true;
+                this.showLoading = false;
+              }
             } else {
               // ڴҳ۽ʱŽе
               if (this.fromDetails && String(this.focusId) === String(fav.id)) {
@@ -531,8 +545,17 @@ export default {
                     const isChinesePosition = !disableChinaHint && /[\u4e00-\u9fa5]/.test(String(ca.position || ''));
                     const hintKey = isChinesePosition ? 'china' : 'custom';
                     try { console.info('[Geo] start geocode (custom favorite - focus from details)', { id: String(fav.id), address: _addr, hintCountry: hintKey }); } catch(_) {}
-                    const g = await this.geocodeByFreeApi(_addr, hintKey, { amapLast: true });
-                    if (g) { this._geoPut(cacheKey, g.lat, g.lng); renderOne([g.lat, g.lng], meta, orderText, isPending); }
+                    const g = await this.geocodeByFreeApi(_addr, hintKey, { amapLast: hintKey !== 'china' });
+                    if (g) {
+                      this._geoPut(cacheKey, g.lat, g.lng);
+                      const ll = [g.lat, g.lng];
+                      renderOne(ll, meta, orderText, isPending);
+                      // 从详情页进入时，首次地理编码完成后立即聚焦
+                      try { this.map.setView(ll, 14); } catch (e) {}
+                      this._didAutoPanToFirst = true;
+                      this._hasRenderedFirst = true;
+                      this.showLoading = false;
+                    }
                   } catch (e) {}
                   finally {
                     this._favGeoPending = Math.max(0, this._favGeoPending - 1);
@@ -554,12 +577,11 @@ export default {
                 const task = (async () => {
                   try {
                     const _addr = `${ca.position || ''} ${ca.name || ''} ${ca.region || ''} ${ca.county || ''}`.trim();
-                    const routeKey = String(this.country || '').toLowerCase();
                     const disableChinaHint = !!(ca && ca.disableChinaHint);
                     const isChinesePosition = !disableChinaHint && /[\u4e00-\u9fa5]/.test(String(ca.position || ''));
-                    const hintKey = (String(routeKey) === 'custom') ? (isChinesePosition ? 'china' : 'custom') : routeKey;
+                    const hintKey = isChinesePosition ? 'china' : 'custom';
                     try { console.info('[Geo] start geocode (custom favorite - from list)', { id: String(fav.id), address: _addr, hintCountry: hintKey }); } catch(_) {}
-                    const g = await this.geocodeByFreeApi(_addr, hintKey, { amapLast: false, fallbackHintCountry: 'custom' });
+                    const g = await this.geocodeByFreeApi(_addr, hintKey, { amapLast: hintKey !== 'china', fallbackHintCountry: 'custom' });
                     if (g) {
                       this._geoPut(cacheKey, g.lat, g.lng);
                       renderOne([g.lat, g.lng], meta, orderText, isPending);
@@ -611,7 +633,7 @@ export default {
                       ? `${p.position || ''} ${p.name || ''} ${p.region || ''} ${p.county || ''} ${countryText}`.trim()
                       : `${fav.position || ''} ${fav.name || ''} ${fav.region || ''} ${fav.county || ''} ${countryText}`.trim();
                     try { console.info('[Geo] start geocode (favorite normal - focus from details)', { id: String(fav.id), address, hintCountry: ctry }); } catch(_) {}
-                    const g = await this.geocodeByFreeApi(address, ctry, { amapLast: true });
+                    const g = await this.geocodeByFreeApi(address, ctry, { amapLast: !!this.fromDetails });
                     if (g) {
                       this._geoPut(cacheKey, g.lat, g.lng);
                       const meta = { id: fav.id, name: fav.name || (p && p.name) || '', region: fav.region || (p && p.region) || '', county: fav.county || (p && p.county) || '', rating: fav.rating, country: ctry, hasImage: !!(p && p.hasImage) };
@@ -645,10 +667,9 @@ export default {
                         const isChinesePosition2 = !disableChinaHint2 && /[\u4e00-\u9fa5]/.test(String(caMaybe.position || ''));
                         const hintKey2 = isChinesePosition2 ? 'china' : 'custom';
                         // Align with focus custom logic: derive hint from routeKey when route is not 'custom'
-                        const routeKey2 = String(this.country || '').toLowerCase();
-                        const finalHint2 = (String(routeKey2) === 'custom') ? hintKey2 : routeKey2;
-                        try { console.info('[Geo] start geocode (custom favorite - legacy from list)', { id: String(fav.id), address: _addr2, hintCountry: finalHint2 }); } catch(_) {}
-                        const g2 = await this.geocodeByFreeApi(_addr2, finalHint2, { amapLast: false, fallbackHintCountry: 'custom' });
+                        // 列表页与详情页自创一致：仅按 position 是否中文决定 china/custom
+                        try { console.info('[Geo] start geocode (custom favorite - legacy from list)', { id: String(fav.id), address: _addr2, hintCountry: hintKey2 }); } catch(_) {}
+                        const g2 = await this.geocodeByFreeApi(_addr2, hintKey2, { amapLast: hintKey2 !== 'china', fallbackHintCountry: 'custom' });
                         if (g2) {
                           // 浽Դռ
                           this._geoPut(`custom|${String(fav.id)}`, g2.lat, g2.lng);
@@ -1100,47 +1121,68 @@ export default {
             try { console.info('[Geo] use cache (focus)', { source: 'browser', key: cacheKey, id, lat: cached.lat, lng: cached.lng }); } catch(_) {}
             latlng = [cached.lat, cached.lng];
           } else {
-            const _addr = `${ca.position || ''} ${ca.name || ''} ${ca.region || ''} ${ca.county || ''}`.trim();
-            const routeKey = String(this.country || '').toLowerCase();
-            const hasMeta = !!this._getCountryMeta(routeKey);
-
-            const disableChinaHint = !!(ca && ca.disableChinaHint);
-            const isChinesePosition = !disableChinaHint && /[\u4e00-\u9fa5]/.test(String(ca.position || ''));
-            const hintKey = (String(routeKey) === 'custom') ? (isChinesePosition ? 'china' : 'custom') : routeKey;
-            try { console.info('[Geo] start geocode (focus custom)', { id, address: _addr, hintCountry: hintKey, amapLast: !!this.fromDetails }); } catch(_) {}
-
-            this._favGeoPending++;
-            (async () => {
+            if (this.fromDetails) {
+              // 从详情页进入时，避免重复地理编码：renderFavoritesMarkers 已处理
               try {
-                const g = await this.geocodeByFreeApi(_addr, hintKey, { amapLast: !!this.fromDetails, fallbackHintCountry: 'custom' });
-                if (g) {
-                  this._geoPut(cacheKey, g.lat, g.lng);
-
-                  const cityZoom = 14;
-                  const targetZoom = this.fromDetails ? cityZoom : this.getDefaultView().zoom;
-                  const ll = [g.lat, g.lng];
-                  try { this.map.setView(ll, targetZoom); } catch (e) {}
-                  try {
-                    this.focusedLayer.clearLayers();
-                    const icon = this.createFocusIcon();
-                    const marker = L.marker(ll, { icon, pane: 'focusPane', zIndexOffset: 500 });
-                    const metaLater = ca ? { id, name: ca.name, region: ca.region, county: ca.county, rating: (Number.isFinite(ca && ca.rating) ? ca.rating : 0), country: 'custom', hasImage: !!(ca.hasImage1 || ca.hasImage2 || ca.hasImage3) } : null;
-                    if (metaLater) {
-                      try { marker.options._meta = metaLater; } catch (e) {}
-                      this.bindPopupNoAutoPan(marker, metaLater);
-                      marker.on('popupopen', () => this.attachPopupHandlers(metaLater));
+                const layers = this.favoritesLayer && this.favoritesLayer._layers;
+                if (layers) {
+                  for (const key of Object.keys(layers)) {
+                    const m = layers[key];
+                    const mid = (m && m.options && m.options._meta && String(m.options._meta.id)) || '';
+                    if (mid === id && m.getLatLng) {
+                      const ll = m.getLatLng();
+                      if (ll) latlng = [ll.lat, ll.lng];
+                      break;
                     }
-                    marker.addTo(this.focusedLayer);
-                  } catch (e) {}
-
-                  if (this.fromDetails) this._didAutoPanToFirst = true;
-                  try { this._hasRenderedFirst = true; this.showLoading = false; } catch (e) {}
+                  }
                 }
               } catch (e) {}
-              finally {
-                this._favGeoPending = Math.max(0, this._favGeoPending - 1);
-              }
-            })();
+            } else {
+              const _addr = `${ca.position || ''} ${ca.name || ''} ${ca.region || ''} ${ca.county || ''}`.trim();
+              const routeKey = String(this.country || '').toLowerCase();
+              const hasMeta = !!this._getCountryMeta(routeKey);
+
+              const disableChinaHint = !!(ca && ca.disableChinaHint);
+              const isChinesePosition = !disableChinaHint && /[\u4e00-\u9fa5]/.test(String(ca.position || ''));
+              const hintKey = (String(routeKey) === 'custom') ? (isChinesePosition ? 'china' : 'custom') : routeKey;
+              try { console.info('[Geo] start geocode (focus custom)', { id, address: _addr, hintCountry: hintKey, amapLast: hintKey !== 'china' }); } catch(_) {}
+
+              this._favGeoPending++;
+              (async () => {
+                try {
+                  const g = await this.geocodeByFreeApi(_addr, hintKey, { amapLast: hintKey !== 'china', fallbackHintCountry: 'custom' });
+                  if (g) {
+                    this._geoPut(cacheKey, g.lat, g.lng);
+
+                    const cityZoom = 14;
+                    const targetZoom = this.fromDetails ? cityZoom : this.getDefaultView().zoom;
+                    const ll = [g.lat, g.lng];
+                    try { this.map.setView(ll, targetZoom); } catch (e) {}
+                    try {
+                      // 自创景点：不添加普通聚焦标记，只补充收藏标记（若不存在）
+                      if (!this._hasFavMarker(id)) {
+                        const iconFav = this.createFavoriteIcon('', false);
+                        const markerFav = L.marker(ll, { icon: iconFav, pane: 'favoritesPane', zIndexOffset: 1000 });
+                        const metaLater = ca ? { id, name: ca.name, region: ca.region, county: ca.county, rating: (Number.isFinite(ca && ca.rating) ? ca.rating : 0), country: 'custom', hasImage: !!(ca.hasImage1 || ca.hasImage2 || ca.hasImage3) } : null;
+                        if (metaLater) {
+                          try { markerFav.options._meta = metaLater; } catch (e) {}
+                          try { markerFav.options._origLatLng = L.latLng(ll[0], ll[1]); } catch (e) {}
+                          this.bindPopupNoAutoPan(markerFav, metaLater);
+                          markerFav.on('popupopen', () => this.attachPopupHandlers(metaLater));
+                        }
+                        markerFav.addTo(this.favoritesLayer);
+                      }
+                    } catch (e) {}
+
+                    if (this.fromDetails) this._didAutoPanToFirst = true;
+                    try { this._hasRenderedFirst = true; this.showLoading = false; } catch (e) {}
+                  }
+                } catch (e) {}
+                finally {
+                  this._favGeoPending = Math.max(0, this._favGeoPending - 1);
+                }
+              })();
+            }
           }
         }
         meta = ca ? { id, name: ca.name, region: ca.region, county: ca.county, rating: (Number.isFinite(ca && ca.rating) ? ca.rating : 0), country: 'custom', hasImage: !!(ca.hasImage1 || ca.hasImage2 || ca.hasImage3) } : null;
@@ -1188,7 +1230,7 @@ export default {
 
       if (this.fromDetails) this._didAutoPanToFirst = true;
 
-      if (!inFav || !this._hasFavMarker(id)) {
+      if (String(this.country) !== 'custom' && (!inFav || !this._hasFavMarker(id))) {
         this.focusedLayer.clearLayers();
         const icon = this.createFocusIcon();
         const marker = L.marker(latlng, { icon, pane: 'focusPane', zIndexOffset: 500 });
@@ -1782,7 +1824,7 @@ export default {
         </div>
       `;
     },
-    // ?????? popup ??????????????? Leaflet ????????????
+    
     bindPopupNoAutoPan(marker, meta) {
       try {
         if (!marker) return;
@@ -2162,6 +2204,8 @@ export default {
   overscroll-behavior: contain;
 }
 </style>
+
+
 
 
 
