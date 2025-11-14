@@ -9,21 +9,29 @@
           返回
         </button>
         <div class="header-content">
-          <h1 :key="titleAnimKey" class="attraction-title title-with-star title-hero">
+          <div class="title-row">
             <button
-              class="star-btn"
-              :class="{ favorited: isFavorited }"
-              @click="toggleFavoriteDetail"
-              :title="isFavorited ? '取消收藏' : '加入收藏'"
-              aria-label="收藏"
-              v-if="attraction && !loading"
-            >
-              <svg viewBox="0 0 24 24" class="star-icon" aria-hidden="true">
-                <path d="M12 2.5l2.95 5.98 6.6.96-4.78 4.66 1.13 6.57L12 17.77l-5.9 3.1 1.13-6.57L2.45 9.44l6.6-.96L12 2.5z"/>
-              </svg>
-            </button>
-            <span class="title-text">{{ attraction ? attraction.name : '' }}</span>
-          </h1>
+              v-if="String(country)==='custom'"
+              class="edit-button"
+              @click="showEditModal = true"
+              title="编辑自创景点"
+            >编辑</button>
+            <h1 :key="titleAnimKey" class="attraction-title title-with-star title-hero">
+              <button
+                class="star-btn"
+                :class="{ favorited: isFavorited }"
+                @click="toggleFavoriteDetail"
+                :title="isFavorited ? '取消收藏' : '加入收藏'"
+                aria-label="收藏"
+                v-if="attraction && !loading"
+              >
+                <svg viewBox="0 0 24 24" class="star-icon" aria-hidden="true">
+                  <path d="M12 2.5l2.95 5.98 6.6.96-4.78 4.66 1.13 6.57L12 17.77l-5.9 3.1 1.13-6.57L2.45 9.44l6.6-.96L12 2.5z"/>
+                </svg>
+              </button>
+              <span class="title-text">{{ attraction ? attraction.name : '' }}</span>
+            </h1>
+          </div>
           <div v-if="attraction && showStats" class="rating-section">
             <div class="rating-badge" :style="{ background: ratingBackgroundColor }">
               <span class="rating-label">好评率</span>
@@ -35,12 +43,6 @@
             </div>
           </div>
         </div>
-        <button
-          v-if="String(country)==='custom'"
-          class="edit-button"
-          @click="showEditModal = true"
-          title="编辑自创景点"
-        >编辑</button>
       </header>
     </div>
 
@@ -1135,10 +1137,17 @@
   position: relative;
 }
 
-.header-content {
-  text-align: center;
-  margin-top: 16px;
-}
+  .header-content {
+    text-align: center;
+    margin-top: 16px;
+  }
+
+  .title-row {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
 
 .attraction-title {
   margin: 0;
@@ -1239,19 +1248,20 @@
 }
 
 /* 编辑按钮（自创景点） */
-.edit-button {
-  position: absolute;
-  top: 10px;
-  right: 12px;
-  padding: 6px 12px;
-  border-radius: 10px;
-  background: #3b82f6;
-  color: #fff;
-  border: none;
-  font-weight: 700;
-  cursor: pointer;
-}
-.edit-button:hover { filter: brightness(0.95); }
+ .edit-button {
+    position: absolute;
+    left: 0;
+    top: 50%;
+    transform: translateY(-50%);
+    padding: 6px 12px;
+    border-radius: 10px;
+    background: #e5e7eb;
+    color: #111827;
+    border: none;
+    cursor: pointer;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+  }
+ .edit-button:hover { filter: brightness(0.95); }
 
 .back-icon {
   font-size: 18px;
