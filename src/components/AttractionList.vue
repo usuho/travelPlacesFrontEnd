@@ -5310,7 +5310,7 @@ const all = this.sortedFavorites || [];
     position: relative;
     display: flex;
     justify-content: center;
-    align-items: center;
+    align-items: flex-start;
   }
 
   .header-content {
@@ -5321,8 +5321,8 @@ const all = this.sortedFavorites || [];
   .back-button.desktop-back-button {
     position: absolute;
     left: 0;
-    top: 50%;
-    transform: translateY(-50%);
+    top: 0;
+    transform: none;
     margin-right: 0;
   }
 }
