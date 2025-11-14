@@ -266,7 +266,7 @@
         countyTranslations: {
           japan: '都/道/府/县',
           china: '省份',
-          america: '州',
+          america: '州/领地',
           canada: '省份',
           mexico: '州',
           australia: '州/领地',

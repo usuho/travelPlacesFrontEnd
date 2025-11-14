@@ -1,12 +1,31 @@
 <template>
   <div id="app">
     <router-view></router-view>
+    <!-- Global top-right site icon -->
+    <img
+      class="corner-logo"
+      :src="logoSrc"
+      alt="Site icon"
+      @error="onIconError"
+    />
   </div>
 </template>
 
 <script>
 export default {
-  name: 'App'
+  name: 'App',
+  data() {
+    return {
+      // Use public asset path; fallback handled on error
+      logoSrc: '/site-icon.png'
+    }
+  },
+  methods: {
+    onIconError(e) {
+      // Fallback to existing favicon if custom icon missing
+      if (e && e.target) e.target.src = '/favicon.svg'
+    }
+  }
 }
 </script>
 
@@ -32,6 +51,21 @@ html, body {
 
 #app {
   min-height: 100vh;
+}
+
+/* Fixed logo at top-right on all pages */
+.corner-logo {
+  position: fixed;
+  top: 12px;
+  right: 12px;
+  width: 60px;
+  height: 60px;
+  border-radius: 50%;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+  z-index: 1000;
+  background: transparent;
+  object-fit: cover;
+  pointer-events: none;
 }
 
 /* 全局按钮样式 */
@@ -145,6 +179,13 @@ a:hover {
   input, select {
     font-size: 16px;
     padding: 10px 14px;
+  }
+
+  .corner-logo {
+    top: 10px;
+    right: 10px;
+    width: 48px;
+    height: 48px;
   }
 }
 </style>
