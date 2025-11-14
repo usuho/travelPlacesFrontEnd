@@ -2106,7 +2106,7 @@ export default {
   border-radius: 25px;
   font-size: 16px;
   font-weight: 600;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
   cursor: pointer;
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   box-shadow: 0 4px 15px rgba(0, 122, 255, 0.3);
@@ -2175,6 +2175,17 @@ export default {
 :deep(.popup-rating) { color: #fff; font-weight: 800; padding: 2px 6px; font-size: 12px; border-radius: 6px; align-self: start; display: inline-flex; align-items: center; gap: 4px; }
 :deep(.popup-rating-label) { opacity: 0.9; font-weight: 700; }
 :deep(.popup-rating-value) { font-weight: 900; }
+
+/* 景点气泡使用文青衬线字体（覆盖 Leaflet 默认无衬线） */
+:deep(.leaflet-popup-content),
+:deep(.map-popup),
+:deep(.popup-name),
+:deep(.popup-meta),
+:deep(.popup-rating),
+:deep(.popup-rating-label),
+:deep(.popup-rating-value) {
+  font-family: 'ZCOOL XiaoWei', 'Noto Serif SC', 'Songti SC', 'STSong', 'Source Han Serif SC', 'SimSun', serif !important;
+}
 
 /* мָʾصͼ */
 .map-loading-overlay { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; pointer-events: none; z-index: 1500; }

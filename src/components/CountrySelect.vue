@@ -2,7 +2,7 @@
   <div class="container fade-in">
     <div class="hero-section">
       <h1 class="hero-title title-hero">星垠与海角</h1>
-      <p class="hero-subtitle">选择您想探索的国家，发现令人惊叹的景点</p>
+      <p class="hero-subtitle">选择国家，发现美与新奇</p>
     </div>
 
     <div

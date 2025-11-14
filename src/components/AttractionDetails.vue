@@ -1185,7 +1185,7 @@
   border-radius: 25px;
   font-size: 16px;
   font-weight: 600;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
   cursor: pointer;
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   box-shadow: 0 4px 15px rgba(0, 122, 255, 0.3);
@@ -1555,6 +1555,8 @@
   display: flex;
   flex-direction: column;
   gap: 16px;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+  font-weight: 400;
 }
 
 .info-item {
@@ -1575,6 +1577,8 @@
   font-size: 1rem;
   color: #1d1d1f;
   line-height: 1.5;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+  font-weight: 400;
 }
 
 .details-text {
@@ -1582,6 +1586,8 @@
   line-height: 1.7;
   color: #1d1d1f;
   margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+  font-weight: 400;
 }
 
 .website-link {
@@ -1611,6 +1617,8 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+  font-weight: 400;
 }
 
 .external-icon {
@@ -1651,7 +1659,7 @@
   border-radius: 20px;
   font-size: 16px;
   font-weight: 600;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-family: inherit;
   min-width: 180px;
   justify-content: center;
   cursor: pointer;

@@ -30,6 +30,7 @@ export default {
 </script>
 
 <style>
+@import url('https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@300;400;600;700&family=ZCOOL+XiaoWei&display=swap');
 /* 全局样式重置 */
 * {
   margin: 0;
@@ -39,7 +40,7 @@ export default {
 
 html, body {
   height: 100%;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+  font-family: 'ZCOOL XiaoWei', 'Noto Serif SC', 'Songti SC', 'STSong', 'Source Han Serif SC', 'SimSun', serif;
   background-color: #f5f5f7;
   color: #1d1d1f;
   line-height: 1.5;
@@ -61,7 +62,7 @@ html, body {
   width: 60px;
   height: 60px;
   border-radius: 50%;
-  box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+  box-shadow: none; /* remove shadow; no extra ring */
   z-index: 1000;
   background: transparent;
   object-fit: cover;
