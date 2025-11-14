@@ -5285,6 +5285,47 @@ const all = this.sortedFavorites || [];
   .filters-section { padding: 16px; } /* 原 32px 的一半 */
   .filters-grid { gap: 12px; } /* 原 24px 的一半 */
 }
+/* 桌面端：让返回按钮与标题水平排列，并整体略微上移 */
+@media (min-width: 1024px) {
+  .page-header {
+    display: flex;
+    align-items: center;
+  }
+
+  .header-content {
+    text-align: left;
+  }
+
+  .back-button.desktop-back-button {
+    margin-right: 16px;
+  }
+
+  .scroll-content {
+    padding-top: 16px;
+  }
+}
+/* 桌面端：返回按钮在最左，标题/副标题整体居中 */
+@media (min-width: 1024px) {
+  .page-header {
+    position: relative;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+  }
+
+  .header-content {
+    text-align: center;
+    width: 100%;
+  }
+
+  .back-button.desktop-back-button {
+    position: absolute;
+    left: 0;
+    top: 50%;
+    transform: translateY(-50%);
+    margin-right: 0;
+  }
+}
 .favorites-context-menu {
   position: fixed;
   z-index: 1200;
