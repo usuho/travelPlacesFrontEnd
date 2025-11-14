@@ -3,10 +3,13 @@
     <router-view></router-view>
     <!-- Global top-right site icon -->
     <img
+      v-if="!isCountrySelect"
+      ref="cornerLogo"
       class="corner-logo"
       :src="logoSrc"
       alt="Site icon"
       @error="onIconError"
+      @click="handleCornerLogoClick"
     />
   </div>
 </template>
@@ -20,10 +23,20 @@ export default {
       logoSrc: '/site-icon.png'
     }
   },
+  computed: {
+    isCountrySelect() {
+      return this.$route && this.$route.path === '/'
+    }
+  },
   methods: {
     onIconError(e) {
       // Fallback to existing favicon if custom icon missing
       if (e && e.target) e.target.src = '/favicon.svg'
+    },
+    handleCornerLogoClick() {
+      if (this.$route && this.$route.path === '/') return
+      // 实际的过渡动画在全局路由守卫中创建 overlay
+      this.$router.push('/')
     }
   }
 }
@@ -54,7 +67,7 @@ html, body {
   min-height: 100vh;
 }
 
-/* Fixed logo at top-right on all pages */
+/* Fixed logo at top-right on non-country pages */
 .corner-logo {
   position: fixed;
   top: 12px;
@@ -66,7 +79,10 @@ html, body {
   z-index: 1000;
   background: transparent;
   object-fit: cover;
-  pointer-events: none;
+  cursor: pointer;
+  pointer-events: auto;
+  opacity: 0.5;
+  transition: transform 0.3s ease, opacity 0.3s ease;
 }
 
 /* 全局按钮样式 */
@@ -183,10 +199,10 @@ a:hover {
   }
 
   .corner-logo {
-    top: 10px;
-    right: 10px;
-    width: 48px;
-    height: 48px;
+    top: 12px;
+    right: 12px;
+    width: 40px;
+    height: 40px;
   }
 }
 </style>

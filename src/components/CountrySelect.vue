@@ -1,8 +1,15 @@
 <template>
-  <div class="container fade-in">
+  <div class="container">
     <div class="hero-section">
+      <img
+        ref="heroLogo"
+        class="hero-logo"
+        :class="{ 'hero-logo-hidden': !showHeroLogo }"
+        src="/site-icon.png"
+        alt="网站 Logo"
+      />
       <h1 class="hero-title title-hero">星垠与海角</h1>
-      <p class="hero-subtitle">选择国家，发现美与新奇</p>
+      <p class="hero-subtitle">选择要探索的国家，发现美与新奇</p>
     </div>
 
     <div
@@ -17,21 +24,28 @@
           :key="country"
           class="country-card card"
         >
-          <router-link
-            :to="`/attractions/${country}`"
+          <div
             class="country-link"
-            @click.native="saveToLocalStorage"
+            @click="onCountryClick(country)"
           >
             <div class="country-flag-name">
-              <div class="country-flag-mobile">{{ getCountryEmoji(country) }}</div>
-              <h3 class="country-name-mobile">{{ translateCountry(country) }}</h3> 
+              <div class="country-flag-mobile">
+                {{ getCountryEmoji(country) }}
+              </div>
+              <h3 class="country-name-mobile">{{ translateCountry(country) }}</h3>
             </div>
-            <div class="country-flag-desktop">{{ getCountryEmoji(country) }}</div>
-            <h3 class="country-name-desktop">{{ translateCountry(country) }}</h3>
+
+            <div class="country-flag-desktop">
+              {{ getCountryEmoji(country) }}
+            </div>
+            <h3 class="country-name-desktop">
+              {{ translateCountry(country) }}
+            </h3>
+
             <p class="country-description">
               {{ getCountryDescription(country) }}
             </p>
-          </router-link>
+          </div>
         </div>
       </div>
     </div>
@@ -63,8 +77,51 @@ export default {
         denmark: '丹麦',
         australia: '澳大利亚',
         newzealand: '新西兰'
-      }
+      },
+      showHeroLogo: false
     };
+  },
+  mounted() {
+    // 从其它页面返回首页时，让右上角 logo 平滑放大到标题上方
+    // 保持标题处真实 logo 持续可见，避免动画结束时的“跳动感”
+    this.$nextTick(() => {
+      // 稍微延迟一下，等首屏布局/字体稳定后再计算位置，减少偏差
+      setTimeout(() => {
+        const heroEl = this.$refs.heroLogo;
+        const overlay = document.getElementById('logo-transition-overlay');
+        if (heroEl && overlay) {
+          this.showHeroLogo = false;
+          const rect = heroEl.getBoundingClientRect();
+          const oRect = overlay.getBoundingClientRect();
+          const startX = oRect.left + oRect.width / 2;
+          const startY = oRect.top + oRect.height / 2;
+          const targetX = rect.left + rect.width / 2;
+          const targetY = rect.top + rect.height / 2;
+          const dx = targetX - startX;
+          const dy = targetY - startY;
+          const scale = rect.width / oRect.width;
+
+          overlay.style.transformOrigin = 'center center';
+          overlay.style.transition = 'transform 0.5s ease, opacity 0.5s ease';
+
+          requestAnimationFrame(() => {
+            overlay.style.transform = `translate(${dx}px, ${dy}px) scale(${scale})`;
+            overlay.style.opacity = '1';
+          });
+
+          const handleEnd = () => {
+            overlay.removeEventListener('transitionend', handleEnd);
+            if (overlay && overlay.parentNode) {
+              overlay.parentNode.removeChild(overlay);
+            }
+            this.showHeroLogo = true;
+          };
+          overlay.addEventListener('transitionend', handleEnd);
+        } else {
+          this.showHeroLogo = true;
+        }
+      }, 50);
+    });
   },
   methods: {
     translateCountry(country) {
@@ -101,22 +158,22 @@ export default {
     },
     getCountryDescription(country) {
       const descriptions = {
-        japan: '探索樱花之国，体验传统文化与现代科技的完美融合',
-        china: '发现千年古国的壮丽山河与深厚文化底蕴',
-        singapore: '感受花园城市的多元文化与现代都市魅力',
-        malaysia: '体验热带雨林与多元文化的交织，品尝丰富美食的奇妙之旅',
-        thailand: '沉浸在微笑之国的热情氛围，探索古寺、海滩与夜市的多彩风情',
-        vietnam: '感受越南的古老与新生，漫步河内旧街、下龙湾与胡志明的活力都市',
-        switzerland: '领略阿尔卑斯山的雄伟景色，沉浸在钟表工艺与巧克力的精致世界',
-        america: '探索自由之国的多彩文化，领略壮丽自然景观与繁华都市的无限魅力',
-        canada: '穿越枫叶之国的辽阔自然，欣赏冰川湖泊与极光奇景',
-        mexico: '感受古老玛雅文明的神秘遗迹与充满活力的拉美风情',
-        iceland: '追寻冰与火之地的神秘极光，探访冰川、火山与壮丽瀑布的奇幻景致',
-        denmark: '感受童话王国的浪漫氛围，体验北欧设计与幸福生活的完美结合',
-        australia: '探索袋鼠之国的奇异自然与阳光海滩，体验悉尼与墨尔本的活力都市',
-        newzealand: '沉浸在中土世界的壮丽山河中，体验纯净自然与冒险激情'
+        japan: '探索樱花之国，体验传统与现代交织的独特魅力。',
+        china: '发现千年古国的壮丽山河与深厚文化底蕴。',
+        singapore: '感受花园城市的多元文化与现代都市气息。',
+        malaysia: '在热带雨林与多元文化中开启味蕾与自然之旅。',
+        thailand: '微笑之国，古寺海滩与夜市交织的缤纷体验。',
+        vietnam: '从河内旧街到下龙湾，感受古老与新生的碰撞。',
+        switzerland: '在阿尔卑斯山间邂逅钟表工艺与巧克力的精致世界。',
+        america: '从自然奇景到繁华都市，体验多元自由的美洲风情。',
+        canada: '枫叶之国，辽阔自然与极光星空相伴。',
+        mexico: '玛雅文明遗迹与热情拉美风情交织的神秘国度。',
+        iceland: '冰与火之地，追寻极光、冰川与火山的奇幻景致。',
+        denmark: '童话王国，北欧设计与幸福生活的完美结合。',
+        australia: '阳光海滩与奇异自然并存的袋鼠之国。',
+        newzealand: '中土世界般的壮丽山河，适合探险与静心。'
       };
-      return descriptions[country] || '探索这个美丽的国家';
+      return descriptions[country] || '探索这个美丽的国家，开启你的专属旅程。';
     },
     saveToLocalStorage() {
       localStorage.setItem('attractionsPage', 1);
@@ -124,6 +181,78 @@ export default {
       localStorage.setItem('attractionsRegion', '');
       localStorage.setItem('attractionsOrder', 'rating_desc');
       localStorage.setItem('attractionsCounty', '');
+    },
+    onCountryClick(country) {
+      const navigate = () => {
+        this.saveToLocalStorage();
+        this.$router.push(`/attractions/${country}`);
+      };
+
+      const heroEl = this.$refs.heroLogo;
+      if (!heroEl) {
+        navigate();
+        return;
+      }
+
+      const rect = heroEl.getBoundingClientRect();
+      const isOffScreen =
+        rect.bottom <= 0 || rect.top >= window.innerHeight;
+
+      // 如果标题上的 logo 已经滚出屏幕，则不播放形变动画
+      if (isOffScreen) {
+        navigate();
+        return;
+      }
+
+      // 动画期间隐藏标题处真实 logo，只显示 overlay
+      this.showHeroLogo = false;
+
+      const startX = rect.left + rect.width / 2;
+      const startY = rect.top + rect.height / 2;
+      const isMobile = window.innerWidth <= 768;
+      const cornerSize = isMobile ? 40 : 60;
+      const targetX = window.innerWidth - cornerSize / 2 - 12;
+      const targetY = 12 + cornerSize / 2;
+      const dx = targetX - startX;
+      const dy = targetY - startY;
+      const scale = cornerSize / rect.width;
+
+      const overlay = heroEl.cloneNode(true);
+      overlay.id = 'logo-transition-overlay';
+      Object.assign(overlay.style, {
+        position: 'fixed',
+        top: `${rect.top}px`,
+        left: `${rect.left}px`,
+        width: `${rect.width}px`,
+        height: `${rect.height}px`,
+        margin: '0',
+        pointerEvents: 'none',
+        zIndex: 2000,
+        opacity: '1',
+        borderRadius: '50%',
+        transformOrigin: 'center center',
+        transform: 'translate(0, 0) scale(1)',
+        transition: 'transform 0.5s ease, opacity 0.5s ease'
+      });
+
+      document.body.appendChild(overlay);
+
+      // 使用 transform 做位移与缩放，保证动画更顺滑
+      requestAnimationFrame(() => {
+        overlay.style.transform = `translate(${dx}px, ${dy}px) scale(${scale})`;
+        overlay.style.opacity = '0.5';
+      });
+
+      overlay.addEventListener(
+        'transitionend',
+        () => {
+          if (overlay.parentNode) {
+            overlay.parentNode.removeChild(overlay);
+          }
+          navigate();
+        },
+        { once: true }
+      );
     }
   }
 };
@@ -131,6 +260,7 @@ export default {
 
 <style scoped>
 @import url('https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@400;600;700&family=ZCOOL+XiaoWei&display=swap');
+
 .container {
   min-height: 100vh;
   padding: 60px 20px;
@@ -140,11 +270,23 @@ export default {
 
 .hero-section {
   text-align: center;
-  margin-top: 20vh;
-  margin-bottom: 60px;
+  margin-top: 0; /* 标题整体靠上，接近中上部黄金分割位置 */
+  margin-bottom: 48px;
 }
 
-  .hero-title {
+.hero-logo {
+  width: 120px;
+  height: 120px;
+  border-radius: 50%;
+  object-fit: cover;
+  margin-bottom: 24px;
+}
+
+.hero-logo-hidden {
+  visibility: hidden;
+}
+
+.hero-title {
   font-size: 4rem;
   font-weight: 700;
   margin-bottom: 24px;
@@ -202,10 +344,10 @@ export default {
 }
 
 .country-flag-name-desktop {
-    display: flex;
-    align-items: center;
-    margin-bottom: 8px;
-  }
+  display: flex;
+  align-items: center;
+  margin-bottom: 8px;
+}
 
 .country-flag-desktop {
   font-size: 4rem;
@@ -220,7 +362,7 @@ export default {
 }
 
 .country-description {
-  margin-top:20px;
+  margin-top: 20px;
   font-size: 1rem;
   color: #6e6e73;
   line-height: 1.6;
@@ -234,9 +376,8 @@ export default {
   display: none;
 }
 
-/* ✅ 移动端优化：保持两列，但卡片缩小 */
+/* 移动端优化：保持两列，但卡片缩小 */
 @media (max-width: 768px) {
-
   .hero-section {
     margin-bottom: 30px;
   }
@@ -244,6 +385,7 @@ export default {
   .continent-section {
     margin-bottom: 30px;
   }
+
   .country-name-desktop {
     display: none;
   }
@@ -253,24 +395,24 @@ export default {
   }
 
   .country-name-mobile {
-    display:flex;
+    display: flex;
     font-size: 1rem;
     margin-bottom: 8px;
   }
 
   .country-flag-mobile {
     margin-right: 1.5rem;
-    display:flex;
+    display: flex;
   }
 
   .country-link {
     flex-direction: column;
     align-items: flex-start;
   }
-  
+
   .countries-grid {
-    grid-template-columns: repeat(2, 1fr); /* 两列排列 */
-    gap: 16px; /* 缩小间距 */
+    grid-template-columns: repeat(2, 1fr);
+    gap: 16px;
   }
 
   .country-card {
@@ -278,8 +420,8 @@ export default {
   }
 
   .country-flag-name {
-    display:flex;
-    align-items:center;
+    display: flex;
+    align-items: center;
     font-size: 2.5rem;
     margin-right: 12px;
     margin-bottom: 0;

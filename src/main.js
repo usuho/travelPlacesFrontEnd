@@ -27,8 +27,40 @@ const router = createRouter({
     routes
 })
 
+// 全局路由守卫：从任意非首页页面返回到国家选择页时，
+// 在当前右上角 logo 位置创建一个过渡用 overlay
+router.beforeEach((to, from, next) => {
+  try {
+    if (to.path === '/' && from.path !== '/') {
+      const cornerLogo = document.querySelector('.corner-logo');
+      if (cornerLogo) {
+        const rect = cornerLogo.getBoundingClientRect();
+        const overlay = cornerLogo.cloneNode(true);
+        overlay.id = 'logo-transition-overlay';
+        Object.assign(overlay.style, {
+          position: 'fixed',
+          top: `${rect.top}px`,
+          left: `${rect.left}px`,
+          width: `${rect.width}px`,
+          height: `${rect.height}px`,
+          margin: '0',
+          pointerEvents: 'none',
+          zIndex: 2000,
+          opacity: '0.5',
+          transform: 'translate(0, 0) scale(1)',
+          transformOrigin: 'center center',
+          transition: 'transform 0.5s ease, opacity 0.5s ease'
+        });
+        document.body.appendChild(overlay);
+      }
+    }
+  } catch (e) {}
+  next();
+});
+
 const app = createApp(App)
 app.use(router)
 app.directive('fly-in', flyIn);
 app.directive('fade-in', fadeIn);
 app.mount('#app')
+
