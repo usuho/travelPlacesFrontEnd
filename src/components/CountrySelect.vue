@@ -9,7 +9,7 @@
         alt="网站 Logo"
       />
       <h1 class="hero-title title-hero">星垠海角</h1>
-      <p class="hero-subtitle">选择想探索的国家，发现美与新奇</p>
+      <p class="hero-subtitle">选择想探索的国家，发现美与新的旅程</p>
     </div>
 
     <div
@@ -26,7 +26,7 @@
         >
           <div
             class="country-link"
-            @click="onCountryClick(country)"
+            @click="handleCountryClick(country)"
           >
             <div class="country-flag-name">
               <div class="country-flag-mobile">
@@ -82,10 +82,8 @@ export default {
     };
   },
   mounted() {
-    // 从其它页面返回首页时，让右上角 logo 平滑放大到标题上方
-    // 保持标题处真实 logo 持续可见，避免动画结束时的“跳动感”
+    // 从其它页面返回首页时，让右上角 logo 平滑放大到标题上的位置
     this.$nextTick(() => {
-      // 稍微延迟一下，等首屏布局/字体稳定后再计算位置，减少偏差
       setTimeout(() => {
         const heroEl = this.$refs.heroLogo;
         const overlay = document.getElementById('logo-transition-overlay');
@@ -182,7 +180,7 @@ export default {
       localStorage.setItem('attractionsOrder', 'rating_desc');
       localStorage.setItem('attractionsCounty', '');
     },
-    onCountryClick(country) {
+    handleCountryClick(country) {
       const navigate = () => {
         this.saveToLocalStorage();
         this.$router.push(`/attractions/${country}`);
@@ -195,77 +193,117 @@ export default {
       }
 
       const isMobile = window.innerWidth <= 768;
-      // 桌面端不播放 logo 变形动画，直接跳转
+      // 桌面端仍然直接跳转，不播放 logo 动画
       if (!isMobile) {
         navigate();
         return;
       }
 
-      const rect = heroEl.getBoundingClientRect();
-      const isOffScreen =
-        rect.bottom <= 0 || rect.top >= window.innerHeight;
+      const startAnimation = () => {
+        const rect = heroEl.getBoundingClientRect();
 
-      // 如果标题上的 logo 已经滚出屏幕，则不播放形变动画
-      if (isOffScreen) {
-        navigate();
+        // 动画期间隐藏标题处真实 logo，只显示 overlay
+        this.showHeroLogo = false;
+
+        const cornerSize = 40;
+        const startX = rect.left + rect.width / 2;
+        const startY = rect.top + rect.height / 2;
+        const targetX = window.innerWidth - cornerSize / 2 - 12;
+        const targetY = 12 + cornerSize / 2;
+        const dx = targetX - startX;
+        const dy = targetY - startY;
+        const scale = cornerSize / rect.width;
+
+        const overlay = heroEl.cloneNode(true);
+        overlay.id = 'logo-transition-overlay';
+        Object.assign(overlay.style, {
+          position: 'fixed',
+          top: `${rect.top}px`,
+          left: `${rect.left}px`,
+          width: `${rect.width}px`,
+          height: `${rect.height}px`,
+          margin: '0',
+          pointerEvents: 'none',
+          zIndex: 2000,
+          opacity: '1',
+          borderRadius: '50%',
+          transformOrigin: 'center center',
+          transform: 'translate(0, 0) scale(1)',
+          transition: 'transform 0.5s ease, opacity 0.5s ease'
+        });
+
+        document.body.appendChild(overlay);
+
+        const rootEl = this.$root && this.$root.$el;
+        if (rootEl) {
+          rootEl.style.transition = 'opacity 0.5s ease, transform 0.5s ease';
+          rootEl.style.opacity = '0';
+          rootEl.style.transform = 'translateY(-10px)';
+        }
+
+        requestAnimationFrame(() => {
+          overlay.style.transform = `translate(${dx}px, ${dy}px) scale(${scale})`;
+          overlay.style.opacity = '0.5';
+        });
+
+        overlay.addEventListener(
+          'transitionend',
+          () => {
+            if (overlay.parentNode) {
+              overlay.parentNode.removeChild(overlay);
+            }
+            navigate();
+          },
+          { once: true }
+        );
+      };
+
+      // 手写一个很短的平滑滚动到顶部动画，再衔接 logo 形变 + 整页淡出上移
+      const getStartY = () => {
+        return (
+          window.pageYOffset ||
+          (document.documentElement && document.documentElement.scrollTop) ||
+          (document.body && document.body.scrollTop) ||
+          ((this.$root && this.$root.$el && this.$root.$el.scrollTop) || 0)
+        );
+      };
+
+      const startY = getStartY();
+      if (startY <= 2) {
+        startAnimation();
         return;
       }
 
-      // 动画期间隐藏标题处真实 logo，只显示 overlay
-      this.showHeroLogo = false;
+      const duration = Math.min(280, Math.max(160, startY * 0.4)); // 距离越远滚动稍长一点
+      const startTime = performance.now();
 
-      const startX = rect.left + rect.width / 2;
-      const startY = rect.top + rect.height / 2;
-      const cornerSize = 40;
-      const targetX = window.innerWidth - cornerSize / 2 - 12;
-      const targetY = 12 + cornerSize / 2;
-      const dx = targetX - startX;
-      const dy = targetY - startY;
-      const scale = cornerSize / rect.width;
+      const setScrollY = (y) => {
+        try {
+          window.scrollTo(0, y);
+        } catch (e) {}
+        try {
+          if (document.documentElement) document.documentElement.scrollTop = y;
+          if (document.body) document.body.scrollTop = y;
+          const appEl = this.$root && this.$root.$el;
+          if (appEl && typeof appEl.scrollTop === 'number') appEl.scrollTop = y;
+        } catch (e) {}
+      };
 
-      const overlay = heroEl.cloneNode(true);
-      overlay.id = 'logo-transition-overlay';
-      Object.assign(overlay.style, {
-        position: 'fixed',
-        top: `${rect.top}px`,
-        left: `${rect.left}px`,
-        width: `${rect.width}px`,
-        height: `${rect.height}px`,
-        margin: '0',
-        pointerEvents: 'none',
-        zIndex: 2000,
-        opacity: '1',
-        borderRadius: '50%',
-        transformOrigin: 'center center',
-        transform: 'translate(0, 0) scale(1)',
-        transition: 'transform 0.5s ease, opacity 0.5s ease'
-      });
+      const step = (now) => {
+        const t = Math.min((now - startTime) / duration, 1);
+        // ease-out 二次曲线
+        const eased = 1 - Math.pow(1 - t, 2);
+        const y = startY * (1 - eased);
+        setScrollY(y);
+        if (t < 1) {
+          requestAnimationFrame(step);
+        } else {
+          setScrollY(0);
+          startAnimation();
+        }
+      };
 
-      document.body.appendChild(overlay);
-
-      const rootEl = this.$root && this.$root.$el;
-      if (rootEl) {
-        rootEl.style.transition = 'opacity 0.5s ease, transform 0.5s ease';
-        rootEl.style.opacity = '0';
-        rootEl.style.transform = 'translateY(-10px)';
-      }
-
-      // 使用 transform 做位移与缩放，保证动画更顺滑
-      requestAnimationFrame(() => {
-        overlay.style.transform = `translate(${dx}px, ${dy}px) scale(${scale})`;
-        overlay.style.opacity = '0.5';
-      });
-
-      overlay.addEventListener(
-        'transitionend',
-        () => {
-          if (overlay.parentNode) {
-            overlay.parentNode.removeChild(overlay);
-          }
-          navigate();
-        },
-        { once: true }
-      );
+      requestAnimationFrame(step);
     }
   }
 };
@@ -282,7 +320,7 @@ export default {
 
 .hero-section {
   text-align: center;
-  margin-top: 0; /* 标题整体靠上，接近中上部黄金分割位置 */
+  margin-top: 0;
   margin-bottom: 30px;
 }
 
