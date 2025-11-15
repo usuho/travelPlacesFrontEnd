@@ -8,8 +8,8 @@
         src="/site-icon.png"
         alt="网站 Logo"
       />
-      <h1 class="hero-title title-hero">星垠与海角</h1>
-      <p class="hero-subtitle">选择要探索的国家，发现美与新奇</p>
+      <h1 class="hero-title title-hero">星垠海角</h1>
+      <p class="hero-subtitle">选择想探索的国家，发现美与新奇</p>
     </div>
 
     <div
@@ -269,15 +269,14 @@ export default {
 
 .container {
   min-height: 100vh;
-  padding: 60px 20px;
+  padding: 20px 20px;
   background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
-  font-family: 'ZCOOL XiaoWei', 'Noto Serif SC', 'Songti SC', 'STSong', 'Source Han Serif SC', 'SimSun', serif;
 }
 
 .hero-section {
   text-align: center;
   margin-top: 0; /* 标题整体靠上，接近中上部黄金分割位置 */
-  margin-bottom: 48px;
+  margin-bottom: 30px;
 }
 
 .hero-logo {
@@ -285,7 +284,7 @@ export default {
   height: 120px;
   border-radius: 50%;
   object-fit: cover;
-  margin-bottom: 24px;
+  margin-bottom: 5px;
 }
 
 .hero-logo-hidden {
@@ -295,7 +294,6 @@ export default {
 .hero-title {
   font-size: 4rem;
   font-weight: 700;
-  margin-bottom: 24px;
 }
 
 .hero-subtitle {
@@ -367,6 +365,11 @@ export default {
   color: #1d1d1f;
 }
 
+.country-name-desktop,
+.country-name-mobile {
+  font-family: 'ZCOOL XiaoWei', 'Noto Serif SC', 'Songti SC', 'STSong', 'Source Han Serif SC', 'SimSun', serif;
+}
+
 .country-description {
   margin-top: 20px;
   font-size: 1rem;
@@ -385,7 +388,7 @@ export default {
 /* 移动端优化：保持两列，但卡片缩小 */
 @media (max-width: 768px) {
   .hero-section {
-    margin-bottom: 30px;
+    margin-bottom: 28px;
   }
 
   .continent-section {

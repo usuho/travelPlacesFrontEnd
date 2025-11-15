@@ -2131,12 +2131,12 @@ export default {
   display: inline-flex;
   align-items: center;
   gap: 10px;
-  padding: 14px 24px;
+  padding: 12px 16px;
   background: linear-gradient(135deg, #007aff 0%, #0056cc 100%);
   color: white;
   border: none;
   border-radius: 25px;
-  font-size: 16px;
+  font-size: 15px;
   font-weight: 600;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
   cursor: pointer;
@@ -2216,7 +2216,7 @@ export default {
 :deep(.popup-rating),
 :deep(.popup-rating-label),
 :deep(.popup-rating-value) {
-  font-family: 'ZCOOL XiaoWei', 'Noto Serif SC', 'Songti SC', 'STSong', 'Source Han Serif SC', 'SimSun', serif !important;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
 }
 
 /* мָʾصͼ */

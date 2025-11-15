@@ -3927,10 +3927,10 @@ const all = this.sortedFavorites || [];
 }
 
 .attraction-header-mobile .attraction-name {
-  font-size: 1.05rem;
-  font-weight: 600;
-  margin: 0;
-  white-space: wrap;
+    font-size: 1.05rem;
+    font-weight: 600;
+    margin: 0;
+    white-space: wrap;
   vertical-align: middle;  /* 对齐 */
 }
 
@@ -4791,11 +4791,17 @@ const all = this.sortedFavorites || [];
 }
 
 .attraction-name-text {
-  color: #1d1d1f;
-  font-size: 1.25rem;
-  font-weight: 600;
-  line-height: 1.4;
-}
+    color: #1d1d1f;
+    font-size: 1.25rem;
+    font-weight: 600;
+    line-height: 1.4;
+    }
+
+  /* 景点卡片标题使用装饰性字体 */
+  .attraction-name,
+  .attraction-name-text {
+    font-family: 'ZCOOL XiaoWei', 'Noto Serif SC', 'Songti SC', 'STSong', 'Source Han Serif SC', 'SimSun', serif;
+  }
 
 .attraction-location {
   display: flex;

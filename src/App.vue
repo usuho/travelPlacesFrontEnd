@@ -53,7 +53,7 @@ export default {
 
 html, body {
   height: 100%;
-  font-family: 'ZCOOL XiaoWei', 'Noto Serif SC', 'Songti SC', 'STSong', 'Source Han Serif SC', 'SimSun', serif;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
   background-color: #f5f5f7;
   color: #1d1d1f;
   line-height: 1.5;
@@ -184,6 +184,11 @@ a:hover {
 .card:hover {
   box-shadow: 0 8px 30px rgba(0, 0, 0, 0.12);
   transform: translateY(-2px);
+}
+
+/* 页面主标题统一使用装饰性字体 */
+.title-hero {
+  font-family: 'ZCOOL XiaoWei', 'Noto Serif SC', 'Songti SC', 'STSong', 'Source Han Serif SC', 'SimSun', serif;
 }
 
 /* 响应式设计 */
