@@ -368,7 +368,7 @@
                 </h3>
                 <div class="attraction-location">
                   <span class="location-icon">📍</span>
-                  <span>{{ attraction.region }}, {{ attraction.county }}</span>
+                  <span>{{ attraction.region }}  {{ attraction.county }}</span>
                 </div>
               </div>
               
@@ -395,7 +395,7 @@
                 <h3 class="attraction-name">{{ attraction.name }}</h3>
                 <div class="attraction-location">
                   <span class="location-icon">📍</span>
-                  <span class="location-text">{{ attraction.region }}, {{ attraction.county }}</span>
+                  <span class="location-text">{{ attraction.region }}  {{ attraction.county }}</span>
                 </div>
               </div>
 

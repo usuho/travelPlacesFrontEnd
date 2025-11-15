@@ -9,7 +9,7 @@
         alt="网站 Logo"
       />
       <h1 class="hero-title title-hero">星垠海角</h1>
-      <p class="hero-subtitle">选择想探索的国家，发现美与新的旅程</p>
+      <p class="hero-subtitle">选择想探索的国家，发现美与新奇</p>
     </div>
 
     <div
