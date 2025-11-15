@@ -243,6 +243,13 @@ export default {
 
       document.body.appendChild(overlay);
 
+      const rootEl = this.$root && this.$root.$el;
+      if (rootEl) {
+        rootEl.style.transition = 'opacity 0.5s ease, transform 0.5s ease';
+        rootEl.style.opacity = '0';
+        rootEl.style.transform = 'translateY(-10px)';
+      }
+
       // 使用 transform 做位移与缩放，保证动画更顺滑
       requestAnimationFrame(() => {
         overlay.style.transform = `translate(${dx}px, ${dy}px) scale(${scale})`;

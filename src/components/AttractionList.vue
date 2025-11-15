@@ -999,6 +999,15 @@
     },
 
     mounted() {
+      try {
+        const rootEl = this.$root && this.$root.$el;
+        if (rootEl) {
+          rootEl.style.opacity = '';
+          rootEl.style.transform = '';
+          rootEl.style.transition = '';
+        }
+      } catch (e) {}
+
       this.updateSwipeEnabled();
       try {
         window.addEventListener('resize', this.updateSwipeEnabled, { passive: true });
