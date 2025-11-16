@@ -891,7 +891,10 @@
         // 来自地图：返回上一页（地图）
         if (this.fromMap) { this.$router.back(); return; }
         // 默认：回到列表
-        this.$router.push({ path: `/attractions/${this.country}` });
+        const last = localStorage.getItem('lastAttractionsRoute');
+        if (last) { this.$router.push(last); return; }
+        const page = localStorage.getItem('attractionsPage') || 1;
+        this.$router.push(`/attractions/${this.country}?page=${page}`);
       },
 
       openFullscreen(imageData) {
