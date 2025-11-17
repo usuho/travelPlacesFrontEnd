@@ -1104,7 +1104,7 @@
   top: 0;
   z-index: 20;
   background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
-  padding: 10px 0 0; /* 原 20px 的一半 */
+  padding:0; /* 原 20px 的一半 */
   box-shadow: 0 2px 6px rgba(0,0,0,0.1);
 }
 
@@ -1484,7 +1484,6 @@
   .info-card-wide { grid-column: 1 / -1; }
 
   /* 桌面：标题进一步上移，贴近顶部（保留少量缝隙） */
-  .fixed-header { padding-top: 6px; } /* 更贴近顶部 */
   .page-header { padding-top: 6px; }
 
   /* 桌面：主图与次图之间的间隙为原来的 1/2（原 32px） */
