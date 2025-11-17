@@ -32,15 +32,28 @@
               <div class="country-flag-mobile">
                 {{ getCountryEmoji(country) }}
               </div>
-              <h3 class="country-name-mobile">{{ translateCountry(country) }}</h3>
+              
+              <div class="country-text-group-mobile">
+                <h3 class="country-name-mobile">{{ translateCountry(country) }}</h3>
+                <h3 class="country-name-mobile-english" style="text-transform: uppercase;">
+                  {{ country }}
+                </h3>
+              </div>
             </div>
+
+            
 
             <div class="country-flag-desktop">
               {{ getCountryEmoji(country) }}
             </div>
-            <h3 class="country-name-desktop">
-              {{ translateCountry(country) }}
-            </h3>
+
+            <div class="country-text-group-desktop">
+              <h3 class="country-name-desktop">{{ translateCountry(country) }}</h3>
+              <h3 class="country-name-desktop-english" style="text-transform: uppercase;">
+                {{ country }}
+              </h3>
+            </div>
+            
 
             <p class="country-description">
               {{ getCountryDescription(country) }}
@@ -312,6 +325,17 @@ export default {
 <style scoped>
 @import url('https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@400;600;700&family=ZCOOL+XiaoWei&display=swap');
 
+.country-text-group-mobile {
+  display: none;
+}
+
+.country-text-group-desktop {
+  display: flex;
+  align-items:center;
+  flex-direction: column;  /* 中文在上，英文在下 */
+  line-height: 1.5;
+}
+
 .container {
   min-height: 100vh;
   padding: 20px 20px;
@@ -410,6 +434,10 @@ export default {
   color: #1d1d1f;
 }
 
+.country-name-desktop-english {
+  font-size: 0.7rem;
+}
+
 .country-name-desktop,
 .country-name-mobile {
   font-family: 'ZCOOL XiaoWei', 'Noto Serif SC', 'Songti SC', 'STSong', 'Source Han Serif SC', 'SimSun', serif;
@@ -426,12 +454,21 @@ export default {
   display: none;
 }
 
-.country-name-mobile {
-  display: none;
-}
-
 /* 移动端优化：保持两列，但卡片缩小 */
 @media (max-width: 768px) {
+
+  .country-text-group-desktop{
+    display: none;
+  }
+
+  .country-text-group-mobile {
+    display: flex;
+    align-items:center;
+    display: flex;
+    flex-direction: column;  /* 中文在上，英文在下 */
+    line-height: 0.9;
+  }
+
   .hero-section {
     margin-bottom: 28px;
   }
@@ -440,18 +477,19 @@ export default {
     margin-bottom: 30px;
   }
 
-  .country-name-desktop {
-    display: none;
-  }
+  
 
   .country-flag-desktop {
     display: none;
   }
 
   .country-name-mobile {
-    display: flex;
     font-size: 1rem;
     margin-bottom: 8px;
+  }
+
+  .country-name-mobile-english {
+    font-size: 0.5rem;
   }
 
   .country-flag-mobile {

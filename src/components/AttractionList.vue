@@ -7,7 +7,12 @@
           返回
         </button>
         <div class="header-content">
-          <h1 class="page-title title-hero">{{translateCountry(country)}}</h1>
+
+          <div class="title-text-group">
+            <h1 class="page-title title-hero">{{translateCountry(country)}}</h1>
+            <h1 class="title-hero title-english" style="text-transform: uppercase;">{{ country }}</h1>
+          </div>
+          
           <p class="page-subtitle">{{translateCountry(country)}}受欢迎的旅行目的地</p>
         </div>
       </header>
@@ -4406,21 +4411,17 @@ const all = this.sortedFavorites || [];
   flex: 1;
   overflow-y: auto;
   padding: 20px;
-  padding-top: 40px;
+  padding-top: 16px;
 }
 
 /* 页面头部 */
 .page-header {
-  margin-bottom: 20px;
+  margin-bottom: 10px;
   position: relative;
 }
 
 .header-content {
   text-align: center;
-}
-
-.page-subtitle {
-  margin: 0;
 }
 
 .back-button {
@@ -4489,7 +4490,23 @@ const all = this.sortedFavorites || [];
   margin-bottom: 0;
 }
 
+.title-english {
+  font-size: 1.5rem;
+  font-weight: 700;
+  margin-bottom: 0;
+  align-self:center;
+}
+
+.title-text-group {
+  display: flex;
+  align-items:center;
+  flex-direction:column;
+  justify-content: center;  /* 水平方向居中 */
+  line-height: 1.1;
+}
+
 .page-subtitle {
+  margin-top: 10px;
   font-size: 1.25rem;
   color: #6e6e73;
   font-weight: 400;
@@ -5058,7 +5075,7 @@ const all = this.sortedFavorites || [];
     flex: 1;
     overflow-y: auto;
     padding: 20px;
-    padding-top: 10px;
+    padding-top: 0;
   }
 
   .back-button {
@@ -5211,7 +5228,7 @@ const all = this.sortedFavorites || [];
   }
   
   .page-header {
-    margin-bottom: 5px;
+    margin-bottom: 7px;
   }
 
   .fixed-header {
@@ -5238,6 +5255,13 @@ const all = this.sortedFavorites || [];
     font-size: 1.5rem; /* 缩小标题字体 */
     margin-bottom: 0;
     text-align: center;
+  }
+
+  .title-english {
+    font-size: 0.7rem;
+    font-weight: 700;
+    margin-bottom: 0;
+    align-self:center;
   }
 
   .mobile-filters {
@@ -5295,7 +5319,6 @@ const all = this.sortedFavorites || [];
 
 /* 桌面端：压缩固定区垂直占用（半高） */
 @media (min-width: 1024px) {
-  .scroll-content { padding-top: 20px; } /* 原 40px 的一半 */
   .filters-section { padding: 16px; } /* 原 32px 的一半 */
   .filters-grid { gap: 12px; } /* 原 24px 的一半 */
 }
@@ -5312,10 +5335,6 @@ const all = this.sortedFavorites || [];
 
   .back-button.desktop-back-button {
     margin-right: 16px;
-  }
-
-  .scroll-content {
-    padding-top: 16px;
   }
 }
 /* 桌面端：返回按钮在最左，标题/副标题整体居中 */
