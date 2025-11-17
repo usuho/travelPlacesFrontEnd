@@ -4411,17 +4411,12 @@ const all = this.sortedFavorites || [];
 
 /* 页面头部 */
 .page-header {
-  margin-bottom: 60px;
+  margin-bottom: 20px;
   position: relative;
 }
 
 .header-content {
   text-align: center;
-}
-
-.page-title {
-  margin: 0;
-  margin-bottom: 16px;
 }
 
 .page-subtitle {
@@ -4491,7 +4486,7 @@ const all = this.sortedFavorites || [];
 .page-title {
   font-size: 3.5rem;
   font-weight: 700;
-  margin-bottom: 16px;
+  margin-bottom: 0;
 }
 
 .page-subtitle {
@@ -4661,7 +4656,8 @@ const all = this.sortedFavorites || [];
 
 /* 景点网格 */
 .attractions-section {
-  margin-bottom: 60px;
+  margin-bottom: 25px;
+  margin-top: 10px;
 }
 
 .empty-state {
@@ -4872,7 +4868,7 @@ const all = this.sortedFavorites || [];
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 24px;
+  gap: 10px;
   padding: 0px 20px;
 }
 
@@ -5035,7 +5031,7 @@ const all = this.sortedFavorites || [];
 @media (max-width: 768px) {
 
   .attractions-section {
-    margin-bottom: 20px;
+    margin-bottom: 15px;
   }
 
   .page-input-group label {
@@ -5067,7 +5063,7 @@ const all = this.sortedFavorites || [];
 
   .back-button {
     padding: 11px 16px;
-    font-size: 15px;
+    font-size: 14px;
   }
 
   .desktop-back-button {
@@ -5240,7 +5236,7 @@ const all = this.sortedFavorites || [];
 
   .page-title {
     font-size: 1.5rem; /* 缩小标题字体 */
-    margin-bottom: 8px;
+    margin-bottom: 0;
     text-align: center;
   }
 
@@ -5299,7 +5295,6 @@ const all = this.sortedFavorites || [];
 
 /* 桌面端：压缩固定区垂直占用（半高） */
 @media (min-width: 1024px) {
-  .page-header { margin-bottom: 30px; } /* 原 60px 的一半 */
   .scroll-content { padding-top: 20px; } /* 原 40px 的一半 */
   .filters-section { padding: 16px; } /* 原 32px 的一半 */
   .filters-grid { gap: 12px; } /* 原 24px 的一半 */
@@ -5325,12 +5320,6 @@ const all = this.sortedFavorites || [];
 }
 /* 桌面端：返回按钮在最左，标题/副标题整体居中 */
 @media (min-width: 1024px) {
-  .page-header {
-    position: relative;
-    display: flex;
-    justify-content: center;
-    align-items: flex-start;
-  }
 
   .header-content {
     text-align: center;

@@ -5,14 +5,22 @@
     <div class="fixed-header">
       <!-- 页面头部 -->
       <header class="page-header">
-        <button @click="goBack" class="back-button top-back-button">
-          返回
-        </button>
+        <div class="header-left-group">
+          <button @click="goBack" class="back-button top-back-button">
+            返回
+          </button>
+          <button
+            v-if="String(country)==='custom'"
+            class="edit-button edit-button-desktop"
+            @click="showEditModal = true"
+            title="编辑自创景点"
+          >编辑</button>
+        </div>
         <div class="header-content">
           <div class="title-row">
             <button
               v-if="String(country)==='custom'"
-              class="edit-button"
+              class="edit-button edit-button-mobile"
               @click="showEditModal = true"
               title="编辑自创景点"
             >编辑</button>
@@ -1137,7 +1145,13 @@
   backdrop-filter: blur(10px);
   border-bottom: 1px solid rgba(255, 255, 255, 0.2);
   position: relative;
-  min-height: 70px;
+  min-height: 65px;
+}
+
+.header-left-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
   .header-content {
@@ -1154,7 +1168,6 @@
 
 .attraction-title {
   margin: 0;
-  margin-bottom: 32px;
 }
 .title-with-star {
   display: inline-flex;
@@ -1242,7 +1255,7 @@
 }
 
 .top-back-button {
-  margin-bottom: 0;
+  margin: 8px;
 }
 
 .bottom-back-button {
@@ -1251,20 +1264,28 @@
 }
 
 /* 编辑按钮（自创景点） */
- .edit-button {
-    position: absolute;
-    left: 0;
-    top: 50%;
-    transform: translateY(-50%);
-    padding: 6px 12px;
-    border-radius: 10px;
-    background: #e5e7eb;
-    color: #111827;
-    border: none;
-    cursor: pointer;
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
-  }
- .edit-button:hover { filter: brightness(0.95); }
+.edit-button {
+  padding: 6px 12px;
+  border-radius: 10px;
+  background: #e5e7eb;
+  color: #111827;
+  border: none;
+  cursor: pointer;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+}
+
+.edit-button-mobile {
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+}
+
+.edit-button-desktop {
+  display: none;
+}
+
+.edit-button:hover { filter: brightness(0.95); }
 
 .back-icon {
   font-size: 18px;
@@ -1279,7 +1300,7 @@
 .attraction-title {
   font-size: 3rem;
   font-weight: 700;
-  margin-bottom: 24px;
+  margin-bottom: 10px;
   line-height: 1.2;
 }
 .fav-badge {
@@ -1483,9 +1504,6 @@
   .info-card { grid-column: auto; }
   .info-card-wide { grid-column: 1 / -1; }
 
-  /* 桌面：标题进一步上移，贴近顶部（保留少量缝隙） */
-  .page-header { padding-top: 6px; }
-
   /* 桌面：主图与次图之间的间隙为原来的 1/2（原 32px） */
   .main-image-container { margin-bottom: 16px; }
 
@@ -1539,10 +1557,38 @@
   .scroll-content { padding: 20px; }
 }
 
-/* 桌面端专属：缩小标题离顶部的距离为原来的 1/3 */
+/* 桌面端专属：标题与操作区重新排布，靠近顶部 */
 @media (min-width: 1024px) {
-  .page-header { padding-top: 6px; }
-  .header-content { margin-top: 0; }
+  .page-header {
+    padding-top: 24px;
+    padding-bottom: 8px;
+    display: flex;
+    justify-content: center;
+    align-items: flex-start;
+    min-height: 80px;
+  }
+  .header-content {
+    margin-top: 0;
+    flex: 1;
+    width: 100%;
+    position: relative;
+    z-index: 1;
+  }
+  .header-left-group {
+    position: absolute;
+    top: 0;
+    left: 0;
+    display: flex;
+    align-items: center;
+    gap: 0;
+    z-index: 2;
+  }
+  .edit-button-desktop {
+    display: inline-flex;
+  }
+  .edit-button-mobile {
+    display: none;
+  }
 }
 
 .info-header {
@@ -1746,7 +1792,7 @@
   }
 
   .page-header {
-    padding: 4px;
+    padding: 0;
     padding-bottom:8px;
   }
 
@@ -1771,7 +1817,7 @@
   }
   
   .header-content {
-    margin-top: 16px;
+    margin-top: 12px;
   }
   
   .attraction-title {
