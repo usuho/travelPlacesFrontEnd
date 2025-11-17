@@ -1,5 +1,5 @@
 <template>
-  <div class="container fade-in">
+  <div class="container ">
 
      <!-- 固定顶部区域（标题 + 筛选器） -->
     <div class="fixed-header">
@@ -1145,7 +1145,7 @@
   backdrop-filter: blur(10px);
   border-bottom: 1px solid rgba(255, 255, 255, 0.2);
   position: relative;
-  min-height: 65px;
+  min-height: 60px;
 }
 
 .header-left-group {
@@ -1156,7 +1156,7 @@
 
   .header-content {
     text-align: center;
-    margin-top: 16px;
+    margin-top: 0;
   }
 
   .title-row {
@@ -1568,7 +1568,6 @@
     min-height: 80px;
   }
   .header-content {
-    margin-top: 0;
     flex: 1;
     width: 100%;
     position: relative;
@@ -1793,7 +1792,7 @@
 
   .page-header {
     padding: 0;
-    padding-bottom:8px;
+    padding-bottom:4px;
   }
 
   .scroll-content {
