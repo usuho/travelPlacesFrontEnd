@@ -5066,9 +5066,8 @@ const all = this.sortedFavorites || [];
   }
 
   .back-button {
-    padding: 12px 18px;
-    font-size: 12px;
-    font-weight: 750;
+    padding: 11px 16px;
+    font-size: 15px;
   }
 
   .desktop-back-button {
