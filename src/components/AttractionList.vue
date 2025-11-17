@@ -3579,8 +3579,13 @@ const all = this.sortedFavorites || [];
         try { localStorage.setItem('lastAttractionsRoute', this.$route.fullPath || ''); } catch(e) {}
         // 传递列表中一致的评分背景色
         try {
-          const color = this.getRatingColor(attraction && attraction.rating);
-          localStorage.setItem('selectedAttractionRatingColor', color);
+          const rating = attraction && attraction.rating;
+          if (rating !== undefined && rating !== null && String(rating).trim() !== '') {
+            const color = this.getRatingColor(rating);
+            localStorage.setItem('selectedAttractionRatingColor', color);
+          } else {
+            localStorage.removeItem('selectedAttractionRatingColor');
+          }
         } catch (e) {}
         this.$router.push(`/attraction/${this.country}/${attraction.id}?from=search`);
       },

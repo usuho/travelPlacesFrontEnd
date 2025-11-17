@@ -324,11 +324,13 @@
       return this.$route.query.from === 'favorites';
     },
     ratingBackgroundColor() {
-      // 优先使用从列表页传递过来的颜色，确保一致
+      const rating = this.attraction && this.attraction.rating;
+      if (rating !== undefined && rating !== null && String(rating).trim() !== '') {
+        return this.getRatingColor(rating);
+      }
       const stored = localStorage.getItem('selectedAttractionRatingColor');
       if (stored) return stored;
-      // 兜底本地计算
-      return this.getRatingColor(this.attraction?.rating);
+      return this.getRatingColor(rating);
     },
     showStats() {
       return String(this.country) !== 'custom';
@@ -1135,6 +1137,7 @@
   backdrop-filter: blur(10px);
   border-bottom: 1px solid rgba(255, 255, 255, 0.2);
   position: relative;
+  min-height: 70px;
 }
 
   .header-content {
@@ -1382,6 +1385,7 @@
   height: 333px; /* 默认高度（移动端优先），桌面端下面用比例覆盖 */
   object-fit: cover;
   transition: transform 0.3s ease;
+  display: block;
 }
 
 .main-image:hover {
@@ -1426,6 +1430,7 @@
   height: 250px;
   object-fit: cover;
   transition: transform 0.3s ease;
+  display: block;
 }
 
 .secondary-image:hover {
