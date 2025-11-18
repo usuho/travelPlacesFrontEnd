@@ -4412,6 +4412,7 @@ const all = this.sortedFavorites || [];
   overflow-y: auto;
   padding: 20px;
   padding-top: 16px;
+  padding-bottom: 10px;
 }
 
 /* 页面头部 */
@@ -4885,7 +4886,7 @@ const all = this.sortedFavorites || [];
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 10px;
+  gap: 7px;
   padding: 0px 20px;
 }
 
@@ -5047,6 +5048,14 @@ const all = this.sortedFavorites || [];
 /* 桌面端保持原样 */
 @media (max-width: 768px) {
 
+  .pagination-section {
+    gap:4px;
+  }
+
+  .pagination-info {
+    font-size: 0.8rem;
+  }
+
   .attractions-section {
     margin-bottom: 15px;
   }
@@ -5072,9 +5081,6 @@ const all = this.sortedFavorites || [];
   }
 
   .scroll-content {
-    flex: 1;
-    overflow-y: auto;
-    padding: 20px;
     padding-top: 0;
   }
 
@@ -5232,7 +5238,7 @@ const all = this.sortedFavorites || [];
   }
 
   .fixed-header {
-    padding: 6px 16px 0; /* 移动端：原 12px 的一半 */
+    padding: 12px 16px 0; /* 移动端：原 12px 的一半 */
   }
 
   .desktop-filters {
@@ -5253,7 +5259,7 @@ const all = this.sortedFavorites || [];
 
   .page-title {
     font-size: 1.5rem; /* 缩小标题字体 */
-    margin-bottom: 0;
+    margin-bottom: 0.5px;
     text-align: center;
   }
 

@@ -8,7 +8,10 @@
         src="/site-icon.png"
         alt="网站 Logo"
       />
-      <h1 class="hero-title title-hero">星垠海角</h1>
+      <div class="title-text-group">
+        <h1 class="hero-title title-hero">星垠海角</h1>
+        <h1 class="title-english title-hero">Stars Meet the Sea</h1>
+      </div>
       <p class="hero-subtitle">选择想探索的国家，发现美与新奇</p>
     </div>
 
@@ -353,16 +356,30 @@ export default {
   height: 120px;
   border-radius: 50%;
   object-fit: cover;
-  margin-bottom: 5px;
 }
 
 .hero-logo-hidden {
   visibility: hidden;
 }
 
+.title-text-group {
+  display: flex;
+  align-items:center;
+  flex-direction:column;
+  justify-content: center;  /* 水平方向居中 */
+  line-height: 1.1;
+  margin-bottom: 50px;
+  margin-top: 10px;
+}
+
 .hero-title {
   font-size: 4rem;
   font-weight: 700;
+}
+
+.title-english {
+  font-size: 2rem;
+  padding: 0;
 }
 
 .hero-subtitle {
@@ -470,7 +487,7 @@ export default {
   }
 
   .hero-section {
-    margin-bottom: 28px;
+    margin-bottom: 10px;
   }
 
   .continent-section {
@@ -509,6 +526,7 @@ export default {
 
   .country-card {
     padding: 5px 16px;
+    padding-bottom: 10px;
   }
 
   .country-flag-name {
@@ -525,12 +543,20 @@ export default {
   }
 
   .country-description {
-    margin-top: 5px;
+    margin-top: 0;
     font-size: 0.7rem;
+  }
+  
+  .title-text-group {
+    margin-bottom: 25px;
   }
 
   .hero-title {
     font-size: 2rem;
+  }
+
+  .title-english {
+    font-size: 1rem;
   }
 
   .hero-subtitle {

@@ -1776,6 +1776,10 @@
 /* 响应式设计 */
 @media (max-width: 768px) {
 
+  .edit-button {
+    margin-left: 10px;
+  }
+
   .info-section {
     padding: 0px 10px;
     padding-top: 15px;
