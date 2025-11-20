@@ -103,14 +103,14 @@ export default {
       if (this.map) this.reloadNormalMarkers();
     }
   },
-  async mounted() {
-    this.loadFavoritesState();
-    this.initMap();
-    // ¼һηԴĹңڴԴͼʱΪͨĻԴ
-    try { if (String(this.country) !== 'custom') localStorage.setItem('lastNonCustomCountry', String(this.country)); } catch (e) {}
-    this.normalsCountry = this.determineNormalsCountry();
-    // 鷵ػӵͼٷʱԻָ֮ǰͼ
-    if (!this.fromDetails) this.tryRestoreMapViewMaybe();
+    async mounted() {
+      this.loadFavoritesState();
+      this.initMap();
+      // ¼һηԴĹңڴԴͼʱΪͨĻԴ
+      try { if (String(this.country) !== 'custom') localStorage.setItem('lastNonCustomCountry', String(this.country)); } catch (e) {}
+      this.normalsCountry = this.determineNormalsCountry();
+      // 鷵ػӵͼٷʱԻָ֮ǰͼ
+      this.tryRestoreMapViewMaybe();
     // Ǵҳͼ򲻽ղطΧϣֻ۽
     if (this.fromDetails) this._blockFavFit = true;
     this.showLoading = true;
@@ -1666,9 +1666,14 @@ export default {
       const { zoom } = this.getDefaultView();
       const cityZoom = 14;
       const targetZoom = this.fromDetails ? cityZoom : zoom;
-      this.map.setView(latlng, targetZoom);
-
-      if (this.fromDetails) this._didAutoPanToFirst = true;
+      const shouldKeepView = !!this._shouldRestoreView;
+      if (!shouldKeepView) {
+        this.map.setView(latlng, targetZoom);
+        if (this.fromDetails) this._didAutoPanToFirst = true;
+      } else if (this.fromDetails) {
+        // ͨصļӷֶƣӦصĿ
+        this._didAutoPanToFirst = true;
+      }
 
       if (String(this.country) !== 'custom' && (!inFav || !this._hasFavMarker(id))) {
         this.focusedLayer.clearLayers();
