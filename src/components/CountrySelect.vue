@@ -10,7 +10,7 @@
       />
       <div class="title-text-group">
         <h1 class="hero-title title-hero">星垠海角</h1>
-        <h1 class="title-english title-hero">Stars Meet the Sea</h1>
+        <h1 class="title-english title-hero">Stars Meet the Swell</h1>
       </div>
       <p class="hero-subtitle">选择想探索的国家，发现美与新奇</p>
     </div>
@@ -378,7 +378,7 @@ export default {
 }
 
 .title-english {
-  font-size: 2rem;
+  font-size: 1.8rem;
   padding: 0;
 }
 
@@ -556,7 +556,7 @@ export default {
   }
 
   .title-english {
-    font-size: 1rem;
+    font-size: 0.91rem;
   }
 
   .hero-subtitle {
