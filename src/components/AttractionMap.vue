@@ -72,7 +72,9 @@ export default {
       _allRenderSeq: 0,
       _recomputeOverlapScheduled: false,
       _suppressAutoCenterUntil: 0,
+      _disableAutoPopupAfterLocate: false,
       _shouldResetListFilters: false,
+      _hasRenderedNormalOnce: false,
     };
   },
   computed: {
@@ -211,6 +213,7 @@ export default {
         }
         if (!coordsResult) throw new Error('no coords');
         const { lat, lng } = coordsResult;
+        this._disableAutoPopupAfterLocate = true;
         const locatedCountry = await this.resolveCountryByCoords(lat, lng);
         let switched = false;
         if (locatedCountry) {
@@ -516,6 +519,7 @@ export default {
       this.statsRendered = 0;
       this.statsNeverRendered = 0;
       this._hasRenderedFirst = false;
+      this._hasRenderedNormalOnce = false;
       this.showLoading = true;
       await this.fetchAllGeoOnce();
       this.renderAllInView && this.renderAllInView();
@@ -715,6 +719,7 @@ export default {
 
       // Ŵһʱĵ
       this.map.on('zoomend', () => {
+        if (this._disableAutoPopupAfterLocate) return;
         const z = this.map.getZoom();
         if (z >= 12) {
           // 򿪵ǰҰһղأ
@@ -1371,6 +1376,9 @@ export default {
         // update stats progressively
         this.statsRendered = this.allMarkers.size;
         this.statsNeverRendered = Math.max(0, visibleList.length - this.statsRendered);
+        if (!this._hasRenderedNormalOnce && this.statsRendered > 0) {
+          this._hasRenderedNormalOnce = true;
+        }
         if (!this._hasRenderedFirst && this.statsRendered > 0) {
           this._hasRenderedFirst = true;
           this.showLoading = false;
@@ -1399,7 +1407,7 @@ export default {
         const hasFavMarkers = !!(this.favoritesLayer && this.favoritesLayer._layers && Object.keys(this.favoritesLayer._layers).length > 0);
         const favListEmpty = !hasFavItems;
         const favGeoMissing = hasFavItems && !hasFavMarkers && this._favGeoPending === 0;
-        if (this.map && !this._didAutoPanToFirst && visibleList.length === 0 && (favListEmpty || favGeoMissing)) {
+        if (this.map && !this._didAutoPanToFirst && !this._hasRenderedNormalOnce && visibleList.length === 0 && (favListEmpty || favGeoMissing)) {
           const currentZoom = this.map.getZoom();
           const b = bounds;
           const f = filters;
@@ -1497,6 +1505,9 @@ export default {
       // Ⱦͳ
       this.statsRendered = this.allMarkers.size;
       this.statsNeverRendered = Math.max(0, visibleList.length - this.statsRendered);
+      if (!this._hasRenderedNormalOnce && this.statsRendered > 0) {
+        this._hasRenderedNormalOnce = true;
+      }
       if (!this._hasRenderedFirst && this.statsRendered > 0) {
         this._hasRenderedFirst = true;
         this.showLoading = false;
@@ -1505,7 +1516,7 @@ export default {
       // ǰҰûκӦʾͨ㣬ƽƵĻĵһѡ㣨ıţ
       try {
         const hasFavMarkers = !!(this.favoritesLayer && this.favoritesLayer._layers && Object.keys(this.favoritesLayer._layers).length > 0);
-        if (this.map && !this._didAutoPanToFirst && this.allMarkers.size === 0 && !hasFavMarkers) {
+        if (this.map && !this._didAutoPanToFirst && !this._hasRenderedNormalOnce && this.allMarkers.size === 0 && !hasFavMarkers) {
           const currentZoom = this.map.getZoom();
           const b = bounds;
           const f = this.getActiveFilters ? this.getActiveFilters() : { minReviews: 0, region: '', county: '' };
