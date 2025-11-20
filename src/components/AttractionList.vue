@@ -1010,6 +1010,10 @@
       try { const vPage = localStorage.getItem('attractionsPage'); const n = parseInt(vPage, 10); if (Number.isFinite(n) && n > 0) this.page = n; } catch (e) {}
       try { const qp = this.$route && this.$route.query && this.$route.query.page; const n2 = parseInt(qp, 10); if (Number.isFinite(n2) && n2 > 0) this.page = n2; } catch (e) {}
       this.isRestoring = false;
+      if (this.shouldResetListFiltersFromRoute()) {
+        this.resetFiltersAndPagination(false);
+        this.clearResetFiltersRouteFlag();
+      }
       this.fetchAttractions(false);
       this.fetchRegions();
       this.fetchCountis();
@@ -1075,6 +1079,11 @@
         localStorage.setItem('attractionsCounty',this.selectedCounty)
         this.fetchAttractions(true);
         this.fetchAllAttractions();},
+
+      '$route.query.resetFilters'(next) {
+        if (!next) return;
+        this.handleResetFiltersRequest();
+      },
 
       favorites: {
         handler() {
@@ -1144,6 +1153,56 @@
     },
 
     methods: {
+      shouldResetListFiltersFromRoute() {
+        try {
+          const q = this.$route && this.$route.query ? this.$route.query : null;
+          if (!q || typeof q.resetFilters === 'undefined' || q.resetFilters === null) return false;
+          const flag = String(q.resetFilters).toLowerCase();
+          return flag !== '0' && flag !== 'false' && flag !== '';
+        } catch (e) {
+          return false;
+        }
+      },
+      clearResetFiltersRouteFlag() {
+        try {
+          if (!this.$route || !this.$route.query || typeof this.$route.query.resetFilters === 'undefined') return;
+          const query = { ...(this.$route.query || {}) };
+          delete query.resetFilters;
+          if (this.$router) {
+            this.$router.replace({ path: this.$route.path, query });
+          }
+        } catch (e) {}
+      },
+      resetFiltersAndPagination(triggerFetch = true) {
+        const originalRestoring = this.isRestoring;
+        this.isRestoring = true;
+        this.minReviews = null;
+        this.order = 'rating_desc';
+        this.selectedRegion = '';
+        this.selectedCounty = '';
+        this.attractionSearch = '';
+        this.page = 1;
+        this.gotoPage = null;
+        this.countySearch = '';
+        this.regionSearch = '';
+        this.showAttractionSuggestions = false;
+        this.isRestoring = originalRestoring;
+        try { localStorage.removeItem('attractionMinReviews'); } catch (e) {}
+        try { localStorage.setItem('attractionsOrder', this.order); } catch (e) {}
+        try { localStorage.setItem('attractionsRegion', ''); } catch (e) {}
+        try { localStorage.setItem('attractionsCounty', ''); } catch (e) {}
+        try { localStorage.setItem('attractionsPage', this.page); } catch (e) {}
+        if (triggerFetch) {
+          this.fetchRegions();
+          this.fetchCountis();
+          this.fetchAttractions(true);
+          this.fetchAllAttractions();
+        }
+      },
+      handleResetFiltersRequest() {
+        this.resetFiltersAndPagination(true);
+        this.clearResetFiltersRouteFlag();
+      },
       async getCustomImageData(id) {
         try {
           const d = await openDB('customAttractionsDB', 1);

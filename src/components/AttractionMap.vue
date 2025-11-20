@@ -72,6 +72,7 @@ export default {
       _allRenderSeq: 0,
       _recomputeOverlapScheduled: false,
       _suppressAutoCenterUntil: 0,
+      _shouldResetListFilters: false,
     };
   },
   computed: {
@@ -135,14 +136,7 @@ export default {
       await this.focusSpecificAttraction();
       // ҳʱص
       if (this.fromDetails) {
-        try {
-          history.pushState({ mapBackGuard: true }, document.title, location.href);
-          this._onMapBack = (evt) => {
-            try { evt && evt.preventDefault && evt.preventDefault(); } catch (e) {}
-            this.handleBack();
-          };
-          window.addEventListener('popstate', this._onMapBack, { passive: true });
-        } catch (e) {}
+        this.activateBrowserBackGuard();
       }
     }
   },
@@ -168,6 +162,21 @@ export default {
         if (raw && raw.toLowerCase() !== 'custom') return raw;
       } catch (e) {}
       return '';
+    },
+    activateBrowserBackGuard() {
+      try {
+        if (typeof history !== 'undefined' && typeof document !== 'undefined' && typeof location !== 'undefined') {
+          history.pushState({ mapBackGuard: true }, document.title, location.href);
+        }
+      } catch (e) {}
+      if (this._onMapBack || typeof window === 'undefined') return;
+      try {
+        this._onMapBack = (evt) => {
+          try { evt && evt.preventDefault && evt.preventDefault(); } catch (err) {}
+          this.handleBack();
+        };
+        window.addEventListener('popstate', this._onMapBack, { passive: true });
+      } catch (e) {}
     },
     async handleLocateClick() {
       if (this.isLocating) return;
@@ -197,6 +206,7 @@ export default {
         }
         this.showLocateMarker(lat, lng);
         if (switched) {
+          this.activateBrowserBackGuard();
           this.centerMapOnLocation(lat, lng, { keepZoom: true, duration: 0.3 });
           this.ensureLocateCenter(lat, lng);
         } else {
@@ -400,6 +410,7 @@ export default {
       this.updateRouteCountry(normalized);
       try { localStorage.setItem('lastNonCustomCountry', normalized); } catch (e) {}
       await this.reloadNormalMarkers();
+      this._shouldResetListFilters = true;
       return true;
     },
     updateRouteCountry(newCountry) {
@@ -545,7 +556,11 @@ export default {
         this.$router.back();
       } else {
         // صбҳ
-        this.$router.push({ path: `/attractions/${this.country}` });
+        const route = { path: `/attractions/${this.country}` };
+        if (this._shouldResetListFilters) {
+          route.query = { resetFilters: '1' };
+        }
+        this.$router.push(route);
       }
     },
 
