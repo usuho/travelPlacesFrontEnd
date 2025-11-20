@@ -3,6 +3,15 @@
     <div id="map" class="map-container"></div>
     <div v-if="showLoading" class="map-loading-overlay"><div class="spinner"></div></div>
     <button class="back-button map-back-button" @click="handleBack">返回</button>
+    <button
+      class="locate-button"
+      :class="{ locating: isLocating }"
+      @click="handleLocateClick"
+      :disabled="isLocating"
+      aria-label="定位当前位置"
+    >
+      <span class="locate-icon"></span>
+    </button>
   </div>
 </template>
 
@@ -13,6 +22,7 @@ import 'leaflet/dist/leaflet.css';
 import { findCustomAttractionById, getAllCustomAttractions } from '../utils/customAttractions.js';
 import { getImageUrl as getCustomImageUrl } from '../utils/customImageStore.js';
 import { fetchAttractionsGeo, fetchAttractionsGeoByIds, fetchAttractionsPositions, fetchAttractionsPositionsByIds, getLastApiBase } from '../utils/geoApi.js';
+import { getCountrySlugByIso, isSupportedCountrySlug } from '../utils/countryCatalog.js';
 
 export default {
   name: 'AttractionMap',
@@ -31,6 +41,8 @@ export default {
       favoritesLayer: null,
       allLayer: null,
       focusedLayer: null,
+      locateMarker: null,
+      locateMarkerLatLng: null,
       // Դ
       imageCache: new Map(),
       apiChosenBase: null,
@@ -41,6 +53,7 @@ export default {
       _didInitCenter: false,
       _allGeoData: [],
       showLoading: false,
+      isLocating: false,
       _hasRenderedFirst: false,
       // 뻺
       _visibleCap: 400,
@@ -58,6 +71,7 @@ export default {
       _didAutoPanToFirst: false,
       _allRenderSeq: 0,
       _recomputeOverlapScheduled: false,
+      _suppressAutoCenterUntil: 0,
     };
   },
   computed: {
@@ -67,6 +81,23 @@ export default {
       try { if (import.meta.env && import.meta.env.VITE_API_BASE) arr.push(String(import.meta.env.VITE_API_BASE)); } catch (e) {}
       arr.push('https://juseaxerf.com');
       return arr;
+    }
+  },
+  watch: {
+    '$route.params.country'(next) {
+      const slug = (next || '').toString().toLowerCase();
+      if (!slug || slug === this.country) return;
+      this.country = slug;
+      if (slug !== 'custom') this.normalsCountry = slug;
+      try { localStorage.setItem('lastNonCustomCountry', slug); } catch (e) {}
+      if (this.map) this.reloadNormalMarkers();
+    },
+    '$route.query.listCountry'(next) {
+      if (String(this.country) !== 'custom') return;
+      const slug = next ? String(next).toLowerCase() : '';
+      if (!slug || slug === this.normalsCountry) return;
+      this.normalsCountry = slug;
+      if (this.map) this.reloadNormalMarkers();
     }
   },
   async mounted() {
@@ -137,6 +168,263 @@ export default {
         if (raw && raw.toLowerCase() !== 'custom') return raw;
       } catch (e) {}
       return '';
+    },
+    async handleLocateClick() {
+      if (this.isLocating) return;
+      if (typeof navigator === 'undefined' || !navigator.geolocation) {
+        try { alert('当前设备不支持定位功能'); } catch (_) {}
+        return;
+      }
+      const prevBlockFavFit = this._blockFavFit;
+      this.isLocating = true;
+      this._blockFavFit = true;
+      this._didInitCenter = true;
+      try {
+        const position = await this.obtainDevicePosition();
+        const coords = position && position.coords ? position.coords : null;
+        const lat = coords && Number(coords.latitude);
+        const lng = coords && Number(coords.longitude);
+        if (!Number.isFinite(lat) || !Number.isFinite(lng)) throw new Error('invalid coords');
+        const locatedCountry = await this.resolveCountryByCoords(lat, lng);
+        let switched = false;
+        if (locatedCountry) {
+          switched = await this.applyLocatedCountry(locatedCountry);
+          if (!switched) {
+            try { this.renderAllInView && this.renderAllInView(true); } catch (_) {}
+          }
+        } else {
+          try { alert('定位成功，但无法识别所在国家，目前保持原来的景点列表'); } catch (_) {}
+        }
+        this.showLocateMarker(lat, lng);
+        if (switched) {
+          this.centerMapOnLocation(lat, lng, { keepZoom: true, duration: 0.3 });
+          this.ensureLocateCenter(lat, lng);
+        } else {
+          this.centerMapOnLocation(lat, lng);
+        }
+        const suppressMs = (!locatedCountry || !switched) ? 20000 : 8000;
+        this.suppressAutoCentering(suppressMs);
+      } catch (err) {
+        try { console.error('[Locate] failed to obtain user location', err); } catch (_) {}
+        const friendly = this.buildLocateErrorMessage(err);
+        try { alert(friendly); } catch (_) {}
+      } finally {
+        const releaseAutoFit = () => {
+          if (this._favGeoPending > 0) {
+            setTimeout(releaseAutoFit, 200);
+          } else {
+            this._blockFavFit = prevBlockFavFit;
+          }
+        };
+        releaseAutoFit();
+        this.isLocating = false;
+      }
+    },
+    obtainDevicePosition() {
+      return new Promise((resolve, reject) => {
+        try {
+          navigator.geolocation.getCurrentPosition(resolve, reject, {
+            enableHighAccuracy: true,
+            timeout: 15000,
+            maximumAge: 0,
+          });
+        } catch (e) {
+          reject(e);
+        }
+      });
+    },
+    centerMapOnLocation(lat, lng, options = {}) {
+      if (!this.map || !Number.isFinite(lat) || !Number.isFinite(lng)) return;
+      const defaultZoom = 12;
+      const keepZoom = !!options.keepZoom;
+      const specifiedZoom = Number.isFinite(options.zoom) ? Number(options.zoom) : defaultZoom;
+      const targetZoom = keepZoom
+        ? Math.max(this.map.getZoom() || defaultZoom, defaultZoom)
+        : specifiedZoom;
+      const duration = Number.isFinite(options.duration) ? Number(options.duration) : 0.8;
+      try {
+        this.map.flyTo([lat, lng], targetZoom, { duration });
+      } catch (e) {
+        try { this.map.setView([lat, lng], targetZoom); } catch (_) {}
+      }
+    },
+    ensureLocateCenter(lat, lng) {
+      if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+      this.$nextTick(() => {
+        setTimeout(() => {
+          this.centerMapOnLocation(lat, lng, { keepZoom: true, duration: 0.4 });
+        }, 120);
+      });
+    },
+    showLocateMarker(lat, lng) {
+      if (!this.map || !Number.isFinite(lat) || !Number.isFinite(lng)) return;
+      try { if (this.locateMarker) this.map.removeLayer(this.locateMarker); } catch (e) {}
+      const icon = L.divIcon({
+        className: 'locate-bubble-icon',
+        html: '<div class="locate-bubble"></div>',
+        iconAnchor: [13, 26],
+        iconSize: [0, 0],
+      });
+      this.locateMarker = L.marker([lat, lng], { icon, interactive: false, pane: 'focusPane' });
+      this.locateMarker.addTo(this.map);
+      this.locateMarkerLatLng = [lat, lng];
+    },
+    suppressAutoCentering(ms = 12000) {
+      const duration = Number.isFinite(ms) ? Math.max(0, ms) : 0;
+      const targetTs = Date.now() + duration;
+      const current = this._suppressAutoCenterUntil || 0;
+      this._suppressAutoCenterUntil = Math.max(current, targetTs);
+    },
+    canAutoCenter() {
+      const ts = this._suppressAutoCenterUntil || 0;
+      if (!ts) return true;
+      return Date.now() >= ts;
+    },
+    async resolveCountryByCoords(lat, lng) {
+      if (!Number.isFinite(lat) || !Number.isFinite(lng)) return '';
+      const providers = [
+        () => this.reverseLookupOpenMeteo(lat, lng),
+        () => this.reverseLookupNominatim(lat, lng),
+      ];
+      for (const fn of providers) {
+        try {
+          const slug = await fn();
+          if (slug) return slug;
+        } catch (e) {
+          try { console.error('[Locate] reverse geocode provider failed', e); } catch (_) {}
+        }
+      }
+      return '';
+    },
+    async reverseLookupOpenMeteo(lat, lng) {
+      const params = new URLSearchParams({
+        latitude: lat,
+        longitude: lng,
+        language: 'en',
+      });
+      const resp = await fetch(`https://geocoding-api.open-meteo.com/v1/reverse?${params.toString()}`);
+      if (!resp || !resp.ok) return '';
+      const data = await resp.json();
+      const result = Array.isArray(data && data.results) ? data.results[0] : null;
+      if (!result) return '';
+      return this.resolveSlugFromIsoAndName(result.country_code, result.country);
+    },
+    async reverseLookupNominatim(lat, lng) {
+      const params = new URLSearchParams({
+        lat,
+        lon: lng,
+        format: 'json',
+        zoom: 3,
+        'accept-language': 'en'
+      });
+      const resp = await fetch(`https://nominatim.openstreetmap.org/reverse?${params.toString()}`);
+      if (!resp || !resp.ok) return '';
+      const data = await resp.json();
+      const addr = data && data.address;
+      if (!addr) return '';
+      return this.resolveSlugFromIsoAndName(addr.country_code, addr.country || data.display_name);
+    },
+    resolveSlugFromIsoAndName(iso2, countryName) {
+      let slug = getCountrySlugByIso(iso2);
+      if (!slug) slug = this.matchSlugByCountryName(countryName);
+      if (slug && !isSupportedCountrySlug(slug)) slug = '';
+      return slug || '';
+    },
+    matchSlugByCountryName(name) {
+      if (!name) return '';
+      const key = this.normalizeCountryNameKey(String(name));
+      const table = {
+        'united states': 'america',
+        'united states of america': 'america',
+        'usa': 'america',
+        'america': 'america',
+        'peoples republic of china': 'china',
+        'people republic of china': 'china',
+        'people s republic of china': 'china',
+        'china': 'china',
+        'republic of singapore': 'singapore',
+        'singapore': 'singapore',
+        'federation of malaysia': 'malaysia',
+        'malaysia': 'malaysia',
+        'kingdom of thailand': 'thailand',
+        'thailand': 'thailand',
+        'socialist republic of vietnam': 'vietnam',
+        'vietnam': 'vietnam',
+        'swiss confederation': 'switzerland',
+        'switzerland': 'switzerland',
+        'united mexican states': 'mexico',
+        'mexico': 'mexico',
+        'kingdom of denmark': 'denmark',
+        'denmark': 'denmark',
+        'commonwealth of australia': 'australia',
+        'australia': 'australia',
+        'new zealand': 'newzealand',
+        'iceland': 'iceland',
+        'canada': 'canada',
+        'japan': 'japan',
+      };
+      return table[key] || '';
+    },
+    normalizeCountryNameKey(input) {
+      return String(input || '')
+        .toLowerCase()
+        .replace(/[\u2018\u2019]/g, "'")
+        .replace(/[\u201c\u201d]/g, '"')
+        .replace(/[^a-z\s']/g, ' ')
+        .replace(/'/g, '')
+        .replace(/\s+/g, ' ')
+        .trim();
+    },
+    buildLocateErrorMessage(err) {
+      if (!err) return '获取定位失败，请确认设备已开启定位和网络';
+      const secureOrigin = typeof err.message === 'string' && /secure origin/i.test(err.message);
+      if (secureOrigin) return '定位需要通过 HTTPS 或 “localhost” 访问，请切换到安全链接后再试';
+      if (err.code === 1) return '浏览器拒绝了定位权限，请在系统设置中允许本网站使用定位功能';
+      if (err.code === 2) return '定位服务暂时不可用，请确认已开启 GPS、网络并在更开阔的环境重试';
+      if (err.code === 3) return '定位请求超时，请确保网络畅通后再试';
+      const detail = err && err.message ? `（${err.message}）` : '';
+      return `获取定位失败${detail}，请确认已授予定位权限`;
+    },
+    async applyLocatedCountry(slug) {
+      const normalized = String(slug || '').toLowerCase();
+      if (!isSupportedCountrySlug(normalized)) return false;
+      const previousViewCountry = String(this.country || '');
+      const currentDatasetCountry = previousViewCountry === 'custom'
+        ? (String(this.normalsCountry || '') || this.getListCountryFromQuery() || '')
+        : previousViewCountry;
+      if (currentDatasetCountry === normalized && previousViewCountry !== 'custom' && Array.isArray(this._allGeoData) && this._allGeoData.length) {
+        return false;
+      }
+      this.country = normalized;
+      this.normalsCountry = normalized;
+      this.updateRouteCountry(normalized);
+      try { localStorage.setItem('lastNonCustomCountry', normalized); } catch (e) {}
+      await this.reloadNormalMarkers();
+      return true;
+    },
+    updateRouteCountry(newCountry) {
+      try {
+        if (!this.$router || !this.$route) return;
+        const current = this.$route.params && this.$route.params.country;
+        if (String(current) === String(newCountry)) return;
+        const query = { ...(this.$route.query || {}) };
+        if (newCountry !== 'custom' && query.listCountry) delete query.listCountry;
+        this.$router.replace({ path: `/map/${newCountry}`, query });
+      } catch (e) {}
+    },
+    async reloadNormalMarkers() {
+      this._allGeoData = [];
+      this._allRenderSeq++;
+      try { this.allLayer && this.allLayer.clearLayers(); } catch (e) {}
+      try { this.focusedLayer && this.focusedLayer.clearLayers(); } catch (e) {}
+      this.allMarkers.clear();
+      this.allMarkersMeta.clear();
+      this.statsRendered = 0;
+      this.statsNeverRendered = 0;
+      this._hasRenderedFirst = false;
+      this.showLoading = true;
+      await this.fetchAllGeoOnce();
+      this.renderAllInView && this.renderAllInView();
     },
     async geocodeAllCustomIfNeeded() {
       try {
@@ -563,7 +851,7 @@ export default {
                       try {
                         const layers = Object.values(this.favoritesLayer._layers || {});
                         const bounds = L.latLngBounds(layers.map(l => l.getLatLng && l.getLatLng()).filter(Boolean));
-                        if (bounds && bounds.isValid()) this.map.fitBounds(bounds, { padding: [40, 40], animate: false });
+                        if (bounds && bounds.isValid() && this.canAutoCenter()) this.map.fitBounds(bounds, { padding: [40, 40], animate: false });
                       } catch (e) {}
                       this._didFinalFitFavorites = true;
                       this._didInitCenter = true;
@@ -593,7 +881,7 @@ export default {
                       try {
                         const layers = Object.values(this.favoritesLayer._layers || {});
                         const bounds = L.latLngBounds(layers.map(l => l.getLatLng && l.getLatLng()).filter(Boolean));
-                        if (bounds && bounds.isValid()) this.map.fitBounds(bounds, { padding: [40, 40], animate: false });
+                        if (bounds && bounds.isValid() && this.canAutoCenter()) this.map.fitBounds(bounds, { padding: [40, 40], animate: false });
                       } catch (e) {}
                       this._didFinalFitFavorites = true;
                       this._didInitCenter = true;
@@ -646,7 +934,7 @@ export default {
                       try {
                         const layers = Object.values(this.favoritesLayer._layers || {});
                         const bounds = L.latLngBounds(layers.map(l => l.getLatLng && l.getLatLng()).filter(Boolean));
-                        if (bounds && bounds.isValid()) this.map.fitBounds(bounds, { padding: [40, 40], animate: false });
+                        if (bounds && bounds.isValid() && this.canAutoCenter()) this.map.fitBounds(bounds, { padding: [40, 40], animate: false });
                       } catch (e) {}
                       this._didFinalFitFavorites = true;
                       this._didInitCenter = true;
@@ -683,7 +971,7 @@ export default {
                           try {
                             const layers = Object.values(this.favoritesLayer._layers || {});
                             const bounds = L.latLngBounds(layers.map(l => l.getLatLng && l.getLatLng()).filter(Boolean));
-                            if (bounds && bounds.isValid()) this.map.fitBounds(bounds, { padding: [40, 40], animate: false });
+                            if (bounds && bounds.isValid() && this.canAutoCenter()) this.map.fitBounds(bounds, { padding: [40, 40], animate: false });
                           } catch (e) {}
                           this._didFinalFitFavorites = true;
                           this._didInitCenter = true;
@@ -722,7 +1010,7 @@ export default {
                           try {
                             const layers = Object.values(this.favoritesLayer._layers || {});
                             const bounds = L.latLngBounds(layers.map(l => l.getLatLng && l.getLatLng()).filter(Boolean));
-                            if (bounds && bounds.isValid()) this.map.fitBounds(bounds, { padding: [40, 40], animate: false });
+                            if (bounds && bounds.isValid() && this.canAutoCenter()) this.map.fitBounds(bounds, { padding: [40, 40], animate: false });
                           } catch (e) {}
                           this._didFinalFitFavorites = true;
                           this._didInitCenter = true;
@@ -743,12 +1031,14 @@ export default {
       // Σûд첽ʱ
       if (firstCenter && !this._didInitCenter && pendingTasks.length === 0 && !this._blockFavFit) {
         try {
-          if (latlngsForFit.length >= 1) {
-            const b = L.latLngBounds(latlngsForFit);
-            this.map.fitBounds(b, { padding: [40, 40], animate: false });
-          } else {
-            const { zoom } = this.getDefaultView();
-            this.map.setView(firstCenter, zoom);
+          if (this.canAutoCenter()) {
+            if (latlngsForFit.length >= 1) {
+              const b = L.latLngBounds(latlngsForFit);
+              this.map.fitBounds(b, { padding: [40, 40], animate: false });
+            } else {
+              const { zoom } = this.getDefaultView();
+              this.map.setView(firstCenter, zoom);
+            }
           }
         } catch (e) {}
         this._didInitCenter = true;
@@ -762,7 +1052,7 @@ export default {
             try {
               const layers = Object.values(this.favoritesLayer._layers || {});
               const bounds = L.latLngBounds(layers.map(l => l.getLatLng && l.getLatLng()).filter(Boolean));
-              if (bounds && bounds.isValid()) this.map.fitBounds(bounds, { padding: [40, 40], animate: false });
+              if (bounds && bounds.isValid() && this.canAutoCenter()) this.map.fitBounds(bounds, { padding: [40, 40], animate: false });
             } catch (e) {}
             this._didFinalFitFavorites = true;
             this._didInitCenter = true;
@@ -2179,6 +2469,99 @@ export default {
   bottom: calc(16px + env(safe-area-inset-bottom)) !important;
   margin: 0 !important;
   z-index: 2000 !important;
+}
+
+.locate-button {
+  position: fixed;
+  right: 16px;
+  bottom: calc(16px + env(safe-area-inset-bottom));
+  width: 38px;
+  height: 38px;
+  border-radius: 12px;
+  background: rgba(30, 30, 34, 0.6);
+  color: white;
+  border: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.25);
+  transition: transform 0.2s ease, box-shadow 0.2s ease, opacity 0.2s ease;
+  z-index: 2000;
+}
+
+.locate-button .locate-icon {
+  width: 16px;
+  height: 16px;
+  border: 2px solid rgba(255, 255, 255, 0.9);
+  border-radius: 50%;
+  position: relative;
+  display: block;
+  aspect-ratio: 1 / 1;
+}
+
+.locate-button .locate-icon::after {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.9);
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  aspect-ratio: 1 / 1;
+}
+
+.locate-button:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 12px 24px rgba(15, 23, 42, 0.45);
+}
+
+.locate-button:disabled {
+  opacity: 0.75;
+  cursor: not-allowed;
+}
+
+.locate-button.locating .locate-icon::after {
+  animation: locate-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes locate-pulse {
+  0% { transform: translate(-50%, -50%) scale(0.7); opacity: 0.4; }
+  50% { transform: translate(-50%, -50%) scale(1.2); opacity: 1; }
+  100% { transform: translate(-50%, -50%) scale(0.7); opacity: 0.4; }
+}
+
+:deep(.locate-bubble-icon) {
+  background: transparent !important;
+  border: none !important;
+  width: 0 !important;
+  height: 0 !important;
+  padding: 0 !important;
+}
+
+:deep(.locate-bubble) {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, #ffe4e6 0%, #f87171 35%, #dc2626 80%);
+  border: 2px solid rgba(255, 255, 255, 0.6);
+  box-shadow: 0 6px 18px rgba(220, 38, 38, 0.45);
+  position: relative;
+}
+
+:deep(.locate-bubble::before) {
+  content: '';
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: white;
+  opacity: 0.85;
+  position: absolute;
+  top: 32%;
+  left: 35%;
+  transform: translate(-50%, -50%);
+  box-shadow: 0 0 8px rgba(255, 255, 255, 0.5);
 }
 
 /* ղأ + ԲΣ/ */
