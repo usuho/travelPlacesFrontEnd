@@ -529,7 +529,7 @@
           name="fav-move"
           tag="div"
           class="favorites-list"
-          :style="favoritesListStyle"
+          :style="favoritesListInlineStyle"
           @touchstart.passive="onFavoritesListTouchStart"
           @touchmove.passive="onFavoritesListTouchMove"
           @touchend.passive="onFavoritesListTouchEnd"
@@ -810,6 +810,9 @@
           favoritesContextMenuDismissHandler: null,
           favoritesContextMenuInteractionLock: false,
           favoritesContextMenuLockTimer: null,
+          pageScrollLocked: false,
+          bodyOverflowBackup: null,
+          bodyTouchActionBackup: null,
           // 自创景点弹窗
         showCreateModal: false,
         // 导出回退（适配部分移动端如锤子浏览器）
@@ -981,6 +984,20 @@
           opacity: this.swipeOpacity,
           transition: this.swipeResetting ? 'opacity 0.2s ease' : 'none',
         };
+      },
+      favoritesListInlineStyle() {
+        const base =
+          this.favoritesListStyle && typeof this.favoritesListStyle === 'object'
+            ? this.favoritesListStyle
+            : {};
+        const style = { ...base };
+        if (this.dragging) {
+          style.overflowY = 'hidden';
+          style.WebkitOverflowScrolling = 'auto';
+          style.overscrollBehavior = 'contain';
+          style.touchAction = 'none';
+        }
+        return style;
       }
     },
     async created() {
@@ -1082,6 +1099,7 @@
             this.scrollActiveTabIntoCenter(); // 打开时自动居中激活tab
           });
         } else {
+          this.unlockPageTouchScroll();
           this.stopAutoScroll();
           this.favoritesListStyle = {};
           this.favActionId = null;
@@ -1109,6 +1127,7 @@
     beforeDestroy() {
       this.clearSwipeResetTimer();
       this.closeFavoritesContextMenu();
+      this.unlockPageTouchScroll();
       if (this.clickGuardTimer) {
         clearTimeout(this.clickGuardTimer);
         this.clickGuardTimer = null;
@@ -3318,6 +3337,7 @@ const all = this.sortedFavorites || [];
       beginDrag(index, startClientX, startClientY, originRect) {
         this.dragging = true;
         this.dragIndex = index;
+        this.lockPageTouchScroll();
         this.dragItem = { ...this.sortedFavorites[index] };
         this.dragSourceTabId = this.activeTabId;
         this.dragHoverTabIndex = null;
@@ -3501,6 +3521,32 @@ const all = this.sortedFavorites || [];
         this.dragHoverTabIndex = null;
         this.clearTabHoverTimer();
         this.detachDragListeners();
+        this.unlockPageTouchScroll();
+      },
+      lockPageTouchScroll() {
+        if (this.pageScrollLocked) return;
+        this.pageScrollLocked = true;
+        try {
+          const body = (typeof document !== 'undefined') ? document.body : null;
+          if (!body) return;
+          this.bodyOverflowBackup = body.style.overflow || '';
+          this.bodyTouchActionBackup = body.style.touchAction || '';
+          body.style.overflow = 'hidden';
+          body.style.touchAction = 'none';
+        } catch (e) {}
+      },
+      unlockPageTouchScroll() {
+        if (!this.pageScrollLocked) return;
+        this.pageScrollLocked = false;
+        try {
+          const body = (typeof document !== 'undefined') ? document.body : null;
+          if (body) {
+            body.style.overflow = this.bodyOverflowBackup != null ? this.bodyOverflowBackup : '';
+            body.style.touchAction = this.bodyTouchActionBackup != null ? this.bodyTouchActionBackup : '';
+          }
+        } catch (e) {}
+        this.bodyOverflowBackup = null;
+        this.bodyTouchActionBackup = null;
       },
       updateMobileAttractionDropdownPosition() {
         this.$nextTick(() => {
@@ -4075,6 +4121,8 @@ const all = this.sortedFavorites || [];
 .fav-tabs.draggingTabs {
   /* Disable touch panning while dragging tabs to avoid native scroll */
   touch-action: none;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
 }
 .fav-tabs::-webkit-scrollbar { display: none; }
 .fav-tab {
