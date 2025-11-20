@@ -181,7 +181,7 @@ export default {
     async handleLocateClick() {
       if (this.isLocating) return;
       if (typeof navigator === 'undefined' || !navigator.geolocation) {
-        try { alert('当前设备不支持定位功能'); } catch (_) {}
+        try { console.warn('当前设备不支持定位功能'); } catch (_) {}
         return;
       }
       const prevBlockFavFit = this._blockFavFit;
@@ -189,11 +189,28 @@ export default {
       this._blockFavFit = true;
       this._didInitCenter = true;
       try {
-        const position = await this.obtainDevicePosition();
-        const coords = position && position.coords ? position.coords : null;
-        const lat = coords && Number(coords.latitude);
-        const lng = coords && Number(coords.longitude);
-        if (!Number.isFinite(lat) || !Number.isFinite(lng)) throw new Error('invalid coords');
+        let locateSource = 'gps';
+        let coordsResult = null;
+        try {
+          const position = await this.obtainDevicePosition();
+          const coords = position && position.coords ? position.coords : null;
+          const lat = coords && Number(coords.latitude);
+          const lng = coords && Number(coords.longitude);
+          if (!Number.isFinite(lat) || !Number.isFinite(lng)) throw new Error('invalid coords');
+          coordsResult = { lat, lng };
+        } catch (primaryErr) {
+          try { console.warn('[Locate] GPS failed, fallback to IP', primaryErr); } catch (_) {}
+          const ipLoc = await this.locateByIpFallback();
+          if (ipLoc && Number.isFinite(ipLoc.lat) && Number.isFinite(ipLoc.lng)) {
+            locateSource = 'ip';
+            coordsResult = { lat: ipLoc.lat, lng: ipLoc.lng };
+          try { console.warn('GPS 超时，已使用 IP 定位（城市级，可能不精确）'); } catch (_) {}
+          } else {
+            throw primaryErr;
+          }
+        }
+        if (!coordsResult) throw new Error('no coords');
+        const { lat, lng } = coordsResult;
         const locatedCountry = await this.resolveCountryByCoords(lat, lng);
         let switched = false;
         if (locatedCountry) {
@@ -202,7 +219,7 @@ export default {
             try { this.renderAllInView && this.renderAllInView(true); } catch (_) {}
           }
         } else {
-          try { alert('定位成功，但无法识别所在国家，目前保持原来的景点列表'); } catch (_) {}
+          // 为避免打断用户，不弹窗
         }
         this.showLocateMarker(lat, lng);
         if (switched) {
@@ -216,8 +233,7 @@ export default {
         this.suppressAutoCentering(suppressMs);
       } catch (err) {
         try { console.error('[Locate] failed to obtain user location', err); } catch (_) {}
-        const friendly = this.buildLocateErrorMessage(err);
-        try { alert(friendly); } catch (_) {}
+        // 保持沉默式失败，只在控制台输出
       } finally {
         const releaseAutoFit = () => {
           if (this._favGeoPending > 0) {
@@ -229,19 +245,85 @@ export default {
         releaseAutoFit();
         this.isLocating = false;
       }
+      },
+    async locateByIpFallback() {
+      try {
+        const resp = await fetch('https://ipapi.co/json/');
+        if (!resp || !resp.ok) return null;
+        const data = await resp.json();
+        const lat = Number(data && data.latitude);
+        const lng = Number(data && data.longitude);
+        if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+        return { lat, lng, countryCode: data && data.country_code };
+      } catch (e) {
+        return null;
+      }
     },
     obtainDevicePosition() {
-      return new Promise((resolve, reject) => {
+      const attempt = (opts) => new Promise((resolve, reject) => {
         try {
-          navigator.geolocation.getCurrentPosition(resolve, reject, {
-            enableHighAccuracy: true,
-            timeout: 15000,
-            maximumAge: 0,
-          });
+          navigator.geolocation.getCurrentPosition(resolve, reject, opts);
         } catch (e) {
           reject(e);
         }
       });
+      const watchOnce = (opts) => new Promise((resolve, reject) => {
+        let cleared = false;
+        try {
+          const id = navigator.geolocation.watchPosition(
+            (pos) => {
+              if (cleared) return;
+              cleared = true;
+              try { navigator.geolocation.clearWatch(id); } catch (_) {}
+              resolve(pos);
+            },
+            (err) => {
+              if (cleared) return;
+              cleared = true;
+              try { navigator.geolocation.clearWatch(id); } catch (_) {}
+              reject(err);
+            },
+            opts
+          );
+          const guard = setTimeout(() => {
+            if (cleared) return;
+            cleared = true;
+            try { navigator.geolocation.clearWatch(id); } catch (_) {}
+            const timeoutErr = new Error('watchPosition timeout');
+            timeoutErr.code = 3;
+            reject(timeoutErr);
+          }, Math.max(2000, (opts && opts.timeout) ? opts.timeout + 3000 : 15000));
+          if (guard && guard.unref) guard.unref();
+        } catch (e) {
+          reject(e);
+        }
+      });
+      // 先尝试快速返回缓存/粗精度，再高精度；仅超时则逐级放宽，提升室内/弱网命中率
+      const attempts = [
+        { enableHighAccuracy: false, timeout: 8000, maximumAge: 600000 }, // 先拿最近10分钟的缓存坐标
+        { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 },
+        { enableHighAccuracy: false, timeout: 15000, maximumAge: 0 },
+        { enableHighAccuracy: true, timeout: 35000, maximumAge: 0 },
+      ];
+      let lastErr = null;
+      return (async () => {
+        for (const opts of attempts) {
+          try {
+            // 若 getCurrentPosition 超时，再用 watchPosition 补打一枪
+            return await attempt(opts).catch((err) => {
+              const isTimeout = err && err.code === 3;
+              if (!isTimeout) throw err;
+              return watchOnce(opts);
+            });
+          } catch (err) {
+            lastErr = err;
+            const isTimeout = err && err.code === 3;
+            if (!isTimeout) throw err;
+            // 仅超时则继续下一轮尝试
+          }
+        }
+        throw lastErr || new Error('定位失败');
+      })();
     },
     centerMapOnLocation(lat, lng, options = {}) {
       if (!this.map || !Number.isFinite(lat) || !Number.isFinite(lng)) return;
@@ -390,8 +472,8 @@ export default {
       const secureOrigin = typeof err.message === 'string' && /secure origin/i.test(err.message);
       if (secureOrigin) return '定位需要通过 HTTPS 或 “localhost” 访问，请切换到安全链接后再试';
       if (err.code === 1) return '浏览器拒绝了定位权限，请在系统设置中允许本网站使用定位功能';
-      if (err.code === 2) return '定位服务暂时不可用，请确认已开启 GPS、网络并在更开阔的环境重试';
-      if (err.code === 3) return '定位请求超时，请确保网络畅通后再试';
+      if (err.code === 2) return '定位服务暂时不可用，请确认已开启 GPS，或在更开阔的环境重试';
+      if (err.code === 3) return '定位请求超时，请保持 GPS 打开，必要时可多尝试几次';
       const detail = err && err.message ? `（${err.message}）` : '';
       return `获取定位失败${detail}，请确认已授予定位权限`;
     },
@@ -410,6 +492,7 @@ export default {
       this.updateRouteCountry(normalized);
       try { localStorage.setItem('lastNonCustomCountry', normalized); } catch (e) {}
       await this.reloadNormalMarkers();
+      this._clearListFiltersCache();
       this._shouldResetListFilters = true;
       return true;
     },
@@ -436,6 +519,15 @@ export default {
       this.showLoading = true;
       await this.fetchAllGeoOnce();
       this.renderAllInView && this.renderAllInView();
+    },
+    _clearListFiltersCache() {
+      const safeRemove = (k) => { try { localStorage.removeItem(k); } catch (e) {} };
+      const safeSet = (k, v) => { try { localStorage.setItem(k, v); } catch (e) {} };
+      safeRemove('attractionMinReviews');
+      safeRemove('attractionsRegion');
+      safeRemove('attractionsCounty');
+      safeSet('attractionsOrder', 'rating_desc');
+      safeSet('attractionsPage', '1');
     },
     async geocodeAllCustomIfNeeded() {
       try {
