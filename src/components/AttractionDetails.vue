@@ -1298,9 +1298,8 @@
 }
 
 .attraction-title {
-  font-size: 3rem;
+  font-size: 2.4rem;
   font-weight: 700;
-  margin-bottom: 10px;
   line-height: 1.2;
 }
 .fav-badge {
@@ -1326,7 +1325,7 @@
 .rating-badge {
   background: linear-gradient(135deg, #34c759 0%, #30d158 100%);
   color: white;
-  padding: 12px 24px;
+  padding: 2px 12px;
   border-radius: 30px;
   font-weight: 600;
   font-size: 1.1rem;
@@ -1334,7 +1333,7 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 4px;
+  gap: 0;
 }
 
 .rating-label {
@@ -1343,7 +1342,7 @@
 }
 
 .rating-text {
-  font-size: 1.2rem;
+  font-size: 1rem;
   font-weight: 700;
 }
 
@@ -1560,7 +1559,7 @@
 /* 桌面端专属：标题与操作区重新排布，靠近顶部 */
 @media (min-width: 1024px) {
   .page-header {
-    padding-top: 24px;
+    padding-top: 10px;
     padding-bottom: 8px;
     display: flex;
     justify-content: center;
@@ -1810,7 +1809,7 @@
   }
 
   .rating-label {
-    font-size: 0.7rem;
+    font-size: 0.6rem;
     opacity: 0.9;
   }
 

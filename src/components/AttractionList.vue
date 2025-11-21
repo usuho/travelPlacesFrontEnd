@@ -4518,7 +4518,7 @@ const all = this.sortedFavorites || [];
   flex: 1;
   overflow-y: auto;
   padding: 20px;
-  padding-top: 16px;
+  padding-top: 10px;
   padding-bottom: 10px;
 }
 
@@ -4593,13 +4593,13 @@ const all = this.sortedFavorites || [];
 }
 
 .page-title {
-  font-size: 3.5rem;
+  font-size: 3rem;
   font-weight: 700;
   margin-bottom: 0;
 }
 
 .title-english {
-  font-size: 1.5rem;
+  font-size: 1.2rem;
   font-weight: 700;
   margin-bottom: 0;
   align-self:center;
@@ -4615,7 +4615,7 @@ const all = this.sortedFavorites || [];
 
 .page-subtitle {
   margin-top: 10px;
-  font-size: 1.25rem;
+  font-size: 0.9rem;
   color: #6e6e73;
   font-weight: 400;
 }
@@ -4713,11 +4713,11 @@ const all = this.sortedFavorites || [];
 
 .filter-group input,
 .filter-group select {
-  padding: 12px 16px;
+  padding: 8px 10px;
   border: 1px solid #d2d2d7;
   border-radius: 8px;
   background: white;
-  font-size: 16px;
+  font-size: 15px;
 }
 
 .filter-group input:focus,
@@ -4994,7 +4994,7 @@ const all = this.sortedFavorites || [];
   flex-direction: column;
   align-items: center;
   gap: 7px;
-  padding: 0px 20px;
+  padding: 10px 20px;
 }
 
 .pagination-info {
