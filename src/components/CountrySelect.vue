@@ -487,11 +487,11 @@ export default {
   }
 
   .hero-section {
-    margin-bottom: 10px;
+    margin-bottom: 15px;
   }
 
   .continent-section {
-    margin-bottom: 30px;
+    margin-bottom: 33px;
   }
 
   
@@ -565,7 +565,7 @@ export default {
 
   .continent-title {
     font-size: 1rem;
-    margin-bottom: 24px;
+    margin-bottom: 16px;
   }
 }
 </style>
