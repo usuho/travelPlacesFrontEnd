@@ -4519,7 +4519,7 @@ const all = this.sortedFavorites || [];
   overflow-y: auto;
   padding: 20px;
   padding-top: 10px;
-  padding-bottom: 10px;
+  padding-bottom: 8px;
 }
 
 /* 页面头部 */
@@ -4781,7 +4781,7 @@ const all = this.sortedFavorites || [];
 
 /* 景点网格 */
 .attractions-section {
-  margin-bottom: 25px;
+  margin-bottom: 15px;
   margin-top: 10px;
 }
 
@@ -4994,12 +4994,12 @@ const all = this.sortedFavorites || [];
   flex-direction: column;
   align-items: center;
   gap: 7px;
-  padding: 10px 20px;
+  padding: 0;
 }
 
 .pagination-info {
   color: #6e6e73;
-  font-size: 1rem;
+  font-size: 1.02rem;
   text-align: center;
 }
 
@@ -5160,11 +5160,11 @@ const all = this.sortedFavorites || [];
   }
 
   .pagination-info {
-    font-size: 0.8rem;
+    font-size: 0.83rem;
   }
 
   .attractions-section {
-    margin-bottom: 15px;
+    margin-bottom: 8px;
   }
 
   .page-input-group label {
@@ -5189,6 +5189,7 @@ const all = this.sortedFavorites || [];
 
   .scroll-content {
     padding-top: 0;
+    padding-bottom: 10px;
   }
 
   .back-button {

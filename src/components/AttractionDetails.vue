@@ -1120,6 +1120,7 @@
   flex: 1;
   overflow-y: auto;
   padding: 20px;
+  padding-bottom: 10px;
 }
 
 /* 加载状态 */
@@ -1325,11 +1326,10 @@
 .rating-badge {
   background: linear-gradient(135deg, #34c759 0%, #30d158 100%);
   color: white;
-  padding: 2px 12px;
-  border-radius: 30px;
+  padding: 2px 8px;
+  border-radius: 20px;
   font-weight: 600;
   font-size: 1.1rem;
-  box-shadow: 0 4px 20px rgba(52, 199, 89, 0.3);
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -1459,7 +1459,7 @@
 
 /* 信息区域 */
 .info-section {
-  padding: 30px 20px;
+  padding: 20px;
   padding-top: 15px;
   max-width: 1400px;
   margin: 0 auto;
@@ -1551,9 +1551,6 @@
 
   /* 桌面：次要图片网格的间隙为原来的 1/2（原 24px） */
   .secondary-images { gap: 12px; }
-
-  /* 桌面：固定部分下面的 padding（滚动区域内边距）为原来的 1/2（原 20px） */
-  .scroll-content { padding: 20px; }
 }
 
 /* 桌面端专属：标题与操作区重新排布，靠近顶部 */
@@ -1686,7 +1683,7 @@
 
 /* 导航区域 */
 .navigation-section {
-  padding: 60px 20px;
+  padding: 20px 0;
   padding-top: 0;
   backdrop-filter: blur(10px);
   border-top: 1px solid rgba(255, 255, 255, 0.2);
@@ -1800,12 +1797,6 @@
 
   .scroll-content {
     padding: 0;
-  }
-
-  .rating-badge {
-    padding: 5px 10px;
-    border-radius: 20px;
-    gap: 0;
   }
 
   .rating-label {
@@ -1929,8 +1920,7 @@
   }
   
   .navigation-section {
-    padding: 20px;
-    padding-bottom:80px;
+    padding-top:15px;
   }
   
   .navigation-controls {
