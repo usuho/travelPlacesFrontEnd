@@ -1173,7 +1173,7 @@
 .title-with-star {
   display: inline-flex;
   align-items: center;
-  gap: 10px; /* 与标题更贴近 */
+  gap: 2px; /* 与标题更贴近 */
 }
 .title-with-star .title-text { display: inline-block; }
 .star-btn {
@@ -1319,7 +1319,6 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 24px;
   flex-wrap: wrap;
 }
 
@@ -1334,6 +1333,7 @@
   flex-direction: column;
   align-items: center;
   gap: 0;
+  line-height: 17px;
 }
 
 .rating-label {
@@ -1348,13 +1348,13 @@
 
 .reviews-summary {
   display: flex;
-  gap: 16px;
+  gap: 0;
   color: #6e6e73;
   font-size: 0.95rem;
 }
 
 .reviews-summary span {
-  padding: 8px 16px;
+  padding-left: 36px;
   background: rgba(255, 255, 255, 0.7);
   border-radius: 20px;
   backdrop-filter: blur(10px);
@@ -1772,6 +1772,14 @@
 /* 响应式设计 */
 @media (max-width: 768px) {
 
+  .reviews-summary span {
+    padding-left: 15px;
+  }
+
+  .rating-badge {
+    line-height: 13px;
+  }
+
   .edit-button {
     margin-left: 10px;
   }
@@ -1820,7 +1828,6 @@
   
   .rating-section {
     flex-direction: row;
-    gap: 16px;
     text-align: center;
   }
 
