@@ -341,7 +341,8 @@ export default {
 
 .container {
   min-height: 100vh;
-  padding: 20px 20px;
+  padding: 20px;
+  padding-bottom: 0.01px;
   background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
 }
 
@@ -512,6 +513,7 @@ export default {
   .country-flag-mobile {
     margin-right: 1.5rem;
     display: flex;
+    line-height: 52px;
   }
 
   .country-link {
