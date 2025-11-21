@@ -342,7 +342,6 @@ export default {
 .container {
   min-height: 100vh;
   padding: 20px;
-  padding-bottom: 0.01px;
   background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
 }
 
@@ -474,6 +473,10 @@ export default {
 
 /* 移动端优化：保持两列，但卡片缩小 */
 @media (max-width: 768px) {
+
+  .container {
+    padding-bottom: 0.01px;
+  }
 
   .country-text-group-desktop{
     display: none;
