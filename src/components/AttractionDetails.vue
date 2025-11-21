@@ -1173,7 +1173,8 @@
 .title-with-star {
   display: inline-flex;
   align-items: center;
-  gap: 2px; /* 与标题更贴近 */
+  gap: 4px; /* 与标题更贴近 */
+  padding-right: 24px;
 }
 .title-with-star .title-text { display: inline-block; }
 .star-btn {
