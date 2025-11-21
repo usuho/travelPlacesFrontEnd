@@ -1773,6 +1773,10 @@
 /* 响应式设计 */
 @media (max-width: 768px) {
 
+  .title-with-star {
+    padding-right: 28px;
+  }
+
   .reviews-summary span {
     padding-left: 15px;
   }
