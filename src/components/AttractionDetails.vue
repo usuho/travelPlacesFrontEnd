@@ -182,11 +182,11 @@
             <button @click="goBack" class="back-button bottom-back-button">
               返回
             </button>
-            <button @click="prevPage" :disabled="fromMap || (isFavoritesMode ? favIndex === 0 : (fromSearch || index === 0))"  class="nav-button">
+            <button @click="prevPage" :disabled="prevDisabled"  class="nav-button">
               <span class="nav-icon">←</span>
               上一个景点
             </button>
-            <button @click="nextPage" :disabled="fromMap || (isFavoritesMode ? favIndex >= favNav.length - 1 : (fromSearch || index === 19))" class="nav-button">
+            <button @click="nextPage" :disabled="nextDisabled" class="nav-button">
               下一个景点
               <span class="nav-icon">→</span>
             </button>
@@ -240,6 +240,9 @@
         image2: null,
         image3: null,
         index:parseInt(localStorage.getItem('attractionIndex')) || 0,
+        listPage: parseInt(localStorage.getItem('attractionsPage')) || 1,
+        listPageLimit: 20,
+        hasNextPage: true,
         ids: localStorage.getItem('ids') ? localStorage.getItem('ids').split(',').map(Number) : [] || null,
         favIndex: parseInt(localStorage.getItem('favIndex')) || 0,
         favNav: (() => { try { return JSON.parse(localStorage.getItem('favNav')||'[]'); } catch(e) { return []; } })(),
@@ -289,6 +292,7 @@
       this.updateIsFavorited();
       this.bumpAnimKeys();
       this.resetDetailSwipeState(true);
+      this.hasNextPage = Array.isArray(this.ids) && this.ids.length >= this.listPageLimit;
       await this.fetchAttractionDetails();
     },
     mounted() {
@@ -348,6 +352,20 @@
         opacity: this.detailSwipeOpacity,
         transition: this.detailSwipeResetting ? 'opacity 0.2s ease' : 'none',
       };
+    },
+    nextDisabled() {
+      if (this.fromMap) return true;
+      if (this.isFavoritesMode) return this.favIndex >= this.favNav.length - 1;
+      if (this.fromSearch) return true;
+      if (Array.isArray(this.ids) && this.ids.length && this.index < this.ids.length - 1) return false;
+      return !this.hasNextPage;
+    },
+    prevDisabled() {
+      if (this.fromMap) return true;
+      if (this.isFavoritesMode) return this.favIndex === 0;
+      if (this.fromSearch) return true;
+      if (this.index > 0) return false;
+      return this.listPage <= 1;
     }
   },
     methods: {
@@ -654,17 +672,20 @@
         }
       },
       canSwipeDetail(direction) {
-        if (this.fromMap) return false;
+        if (this.fromMap || this.fromSearch) return false;
         if (!this.attraction || this.loading) return false;
         if (this.isFavoritesMode && this.favNav.length > 0) {
           if (direction === 'left') return this.favIndex < this.favNav.length - 1;
           if (direction === 'right') return this.favIndex > 0;
         } else {
-          const maxIndex = Array.isArray(this.ids) && this.ids.length
-            ? this.ids.length - 1
-            : 19;
-          if (direction === 'left') return this.index < maxIndex;
-          if (direction === 'right') return this.index > 0;
+          if (direction === 'left') {
+            if (Array.isArray(this.ids) && this.ids.length && this.index < this.ids.length - 1) return true;
+            return this.hasNextPage;
+          }
+          if (direction === 'right') {
+            if (this.index > 0) return true;
+            return this.listPage > 1;
+          }
         }
         return false;
       },
@@ -797,7 +818,69 @@
         }
     }
   },
-  
+      updateLastRoutePage(targetPage) {
+        try {
+          const last = localStorage.getItem('lastAttractionsRoute') || '';
+          if (last) {
+            const url = new URL(last, window.location.origin);
+            const params = new URLSearchParams(url.search || '');
+            params.set('page', targetPage);
+            const search = params.toString();
+            localStorage.setItem('lastAttractionsRoute', `${url.pathname}${search ? `?${search}` : ''}`);
+            return;
+          }
+        } catch (e) {}
+        try { localStorage.setItem('lastAttractionsRoute', `/attractions/${this.country}?page=${targetPage}`); } catch (e) {}
+      },
+      buildListQueryParams(pageNumber) {
+        const params = new URLSearchParams();
+        params.append('page', pageNumber);
+        params.append('limit', this.listPageLimit);
+        const order = localStorage.getItem('attractionsOrder') || 'rating_desc';
+        if (order) params.append('order', order);
+        if (order === 'rating_desc') params.append('secondary', 'reviews_desc');
+        const minReviewsRaw = localStorage.getItem('attractionMinReviews');
+        if (minReviewsRaw !== null && minReviewsRaw !== undefined && String(minReviewsRaw).trim() !== '') {
+          params.append('minReviews', minReviewsRaw);
+        }
+        const region = localStorage.getItem('attractionsRegion') || '';
+        const county = localStorage.getItem('attractionsCounty') || '';
+        if (region) params.append('region', region);
+        if (county) params.append('county', county);
+        return params;
+      },
+      async loadListPage(targetPage) {
+        try {
+          const params = this.buildListQueryParams(targetPage);
+          const response = await fetch(`https://juseaxerf.com/api/attractions/${this.country}?${params.toString()}`);
+          const data = await response.json();
+          if (data && Array.isArray(data.data) && data.data.length) {
+            this.ids = data.data.map(item => item.id);
+            try { localStorage.setItem('ids', this.ids.join(',')); } catch (e) {}
+            this.listPage = targetPage;
+            try { localStorage.setItem('attractionsPage', String(targetPage)); } catch (e) {}
+            this.updateLastRoutePage(targetPage);
+            this.hasNextPage = data.data.length >= this.listPageLimit;
+            return true;
+          }
+          this.hasNextPage = false;
+          return false;
+        } catch (e) {
+          this.hasNextPage = false;
+          return false;
+        }
+      },
+      goToListIndex(targetIndex) {
+        if (!Array.isArray(this.ids) || targetIndex < 0 || targetIndex >= this.ids.length) return;
+        const targetId = this.ids[targetIndex];
+        try { localStorage.setItem('attractionIndex', String(targetIndex)); } catch (e) {}
+        this.index = targetIndex;
+        this.attraction = null;
+        for (let i = 1; i <=3; i++) this[`image${i}`] = null;
+        this.loading = true;
+        this.$router.push(`${targetId}`);
+      },
+
       async nextPage() {
         this.resetDetailSwipeState(true);
         if (this.isFavoritesMode && this.favNav.length > 0) {
@@ -809,41 +892,15 @@
           }
           return;
         }
-        localStorage.setItem('attractionIndex', this.index + 1);
-        if (this.index < 19) {
-          this.attraction = null; // 显示加载状态
-
-          for (let i = 1; i <=3; i++) {
-            this[`image${i}`] = null; // 重置图片
-          }
-
-          this.loading = true;
-          // 1️⃣ 拉取 JSON 数据
-          const response = await fetch(`https://juseaxerf.com/api/attraction/${this.country}/${this.ids[this.index+1]}`);
-          const data = await response.json();
-
-          if (data) {
-              // ✅ 第一步：只加载文字数据
-              this.attraction = data;
-              this.loading = false; // ✅ 提前结束 loading，先显示文字
-
-          // 2️⃣ 如果 hasImage1/2/3 存在，就异步拉取图片
-          for (let i = 1; i <= 3; i++) {
-            if (data[`hasImage${i}`]) {
-              fetch(`https://juseaxerf.com/api/attraction-image/${this.country}/${this.ids[this.index+1]}/${i}`)
-                .then(response => {
-                  if (!response.ok) throw new Error('Failed to fetch image');
-                  return response.blob();
-                })
-                .then(blob => {
-                  const url = URL.createObjectURL(blob);
-                  this[`image${i}`] = url;
-                });
-            }
-          }
+        if (this.fromSearch) return;
+        if (Array.isArray(this.ids) && this.ids.length && this.index < this.ids.length - 1) {
+          this.goToListIndex(this.index + 1);
+          return;
         }
-          this.$router.push(`${this.ids[this.index+1]}`);
-          this.index ++
+        const nextListPage = this.listPage + 1;
+        const loaded = await this.loadListPage(nextListPage);
+        if (loaded) {
+          this.goToListIndex(0);
         }
       },
 
@@ -858,41 +915,18 @@
           }
           return;
         }
-        localStorage.setItem('attractionIndex', this.index - 1);
+        if (this.fromSearch) return;
         if (this.index > 0) {
-          this.attraction = null; // 显示加载状态
-          
-          for (let i = 1; i <=3; i++) {
-            this[`image${i}`] = null; // 重置图片
-          }
-
-          this.loading = true;
-          // 1️⃣ 拉取 JSON 数据
-          const response = await fetch(`https://juseaxerf.com/api/attraction/${this.country}/${this.ids[this.index-1]}`);
-          const data = await response.json();
-
-          if (data) {
-              // ✅ 第一步：只加载文字数据
-              this.attraction = data;
-              this.loading = false; // ✅ 提前结束 loading，先显示文字
-
-          // 2️⃣ 如果 hasImage1/2/3 存在，就异步拉取图片
-          for (let i = 1; i <= 3; i++) {
-            if (data[`hasImage${i}`]) {
-              fetch(`https://juseaxerf.com/api/attraction-image/${this.country}/${this.ids[this.index-1]}/${i}`)
-                .then(response => {
-                  if (!response.ok) throw new Error('Failed to fetch image');
-                  return response.blob();
-                })
-                .then(blob => {
-                  const url = URL.createObjectURL(blob);
-                  this[`image${i}`] = url;
-                });
-            }
-          }
+          this.goToListIndex(this.index - 1);
+          return;
         }
-          this.$router.push(`${this.ids[this.index-1]}`);
-          this.index--
+        if (this.listPage > 1) {
+          const prevListPage = this.listPage - 1;
+          const loaded = await this.loadListPage(prevListPage);
+          if (loaded && Array.isArray(this.ids) && this.ids.length) {
+            this.goToListIndex(this.ids.length - 1);
+            this.hasNextPage = true;
+          }
         }
       },
 
@@ -1823,7 +1857,7 @@
   }
   
   .header-content {
-    margin-top: 12px;
+    margin-top: 4px;
   }
   
   .attraction-title {
