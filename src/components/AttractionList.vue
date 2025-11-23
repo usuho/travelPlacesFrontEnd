@@ -44,6 +44,7 @@
               <option value="reviews_asc">评论数[最少]</option>
               <option value="positive_desc">好评数[最多]</option>
               <option value="positive_asc">好评数[最少]</option>
+              <option v-if="distanceSortAvailable" value="distance_near">距离[最近]</option>
             </select>
           </div>
           
@@ -216,6 +217,7 @@
               <option value="reviews_asc">评论数[最少]</option>
               <option value="positive_desc">好评数[最多]</option>
               <option value="positive_asc">好评数[最少]</option>
+              <option v-if="distanceSortAvailable" value="distance_near">距离[最近]</option>
             </select>
             <input
               type="search"
@@ -954,7 +956,9 @@
         showAttractionSuggestions: false,
         attractionDropdownStyle: {},
         allAttractions: [],
-      attractionSuggestions: []
+        attractionSuggestions: [],
+        distanceSortAvailable: false,
+        distanceQueue: null,
       };
     },
 
@@ -1001,6 +1005,7 @@
       }
     },
     async created() {
+      this.ensureCountryState();
       this.isRestoring = true;
       // 进入列表页时再次从 localStorage 读取，避免 0 被默认值覆盖
       try { const vMin = localStorage.getItem('attractionMinReviews'); if (vMin !== null && vMin !== '') { const n = parseInt(vMin, 10); if (Number.isFinite(n)) this.minReviews = n; } } catch (e) {}
@@ -1009,6 +1014,7 @@
       try { const vCounty = localStorage.getItem('attractionsCounty'); if (vCounty !== null) this.selectedCounty = vCounty; } catch (e) {}
       try { const vPage = localStorage.getItem('attractionsPage'); const n = parseInt(vPage, 10); if (Number.isFinite(n) && n > 0) this.page = n; } catch (e) {}
       try { const qp = this.$route && this.$route.query && this.$route.query.page; const n2 = parseInt(qp, 10); if (Number.isFinite(n2) && n2 > 0) this.page = n2; } catch (e) {}
+      this.restoreDistanceQueueState();
       this.isRestoring = false;
       if (this.shouldResetListFiltersFromRoute()) {
         this.resetFiltersAndPagination(false);
@@ -1054,6 +1060,32 @@
     watch: {
       // 移除在输入时立即触发的行为
 
+      '$route.params.country'(next, prev) {
+        if (String(next) === String(prev)) return;
+        this.country = next;
+        this.ensureCountryState();
+        this.isRestoring = true;
+        try {
+          const vMin = localStorage.getItem('attractionMinReviews'); if (vMin !== null && vMin !== '') { const n = parseInt(vMin, 10); if (Number.isFinite(n)) this.minReviews = n; }
+          const vOrder = localStorage.getItem('attractionsOrder'); if (vOrder !== null) this.order = vOrder;
+          const vRegion = localStorage.getItem('attractionsRegion'); if (vRegion !== null) this.selectedRegion = vRegion; else this.selectedRegion = '';
+          const vCounty = localStorage.getItem('attractionsCounty'); if (vCounty !== null) this.selectedCounty = vCounty; else this.selectedCounty = '';
+          const vPage = localStorage.getItem('attractionsPage'); const n = parseInt(vPage, 10); this.page = Number.isFinite(n) && n > 0 ? n : 1;
+        } catch (e) {
+          this.minReviews = null;
+          this.order = 'rating_desc';
+          this.selectedRegion = '';
+          this.selectedCounty = '';
+          this.page = 1;
+        }
+        this.restoreDistanceQueueState();
+        this.isRestoring = false;
+        this.fetchAttractions(false);
+        this.fetchRegions();
+        this.fetchCountis();
+        this.fetchAllAttractions();
+      },
+
       order() {
         if (this.isRestoring) return;
         localStorage.setItem('attractionsPage', this.page); // 保存当前页数到localStorage
@@ -1063,21 +1095,27 @@
 
       selectedRegion() {
         if (this.isRestoring) return;
+        const resetByDistance = this.handleDistanceQueueResetOnFilters();
         this.page = 1;
         localStorage.setItem('attractionsPage', this.page); 
         localStorage.setItem('attractionsRegion', this.selectedRegion);
-        this.fetchAttractions(true);
+        if (!resetByDistance) {
+          this.fetchAttractions(true);
+        }
         this.fetchAllAttractions();},
 
       selectedCounty() {
         if (this.isRestoring) return;
+        const resetByDistance = this.handleDistanceQueueResetOnFilters();
         this.selectedRegion = ''; // 重置地区
         localStorage.setItem('attractionsRegion', ''); // 保存到 localStorage 
         this.fetchRegions();
         this.page = 1;
         localStorage.setItem('attractionsPage', this.page); 
         localStorage.setItem('attractionsCounty',this.selectedCounty)
-        this.fetchAttractions(true);
+        if (!resetByDistance) {
+          this.fetchAttractions(true);
+        }
         this.fetchAllAttractions();},
 
       '$route.query.resetFilters'(next) {
@@ -1153,6 +1191,30 @@
     },
 
     methods: {
+      ensureCountryState() {
+        const current = String(this.country || '');
+        let last = null;
+        try { last = localStorage.getItem('lastAttractionsCountry'); } catch (e) {}
+        const switched = last && String(last) !== current;
+        if (switched) {
+          // 跨国家切换时清理缓存，避免在中国/日本等大数据集之间互串
+          this.minReviews = null;
+          this.order = 'rating_desc';
+          this.selectedRegion = '';
+          this.selectedCounty = '';
+          this.page = 1;
+          this.gotoPage = null;
+          this.distanceQueue = null;
+          this.distanceSortAvailable = false;
+          try { localStorage.removeItem('attractionMinReviews'); } catch (e) {}
+          try { localStorage.setItem('attractionsOrder', 'rating_desc'); } catch (e) {}
+          try { localStorage.removeItem('attractionsRegion'); } catch (e) {}
+          try { localStorage.removeItem('attractionsCounty'); } catch (e) {}
+          try { localStorage.setItem('attractionsPage', '1'); } catch (e) {}
+          try { localStorage.removeItem('distanceBrowseQueue'); } catch (e) {}
+        }
+        try { localStorage.setItem('lastAttractionsCountry', current); } catch (e) {}
+      },
       shouldResetListFiltersFromRoute() {
         try {
           const q = this.$route && this.$route.query ? this.$route.query : null;
@@ -1176,6 +1238,7 @@
       resetFiltersAndPagination(triggerFetch = true) {
         const originalRestoring = this.isRestoring;
         this.isRestoring = true;
+        this.clearDistanceQueue(true);
         this.minReviews = null;
         this.order = 'rating_desc';
         this.selectedRegion = '';
@@ -3801,8 +3864,128 @@ const all = this.sortedFavorites || [];
           });
       },
 
+      restoreDistanceQueueState() {
+        const snapshot = this.readDistanceQueueFromStorage();
+        if (!snapshot) {
+          this.clearDistanceQueue(true);
+          if (this.order === 'distance_near') {
+            this.order = 'rating_desc';
+          }
+          return;
+        }
+        const filtersMatch = this.distanceQueueMatchesFilters(snapshot);
+        this.distanceQueue = snapshot;
+        this.distanceSortAvailable = filtersMatch;
+        if (!filtersMatch && this.order === 'distance_near') {
+          this.clearDistanceQueue(true);
+          this.order = 'rating_desc';
+          return;
+        }
+        if (this.order === 'distance_near') {
+          try {
+            const p = parseInt(localStorage.getItem('attractionsPage'), 10);
+            if (Number.isFinite(p) && p > 0) this.page = p;
+          } catch (e) {}
+          this.total = Array.isArray(snapshot.items) ? snapshot.items.length : this.total;
+        }
+      },
+      getCurrentFilterSnapshot() {
+        const minReviews = Number.isFinite(this.minReviews) ? this.minReviews : 0;
+        return {
+          minReviews,
+          region: this.selectedRegion || '',
+          county: this.selectedCounty || '',
+        };
+      },
+      readDistanceQueueFromStorage() {
+        try {
+          const raw = localStorage.getItem('distanceBrowseQueue');
+          if (!raw) return null;
+          const obj = JSON.parse(raw);
+          if (!obj || String(obj.country || '') !== String(this.country)) return null;
+          if (!Array.isArray(obj.items) || !obj.items.length) return null;
+          return obj;
+        } catch (e) {
+          return null;
+        }
+      },
+      distanceQueueMatchesFilters(queue) {
+        if (!queue || !queue.filters) return false;
+        const cur = this.getCurrentFilterSnapshot();
+        return (Number(queue.filters.minReviews) || 0) === (Number(cur.minReviews) || 0)
+          && String(queue.filters.region || '') === String(cur.region || '')
+          && String(queue.filters.county || '') === String(cur.county || '');
+      },
+      clearDistanceQueue(removeStorage = false) {
+        this.distanceQueue = null;
+        this.distanceSortAvailable = false;
+        if (removeStorage) {
+          try { localStorage.removeItem('distanceBrowseQueue'); } catch (e) {}
+        }
+      },
+      handleDistanceQueueResetOnFilters() {
+        const wasDistance = this.order === 'distance_near';
+        if (wasDistance || this.distanceQueue) {
+          this.clearDistanceQueue(true);
+        }
+        if (wasDistance) {
+          this.order = 'rating_desc';
+          return true;
+        }
+        return false;
+      },
+      applyDistanceQueuePage(resetPage = false) {
+        const snapshot = this.readDistanceQueueFromStorage();
+        if (!snapshot || !this.distanceQueueMatchesFilters(snapshot)) {
+          this.clearDistanceQueue(true);
+          return false;
+        }
+        this.distanceSortAvailable = true;
+        this.distanceQueue = snapshot;
+        if (resetPage) this.page = 1;
+        const total = Array.isArray(snapshot.items) ? snapshot.items.length : 0;
+        this.total = total;
+        const maxPage = Math.max(1, Math.ceil((total || 1) / this.limit));
+        if (!Number.isFinite(this.page) || this.page < 1) this.page = 1;
+        if (this.page > maxPage) this.page = maxPage;
+        try { localStorage.setItem('attractionsPage', this.page); } catch (e) {}
+        const start = (this.page - 1) * this.limit;
+        const pageItems = snapshot.items.slice(start, start + this.limit).map(item => ({
+          ...item,
+          image1: item.image1 || '',
+        }));
+        this.attractions = pageItems;
+        this.loading = false;
+        this.prefetchDistanceQueueImages(pageItems);
+        return true;
+      },
+      prefetchDistanceQueueImages(items) {
+        items.forEach(async (a, i) => {
+          try {
+            if (a && a.hasImage && !a.image1) {
+              const res = await fetch(`https://juseaxerf.com/api/attraction-image/${this.country}/${a.id}/1`);
+              if (res && res.ok) {
+                const blob = await res.blob();
+                const url = URL.createObjectURL(blob);
+                if (this.attractions && this.attractions[i]) {
+                  this.attractions[i].image1 = url;
+                }
+              }
+            }
+          } catch (e) {}
+        });
+      },
+
       async fetchAttractions(isregion) {
         this.loading = true;
+        if (this.order === 'distance_near') {
+          const applied = this.applyDistanceQueuePage(!!isregion);
+          if (!applied) {
+            this.loading = false;
+            this.order = 'rating_desc';
+          }
+          return;
+        }
         try {
           const params = new URLSearchParams();
           params.append('minReviews', this.minReviews); // 传递过滤条件
@@ -3886,6 +4069,7 @@ const all = this.sortedFavorites || [];
         localStorage.setItem('attractionsOrder',"rating_desc");
         localStorage.setItem('attractionsCounty','');
         localStorage.setItem('attractionsCounty','');
+        try { localStorage.removeItem('distanceBrowseQueue'); } catch (e) {}
         // 返回到国家选择页（首页路径为 '/'）
         this.$router.push('/');
       },
@@ -3932,10 +4116,13 @@ const all = this.sortedFavorites || [];
           if (!Number.isInteger(this.minReviews) || this.minReviews < 0) {
               this.minReviews = 0;
           }
+          const resetByDistance = this.handleDistanceQueueResetOnFilters();
           this.page = 1;
           localStorage.setItem('attractionsPage', this.page);
           localStorage.setItem('attractionMinReviews', this.minReviews);
-          this.fetchAttractions(false);
+          if (!resetByDistance) {
+            this.fetchAttractions(false);
+          }
       },
 
       filterCounties() {

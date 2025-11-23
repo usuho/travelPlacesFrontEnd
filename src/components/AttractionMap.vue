@@ -2302,7 +2302,7 @@ export default {
         const country = String(meta.country || this.country);
         const node = popupRoot || document.querySelector(`.map-popup[data-id="${id}"][data-country="${country}"]`);
         if (node) {
-          node.addEventListener('click', () => {
+          node.addEventListener('click', async () => {
             // 뿪ͼǰ浱ǰͼͼڴ鷵غָ
             try { this.saveMapView(); } catch (e) {}
             // ͼʵʹõıɫ飬֤һ
@@ -2310,6 +2310,7 @@ export default {
               const color = this.getRatingColor(meta && meta.rating);
               localStorage.setItem('selectedAttractionRatingColor', color);
             } catch (e) {}
+            try { await this.buildDistanceBrowseQueue(meta); } catch (e) {}
             this.$router.push({ path: `/attraction/${country}/${id}` , query: { from: 'map' } });
           }, { once: true, passive: true });
         }
@@ -2404,9 +2405,10 @@ export default {
     _saveNormalsSnapshot(country, arr) {
       try {
         const list = Array.isArray(arr) ? arr.filter(x => Number.isFinite(x.lat) && Number.isFinite(x.lng)) : [];
+        if (list.length > 5000) return; // 数据量过大时不落 localStorage，避免占满配额
         const light = list.map(x => ({ id: x.id, name: x.name, region: x.region, county: x.county, rating: x.rating, total_reviews: x.total_reviews, lat: x.lat, lng: x.lng, hasImage: !!x.hasImage, country: String(x.country || country || this.country) }));
         const payload = { ts: Date.now(), items: light };
-        localStorage.setItem(this._snapshotKey(country), JSON.stringify(payload));
+        this._safeSetItem(this._snapshotKey(country), JSON.stringify(payload));
       } catch (e) {}
     },
     _loadNormalsSnapshot(country) {
@@ -2417,6 +2419,26 @@ export default {
         const items = Array.isArray(obj.items) ? obj.items : [];
         return items;
       } catch (e) { return []; }
+    },
+    _safeSetItem(key, value) {
+      try {
+        localStorage.setItem(key, value);
+        return true;
+      } catch (e) {
+        try { this._purgeLargeSnapshots(); } catch (_) {}
+        try {
+          localStorage.setItem(key, value);
+          return true;
+        } catch (_) { return false; }
+      }
+    },
+    _purgeLargeSnapshots() {
+      try {
+        const keys = Object.keys(localStorage).filter(k => /^allGeoSnapshot_/i.test(k));
+        for (const k of keys) {
+          try { localStorage.removeItem(k); } catch (_) {}
+        }
+      } catch (_) {}
     },
     _geoPut(key, lat, lng) {
       if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
@@ -2450,6 +2472,137 @@ export default {
       if (f.county && String(item.county||'') !== String(f.county)) return false;
       if (f.region && String(item.region||'') !== String(f.region)) return false;
       return true;
+    },
+
+    async buildDistanceBrowseQueue(meta) {
+      try {
+        const listCountry = this.resolveListCountryForQueue(meta);
+        if (!listCountry) return;
+        const baseLat = Number(meta && meta.lat);
+        const baseLng = Number(meta && meta.lng);
+        if (!Number.isFinite(baseLat) || !Number.isFinite(baseLng)) return;
+        const dataset = await this.obtainGeoDatasetForQueue(listCountry);
+        if (!Array.isArray(dataset) || !dataset.length) return;
+        const filters = this.getActiveFilters ? this.getActiveFilters() : { minReviews: 0, region: '', county: '' };
+        let filtered = dataset.filter(item => {
+          if (!item) return false;
+          if (String(item.country || '') !== listCountry) return false;
+          if (String(item.country || '') === 'custom') return false;
+          return this.passFilters ? this.passFilters(item, filters) : true;
+        });
+        if (!filtered.length) {
+          // 若按筛选条件为空，退回无筛选全量，避免队列缺失
+          filtered = dataset.filter(item => item && String(item.country || '') === listCountry && String(item.country || '') !== 'custom');
+        }
+        if (!filtered.length) return;
+        const normalizeItem = (item) => {
+          const lat = Number(item && item.lat);
+          const lng = Number(item && item.lng);
+          return {
+            id: item && item.id,
+            name: (item && item.name) || '',
+            region: (item && item.region) || '',
+            county: (item && item.county) || '',
+            rating: item && item.rating,
+            total_reviews: item && item.total_reviews,
+            positive_reviews: item && item.positive_reviews,
+            hasImage: !!(item && item.hasImage),
+            lat: Number.isFinite(lat) ? lat : null,
+            lng: Number.isFinite(lng) ? lng : null,
+          };
+        };
+        const currentIdStr = String(meta && meta.id);
+        const pageSize = 20;
+        const withCoords = [];
+        const withoutCoords = [];
+        const dedupe = new Set();
+        for (const raw of filtered) {
+          const norm = normalizeItem(raw);
+          if (!norm || !norm.id) continue;
+          const key = `${String(norm.id)}`;
+          if (dedupe.has(key)) continue;
+          dedupe.add(key);
+          const hasGeo = Number.isFinite(norm.lat) && Number.isFinite(norm.lng);
+          norm.distance = hasGeo ? this.computeDistanceKm(baseLat, baseLng, norm.lat, norm.lng) : null;
+          if (hasGeo) withCoords.push(norm); else withoutCoords.push(norm);
+        }
+        if (!withCoords.length && !withoutCoords.length) return;
+        const currentCandidate =
+          withCoords.find(i => String(i.id) === currentIdStr) ||
+          withoutCoords.find(i => String(i.id) === currentIdStr) ||
+          normalizeItem({ ...meta, country: listCountry, lat: baseLat, lng: baseLng, hasImage: meta && meta.hasImage });
+        const restWith = withCoords
+          .filter(i => String(i.id) !== currentIdStr)
+          .sort((a, b) => (a.distance || Infinity) - (b.distance || Infinity));
+        const restWithout = withoutCoords.filter(i => String(i.id) !== currentIdStr);
+        const queue = [currentCandidate, ...restWith, ...restWithout].filter(Boolean);
+        queue.forEach((item, idx) => { item.page = Math.floor(idx / pageSize) + 1; });
+        const currentPage = queue.find(i => String(i.id) === currentIdStr)?.page || 1;
+        const payload = {
+          country: listCountry,
+          filters: {
+            minReviews: Number(filters.minReviews) || 0,
+            region: filters.region || '',
+            county: filters.county || '',
+          },
+          baseId: currentIdStr,
+          generatedAt: Date.now(),
+          items: queue,
+        };
+        this._safeSetItem('distanceBrowseQueue', JSON.stringify(payload));
+        this._safeSetItem('attractionsOrder', 'distance_near');
+        this._safeSetItem('attractionsPage', String(currentPage));
+      } catch (e) {
+        try { console.warn('[DistanceQueue] generate failed', e); } catch (_) {}
+      }
+    },
+    resolveListCountryForQueue(meta) {
+      const current = String(this.country || '').toLowerCase();
+      const metaCountry = String((meta && meta.country) || current || '').toLowerCase();
+      const listCountry = current === 'custom'
+        ? String(this.normalsCountry || this.getListCountryFromQuery() || '').toLowerCase()
+        : current;
+      if (!listCountry || listCountry === 'custom') return '';
+      if (metaCountry && metaCountry !== listCountry) return '';
+      return listCountry;
+    },
+    async obtainGeoDatasetForQueue(listCountry) {
+      const activeCountry = String(this.country || '').toLowerCase() === 'custom'
+        ? String(this.normalsCountry || '').toLowerCase()
+        : String(this.country || '').toLowerCase();
+      if (Array.isArray(this._allGeoData) && this._allGeoData.length && String(activeCountry) === String(listCountry)) {
+        return this._allGeoData;
+      }
+      let res = await fetchAttractionsGeo(listCountry);
+      if (!Array.isArray(res) || !res.length) {
+        try {
+          const pos = await fetchAttractionsPositions(listCountry);
+          if (Array.isArray(pos) && pos.length) {
+            res = pos.map(p => ({
+              id: p.id,
+              name: p.name,
+              region: p.region,
+              county: p.county,
+              rating: p.rating,
+              total_reviews: p.total_reviews,
+              positive_reviews: p.positive_reviews,
+              lat: p.lat,
+              lng: p.lng,
+              hasImage: !!p.hasImage,
+              country: listCountry,
+            }));
+          }
+        } catch (e) {}
+      }
+      return Array.isArray(res) ? res : [];
+    },
+    computeDistanceKm(lat1, lng1, lat2, lng2) {
+      if (![lat1, lng1, lat2, lng2].every(v => Number.isFinite(v))) return Infinity;
+      const toRad = (deg) => deg * Math.PI / 180;
+      const dLat = toRad(lat2 - lat1);
+      const dLng = toRad(lng2 - lng1);
+      const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
+      return 6371 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
     },
 
     getImageUrl(meta, imgId) {

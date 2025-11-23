@@ -220,7 +220,8 @@
 </template>
   
   <script>
-  import { openDB } from 'idb';
+   import { openDB } from 'idb';
+   import { fetchAttractionsPositions } from '../utils/geoApi.js';
   import { findCustomAttractionById, deleteCustomAttraction } from '../utils/customAttractions.js'
   import { getImageUrl as getCustomImageUrl, deleteImagesForId as deleteCustomImagesForId } from '../utils/customImageStore.js'
   import CreateAttractionModal from './CreateAttractionModal.vue'
@@ -293,7 +294,9 @@
       this.bumpAnimKeys();
       this.resetDetailSwipeState(true);
       this.hasNextPage = Array.isArray(this.ids) && this.ids.length >= this.listPageLimit;
+      this.syncIdsWithDistanceQueue();
       await this.fetchAttractionDetails();
+      await this.ensureDistanceQueueForMapEntry();
     },
     mounted() {
       // 浏览器/手机后退键与页面“返回”按钮一致：一律回到列表页（先退出全屏）
@@ -320,6 +323,7 @@
         this.attraction = null;
         for (let i = 1; i <= 3; i++) this[`image${i}`] = null;
         this.bumpAnimKeys();
+        this.syncIdsWithDistanceQueue();
         this.fetchAttractionDetails();
       }
     },
@@ -331,11 +335,11 @@
     },
     
 
-  computed: {
-    isFavoritesMode() {
-      return this.$route.query.from === 'favorites';
-    },
-    ratingBackgroundColor() {
+    computed: {
+      isFavoritesMode() {
+        return this.$route.query.from === 'favorites';
+      },
+      ratingBackgroundColor() {
       const rating = this.attraction && this.attraction.rating;
       if (rating !== undefined && rating !== null && String(rating).trim() !== '') {
         return this.getRatingColor(rating);
@@ -354,21 +358,33 @@
       };
     },
     nextDisabled() {
-      if (this.fromMap) return true;
-      if (this.isFavoritesMode) return this.favIndex >= this.favNav.length - 1;
-      if (this.fromSearch) return true;
-      if (Array.isArray(this.ids) && this.ids.length && this.index < this.ids.length - 1) return false;
-      return !this.hasNextPage;
-    },
+        if (this.isFavoritesMode) return this.favIndex >= this.favNav.length - 1;
+        if (this.fromSearch) return true;
+        const distanceMode = this.isDistanceMode();
+        if (Array.isArray(this.ids) && this.ids.length && this.index < this.ids.length - 1) return false;
+        if (distanceMode) return !this.hasNextPage;
+        return !this.hasNextPage;
+      },
     prevDisabled() {
-      if (this.fromMap) return true;
-      if (this.isFavoritesMode) return this.favIndex === 0;
-      if (this.fromSearch) return true;
-      if (this.index > 0) return false;
-      return this.listPage <= 1;
-    }
-  },
+        if (this.isFavoritesMode) return this.favIndex === 0;
+        if (this.fromSearch) return true;
+        const distanceMode = this.isDistanceMode();
+        if (this.index > 0) return false;
+        if (distanceMode) return this.listPage <= 1;
+        return this.listPage <= 1;
+      }
+    },
     methods: {
+      isDistanceMode() {
+        try {
+          const order = localStorage.getItem('attractionsOrder') || '';
+          if (order !== 'distance_near') return false;
+          const q = this.getDistanceQueueSnapshot();
+          return !!(q && Array.isArray(q.items) && q.items.length);
+        } catch (e) {
+          return false;
+        }
+      },
       openMapForThis() {
         try {
           if (this.fromMap) {
@@ -672,7 +688,7 @@
         }
       },
       canSwipeDetail(direction) {
-        if (this.fromMap || this.fromSearch) return false;
+        if (this.fromSearch) return false;
         if (!this.attraction || this.loading) return false;
         if (this.isFavoritesMode && this.favNav.length > 0) {
           if (direction === 'left') return this.favIndex < this.favNav.length - 1;
@@ -818,6 +834,199 @@
         }
     }
   },
+      getDistanceQueueSnapshot() {
+        try {
+          const raw = localStorage.getItem('distanceBrowseQueue');
+          if (!raw) return null;
+          const obj = JSON.parse(raw);
+          if (!obj || String(obj.country || '') !== String(this.country)) return null;
+          if (!Array.isArray(obj.items) || !obj.items.length) return null;
+          return obj;
+        } catch (e) {
+          return null;
+        }
+      },
+      syncIdsWithDistanceQueue() {
+        const order = localStorage.getItem('attractionsOrder') || '';
+        if (order !== 'distance_near') {
+          // 地图进入但未启用距离模式时，避免沿用旧 ids
+          if (this.fromMap) {
+            this.ids = [this.id];
+            this.listPage = 1;
+            this.index = 0;
+            this.hasNextPage = false;
+            try { localStorage.setItem('ids', this.ids.join(',')); localStorage.setItem('attractionIndex', '0'); } catch (e) {}
+          }
+          return;
+        }
+        const queue = this.getDistanceQueueSnapshot();
+        if (!queue || !Array.isArray(queue.items) || !queue.items.length) {
+          this.clearDistanceQueueStorage();
+          this.ids = [this.id];
+          this.listPage = 1;
+          this.index = 0;
+          this.hasNextPage = false;
+          try { localStorage.setItem('ids', this.ids.join(',')); localStorage.setItem('attractionIndex', '0'); } catch (e) {}
+          return;
+        }
+        const hitIndex = queue.items.findIndex(it => String(it.id) === String(this.id));
+        if (hitIndex === -1) {
+          this.clearDistanceQueueStorage();
+          this.ids = [this.id];
+          this.listPage = 1;
+          this.index = 0;
+          this.hasNextPage = false;
+          try { localStorage.setItem('ids', this.ids.join(',')); localStorage.setItem('attractionIndex', '0'); } catch (e) {}
+          return;
+        }
+        let targetPage = parseInt(localStorage.getItem('attractionsPage'), 10);
+        if (!Number.isFinite(targetPage) || targetPage <= 0) {
+          const hit = queue.items[hitIndex];
+          targetPage = (hit && hit.page) ? hit.page : Math.floor(hitIndex / this.listPageLimit) + 1;
+        }
+        const start = (targetPage - 1) * this.listPageLimit;
+        const slice = queue.items.slice(start, start + this.listPageLimit);
+        if (slice.length) {
+          this.ids = slice.map(it => it.id);
+          this.listPage = targetPage;
+          const localIndex = slice.findIndex(it => String(it.id) === String(this.id));
+          this.index = localIndex >= 0 ? localIndex : 0;
+          try {
+            localStorage.setItem('ids', this.ids.join(','));
+            localStorage.setItem('attractionIndex', String(this.index));
+            localStorage.setItem('attractionsPage', String(this.listPage));
+          } catch (e) {}
+        }
+        this.hasNextPage = queue.items.length > targetPage * this.listPageLimit;
+      },
+      clearDistanceQueueStorage() {
+        try { localStorage.removeItem('distanceBrowseQueue'); } catch (e) {}
+      },
+      getFiltersFromStorage() {
+        const out = { minReviews: 0, region: '', county: '' };
+        try { const v = localStorage.getItem('attractionMinReviews'); if (v !== null && v !== '' && !Number.isNaN(parseInt(v,10))) out.minReviews = parseInt(v,10); } catch (e) {}
+        try { const v = localStorage.getItem('attractionsRegion'); if (v !== null) out.region = v; } catch (e) {}
+        try { const v = localStorage.getItem('attractionsCounty'); if (v !== null) out.county = v; } catch (e) {}
+        return out;
+      },
+      computeDistanceKm(lat1, lng1, lat2, lng2) {
+        if (![lat1, lng1, lat2, lng2].every(v => Number.isFinite(v))) return Infinity;
+        const toRad = (deg) => deg * Math.PI / 180;
+        const dLat = toRad(lat2 - lat1);
+        const dLng = toRad(lng2 - lng1);
+        const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
+        return 6371 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+      },
+      async ensureDistanceQueueForMapEntry() {
+        if (!this.fromMap) return;
+        const existing = this.getDistanceQueueSnapshot();
+        if (existing && String(existing.country || '') === String(this.country) && Array.isArray(existing.items) && existing.items.some(it => String(it.id) === String(this.id))) {
+          return;
+        }
+        const filters = this.getFiltersFromStorage();
+        let positions = [];
+        try {
+          positions = await fetchAttractionsPositions(this.country);
+        } catch (e) { positions = []; }
+        if (!Array.isArray(positions) || !positions.length) return;
+        const baseItem = positions.find(p => String(p.id) === String(this.id));
+        const baseLat = Number(baseItem && baseItem.lat);
+        const baseLng = Number(baseItem && baseItem.lng);
+        if (!Number.isFinite(baseLat) || !Number.isFinite(baseLng)) return;
+        const normalize = (p) => {
+          const lat = Number(p && p.lat);
+          const lng = Number(p && p.lng);
+          return {
+            id: p && p.id,
+            name: (p && p.name) || '',
+            region: (p && p.region) || '',
+            county: (p && p.county) || '',
+            rating: p && p.rating,
+            total_reviews: p && p.total_reviews,
+            positive_reviews: p && p.positive_reviews,
+            hasImage: !!(p && p.hasImage),
+            lat: Number.isFinite(lat) ? lat : null,
+            lng: Number.isFinite(lng) ? lng : null,
+          };
+        };
+        const passFilters = (item) => {
+          if (!item) return false;
+          if (typeof item.total_reviews !== 'undefined' && item.total_reviews !== null) {
+            const tr = parseInt(item.total_reviews, 10);
+            if (Number.isFinite(tr) && tr < (filters.minReviews || 0)) return false;
+          }
+          if (filters.county && String(item.county||'') !== String(filters.county)) return false;
+          if (filters.region && String(item.region||'') !== String(filters.region)) return false;
+          return true;
+        };
+        const withCoords = [];
+        const withoutCoords = [];
+        const pageSize = 20;
+        const dedupe = new Set();
+        for (const p of positions) {
+          const norm = normalize(p);
+          if (!norm || !norm.id) continue;
+          const key = String(norm.id);
+          if (dedupe.has(key)) continue;
+          dedupe.add(key);
+          if (!passFilters(norm)) continue;
+          const hasGeo = Number.isFinite(norm.lat) && Number.isFinite(norm.lng);
+          norm.distance = hasGeo ? this.computeDistanceKm(baseLat, baseLng, norm.lat, norm.lng) : null;
+          if (hasGeo) withCoords.push(norm); else withoutCoords.push(norm);
+        }
+        if (!withCoords.length && !withoutCoords.length) {
+          // 无法通过筛选时，退回无筛选全量
+          withCoords.length = 0; withoutCoords.length = 0; dedupe.clear();
+          for (const p of positions) {
+            const norm = normalize(p);
+            if (!norm || !norm.id) continue;
+            const key = String(norm.id);
+            if (dedupe.has(key)) continue;
+            dedupe.add(key);
+            const hasGeo = Number.isFinite(norm.lat) && Number.isFinite(norm.lng);
+            norm.distance = hasGeo ? this.computeDistanceKm(baseLat, baseLng, norm.lat, norm.lng) : null;
+            if (hasGeo) withCoords.push(norm); else withoutCoords.push(norm);
+          }
+          if (!withCoords.length && !withoutCoords.length) return;
+        }
+        const currentIdStr = String(this.id);
+        const baseCandidate =
+          withCoords.find(i => String(i.id) === currentIdStr) ||
+          withoutCoords.find(i => String(i.id) === currentIdStr) ||
+          normalize({ ...baseItem, lat: baseLat, lng: baseLng });
+        const restWith = withCoords
+          .filter(i => String(i.id) !== currentIdStr)
+          .sort((a, b) => (a.distance || Infinity) - (b.distance || Infinity));
+        const restWithout = withoutCoords.filter(i => String(i.id) !== currentIdStr);
+        const queue = [baseCandidate, ...restWith, ...restWithout].filter(Boolean);
+        queue.forEach((item, idx) => { item.page = Math.floor(idx / pageSize) + 1; });
+        const currentPage = queue.find(i => String(i.id) === currentIdStr)?.page || 1;
+        const payload = {
+          country: String(this.country),
+          filters: {
+            minReviews: Number(filters.minReviews) || 0,
+            region: filters.region || '',
+            county: filters.county || '',
+          },
+          baseId: currentIdStr,
+          generatedAt: Date.now(),
+          items: queue,
+        };
+        try {
+          const safe = (k, v) => {
+            try { localStorage.setItem(k, v); return true; } catch (err) {
+              try {
+                Object.keys(localStorage).filter(key => /^allGeoSnapshot_/i.test(key)).forEach(key => { try { localStorage.removeItem(key); } catch (_) {} });
+              } catch (_) {}
+              try { localStorage.setItem(k, v); return true; } catch (_) { return false; }
+            }
+          };
+          safe('distanceBrowseQueue', JSON.stringify(payload));
+          safe('attractionsOrder', 'distance_near');
+          safe('attractionsPage', String(currentPage));
+        } catch (e) {}
+        this.syncIdsWithDistanceQueue();
+      },
       updateLastRoutePage(targetPage) {
         try {
           const last = localStorage.getItem('lastAttractionsRoute') || '';
@@ -850,6 +1059,23 @@
         return params;
       },
       async loadListPage(targetPage) {
+        try {
+          const order = localStorage.getItem('attractionsOrder') || 'rating_desc';
+          if (order === 'distance_near') {
+            const queue = this.getDistanceQueueSnapshot();
+            if (!queue || !Array.isArray(queue.items)) { this.hasNextPage = false; return false; }
+            const start = (targetPage - 1) * this.listPageLimit;
+            const slice = queue.items.slice(start, start + this.listPageLimit);
+            if (!slice.length) { this.hasNextPage = false; return false; }
+            this.ids = slice.map(item => item.id);
+            try { localStorage.setItem('ids', this.ids.join(',')); } catch (e) {}
+            this.listPage = targetPage;
+            try { localStorage.setItem('attractionsPage', String(targetPage)); } catch (e) {}
+            this.updateLastRoutePage(targetPage);
+            this.hasNextPage = queue.items.length > targetPage * this.listPageLimit;
+            return true;
+          }
+        } catch (e) {}
         try {
           const params = this.buildListQueryParams(targetPage);
           const response = await fetch(`https://juseaxerf.com/api/attractions/${this.country}?${params.toString()}`);
