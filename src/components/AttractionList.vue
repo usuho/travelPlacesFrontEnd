@@ -335,6 +335,7 @@
         <div
           v-else
           class="attractions-list attractions-list-desktop"
+          :key="listRenderKey"
           v-fly-in
           :style="swipeStyle"
           @touchstart="swipeEnabled && onListSwipeStart($event)"
@@ -959,10 +960,14 @@
         attractionSuggestions: [],
         distanceSortAvailable: false,
         distanceQueue: null,
+        listRenderTick: 0,
       };
     },
 
     computed: {
+      listRenderKey() {
+        return `${this.order || 'rating_desc'}-${this.page || 1}-${this.listRenderTick}`;
+      },
       totalPages() {
         return Math.ceil(this.total / this.limit);
       },
@@ -3957,6 +3962,7 @@ const all = this.sortedFavorites || [];
         this.attractions = pageItems;
         this.loading = false;
         this.prefetchDistanceQueueImages(pageItems);
+        this.bumpListRenderTick();
         return true;
       },
       prefetchDistanceQueueImages(items) {
@@ -3974,6 +3980,9 @@ const all = this.sortedFavorites || [];
             }
           } catch (e) {}
         });
+      },
+      bumpListRenderTick() {
+        this.listRenderTick = (this.listRenderTick + 1) % 1000000;
       },
 
       async fetchAttractions(isregion) {
@@ -4050,6 +4059,7 @@ const all = this.sortedFavorites || [];
                 return tb - ta; // 总评论数降序
               });
             }
+            this.bumpListRenderTick();
           } else {
             this.attractions = [];
             this.loading = false;
