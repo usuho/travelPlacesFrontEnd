@@ -961,6 +961,8 @@
         distanceSortAvailable: false,
         distanceQueue: null,
         listRenderTick: 0,
+        fetchRetryDelay: 2000,
+        activeFetchToken: 0,
       };
     },
 
@@ -1177,6 +1179,7 @@
     },
 
     beforeDestroy() {
+      this.activeFetchToken += 1;
       this.clearSwipeResetTimer();
       this.closeFavoritesContextMenu();
       this.unlockPageTouchScroll();
@@ -3994,8 +3997,12 @@ const all = this.sortedFavorites || [];
       bumpListRenderTick() {
         this.listRenderTick = (this.listRenderTick + 1) % 1000000;
       },
+      waitForRetry(delay) {
+        return new Promise(resolve => setTimeout(resolve, delay));
+      },
 
       async fetchAttractions(isregion) {
+        const fetchToken = ++this.activeFetchToken;
         this.loading = true;
         if (this.order === 'distance_near') {
           const applied = this.applyDistanceQueuePage(!!isregion);
@@ -4005,54 +4012,48 @@ const all = this.sortedFavorites || [];
           }
           return;
         }
-        try {
-          const params = new URLSearchParams();
-          params.append('minReviews', this.minReviews); // 传递过滤条件
-          params.append('order', this.order); // 传递排序条件
-          if (isregion){
-            params.append('page',1);
-          }
-          else {
-            params.append('page',this.page);
-          }
-          params.append('limit',this.limit);
+        const params = new URLSearchParams();
+        params.append('minReviews', this.minReviews);
+        params.append('order', this.order);
+        params.append('page', isregion ? 1 : this.page);
+        params.append('limit', this.limit);
+        if (this.selectedRegion) params.append('region', this.selectedRegion);
+        if (this.selectedCounty) params.append('county', this.selectedCounty);
+        if (this.order === 'rating_desc') params.append('secondary', 'reviews_desc');
 
-          if (this.selectedRegion) {
-            params.append('region', this.selectedRegion);
-          }
+        while (this.activeFetchToken === fetchToken) {
+          try {
+            const response = await fetch(`https://juseaxerf.com/api/attractions/${this.country}?${params.toString()}`);
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            const data = await response.json();
+            if (this.activeFetchToken !== fetchToken) return;
 
-          if (this.selectedCounty) {
-            params.append('county', this.selectedCounty);
-          }
+            if (!data || !Array.isArray(data.data)) {
+              throw new Error('Invalid attractions payload');
+            }
 
-          // 在好评率降序时，追加次级排序为总评论数降序（由服务端处理）
-          if (this.order === 'rating_desc') {
-            params.append('secondary', 'reviews_desc');
-          }
-
-          const response = await fetch(`https://juseaxerf.com/api/attractions/${this.country}?${params.toString()}`);
-          const data = await response.json();
-        
-          if (data.data.length > 0) {
-            // ✅ 第一步：只加载文字数据
-            this.total = data.total;
+            const parsedTotal = Number.parseInt(data.total, 10);
+            const total = Number.isFinite(parsedTotal) ? parsedTotal : data.data.length;
+            this.total = total;
             this.attractions = data.data.map(a => ({
               ...a,
-              image1: '', // 先显示文字，图片留空
+              image1: '',
             }));
-            this.loading = false; // ✅ 提前结束 loading，先显示文字
+            this.loading = false;
 
-            // ✅ 图片异步加载（确保响应式更新）
             this.attractions.forEach(async (a, i) => {
               if (a.hasImage) {
-                const res = await fetch(`https://juseaxerf.com/api/attraction-image/${this.country}/${a.id}/1`);
-                const blob = await res.blob();
-                const url = URL.createObjectURL(blob);
-                this.attractions[i].image1 = url;
+                try {
+                  const res = await fetch(`https://juseaxerf.com/api/attraction-image/${this.country}/${a.id}/1`);
+                  if (res && res.ok) {
+                    const blob = await res.blob();
+                    const url = URL.createObjectURL(blob);
+                    this.attractions[i].image1 = url;
+                  }
+                } catch (e) {}
               }
             });
 
-            // 前端兜底：当排序为好评率降序时，对相同好评率按总评论数降序排列
             if (this.order === 'rating_desc') {
               const parsePercent = (v) => {
                 if (v == null) return 0;
@@ -4063,24 +4064,21 @@ const all = this.sortedFavorites || [];
               this.attractions = [...this.attractions].sort((a, b) => {
                 const ra = parsePercent(a.rating);
                 const rb = parsePercent(b.rating);
-                if (rb !== ra) return rb - ra; // 好评率降序
+                if (rb !== ra) return rb - ra;
                 const ta = Number(a.total_reviews) || 0;
                 const tb = Number(b.total_reviews) || 0;
-                return tb - ta; // 总评论数降序
+                return tb - ta;
               });
             }
             this.bumpListRenderTick();
-          } else {
-            this.attractions = [];
-            this.loading = false;
+            return;
+          } catch (error) {
+            console.error('????????:', error);
+            if (this.activeFetchToken !== fetchToken) return;
+            await this.waitForRetry(this.fetchRetryDelay);
           }
-        } catch (error) {
-          console.error('获取景点数据失败:', error);
-          this.attractions = [];
-          this.loading = false;
-        } 
+        }
       },
-
 
       goBack() {
         localStorage.setItem('attractionsPage', 1); // 保存当前页数到localStorage
