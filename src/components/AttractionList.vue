@@ -38,13 +38,13 @@
           <div class="filter-group">
             <label for="order">排序方式</label>
             <select v-model="order" id="order">
-              <option value="rating_desc">好评率[最高]</option>
-              <option value="rating_asc">好评率[最低]</option>
-              <option value="reviews_desc">评论数[最多]</option>
-              <option value="reviews_asc">评论数[最少]</option>
-              <option value="positive_desc">好评数[最多]</option>
-              <option value="positive_asc">好评数[最少]</option>
-              <option v-if="distanceSortAvailable" value="distance_near">距离[最近]</option>
+              <option value="rating_desc">好评率『最高』</option>
+              <option value="rating_asc">好评率『最低』</option>
+              <option value="reviews_desc">评论数『最多』</option>
+              <option value="reviews_asc">评论数『最少』</option>
+              <option value="positive_desc">好评数『最多』</option>
+              <option value="positive_asc">好评数『最少』</option>
+              <option v-if="distanceSortAvailable" value="distance_near">距离『最近』</option>
             </select>
           </div>
           
@@ -211,13 +211,13 @@
 
             <span class="filter-label">排序方式</span>
             <select v-model="order">
-              <option value="rating_desc">好评率[最高]</option>
-              <option value="rating_asc">好评率[最低]</option>
-              <option value="reviews_desc">评论数[最多]</option>
-              <option value="reviews_asc">评论数[最少]</option>
-              <option value="positive_desc">好评数[最多]</option>
-              <option value="positive_asc">好评数[最少]</option>
-              <option v-if="distanceSortAvailable" value="distance_near">距离[最近]</option>
+              <option value="rating_desc">好评率『最高』</option>
+              <option value="rating_asc">好评率『最低』</option>
+              <option value="reviews_desc">评论数『最多』</option>
+              <option value="reviews_asc">评论数『最少』</option>
+              <option value="positive_desc">好评数『最多』</option>
+              <option value="positive_asc">好评数『最少』</option>
+              <option v-if="distanceSortAvailable" value="distance_near">距离『最近』</option>
             </select>
             <input
               type="search"
