@@ -1201,7 +1201,8 @@
         let last = null;
         try { last = localStorage.getItem('lastAttractionsCountry'); } catch (e) {}
         const switched = last && String(last) !== current;
-        if (switched) {
+        const hasDistanceQueue = this.hasDistanceQueueForCountry(current);
+        if (switched && !hasDistanceQueue) {
           // 跨国家切换时清理缓存，避免在中国/日本等大数据集之间互串
           this.minReviews = null;
           this.order = 'rating_desc';
@@ -1219,6 +1220,15 @@
           try { localStorage.removeItem('distanceBrowseQueue'); } catch (e) {}
         }
         try { localStorage.setItem('lastAttractionsCountry', current); } catch (e) {}
+      },
+      hasDistanceQueueForCountry(country) {
+        try {
+          const raw = localStorage.getItem('distanceBrowseQueue');
+          if (!raw) return false;
+          const obj = JSON.parse(raw);
+          if (!obj || !obj.items || !obj.items.length) return false;
+          return String(obj.country || '') === String(country);
+        } catch (e) { return false; }
       },
       shouldResetListFiltersFromRoute() {
         try {
