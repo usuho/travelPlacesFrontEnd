@@ -1548,6 +1548,7 @@ export default {
 
       let latlng = null;
       let meta = null;
+      let focusMarker = null;
 
       if (String(this.country) === 'custom') {
         const ca = findCustomAttractionById(id);
@@ -1611,6 +1612,7 @@ export default {
                           markerFav.on('popupopen', () => this.attachPopupHandlers(metaLater));
                         }
                         markerFav.addTo(this.favoritesLayer);
+                        focusMarker = markerFav;
                       }
                     } catch (e) {}
 
@@ -1626,6 +1628,22 @@ export default {
           }
         }
         meta = ca ? { id, name: ca.name, region: ca.region, county: ca.county, rating: (Number.isFinite(ca && ca.rating) ? ca.rating : 0), country: 'custom', hasImage: !!(ca.hasImage1 || ca.hasImage2 || ca.hasImage3) } : null;
+        // 若已有收藏层 marker，则直接作为聚焦弹窗目标
+        if (!focusMarker) {
+          try {
+            const layers = this.favoritesLayer && this.favoritesLayer._layers;
+            if (layers) {
+              for (const key of Object.keys(layers)) {
+                const m = layers[key];
+                const mmeta = m && m.options && m.options._meta;
+                if (mmeta && String(mmeta.id) === id && String(mmeta.country || 'custom') === 'custom') {
+                  focusMarker = m;
+                  break;
+                }
+              }
+            }
+          } catch (e) {}
+        }
       } else {
         try {
           const arr = await fetchAttractionsGeoByIds(this.country, [id]);
@@ -1685,8 +1703,15 @@ export default {
           marker.on('popupopen', () => this.attachPopupHandlers(meta));
         }
         marker.addTo(this.focusedLayer);
+        focusMarker = marker;
       }
 
+      // 自动弹出聚焦景点气泡
+      if (focusMarker && typeof focusMarker.openPopup === 'function') {
+        this.$nextTick(() => {
+          try { focusMarker.openPopup(); } catch (e) {}
+        });
+      }
 
       try {
         this._hasRenderedFirst = true;
