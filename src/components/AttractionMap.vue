@@ -1997,9 +1997,25 @@ export default {
         if (!this.map) return;
         const z = this.map.getZoom();
         const threshold = this._overlapZoomThreshold;
+        const focusedKey = this.focusId ? `${String(this.country)}|${String(this.focusId)}` : null;
+        const isFocusedNormal = (m) => {
+          try {
+            const meta = m && m.options ? m.options._meta : null;
+            if (!meta || !focusedKey) return false;
+            const key = `${String(meta.country || this.country)}|${String(meta.id)}`;
+            if (String(meta.country || this.country) === 'custom') return false;
+            return key === focusedKey;
+          } catch (e) { return false; }
+        };
         const groups = new Map(); // key -> { center: L.LatLng, fav: [], normal: [] }
         const add = (m, isFav) => {
           try {
+            if (isFocusedNormal(m)) {
+              // 聚焦景点保持在原始位置，不参与重叠横向分离
+              const orig = (m && m.options && m.options._origLatLng) ? m.options._origLatLng : null;
+              if (orig) { try { m.setLatLng(orig); } catch (e) {} }
+              return;
+            }
             const c = (m && m.options && m.options._origLatLng) ? m.options._origLatLng : (m.getLatLng && m.getLatLng());
             if (!c) return;
             const key = `${c.lat.toFixed(6)},${c.lng.toFixed(6)}`;
