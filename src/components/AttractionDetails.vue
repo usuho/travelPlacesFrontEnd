@@ -221,7 +221,7 @@
   
   <script>
    import { openDB } from 'idb';
-   import { fetchAttractionsPositions } from '../utils/geoApi.js';
+   import { fetchAttractionsPositions, getLastApiBase } from '../utils/geoApi.js';
   import { findCustomAttractionById, deleteCustomAttraction } from '../utils/customAttractions.js'
   import { getImageUrl as getCustomImageUrl, deleteImagesForId as deleteCustomImagesForId } from '../utils/customImageStore.js'
   import CreateAttractionModal from './CreateAttractionModal.vue'
@@ -917,6 +917,26 @@
         const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
         return 6371 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
       },
+      async fetchNonGeoQueueCandidates(country, filters) {
+        try {
+          const params = new URLSearchParams();
+          params.append('page', '1');
+          params.append('limit', '1000');
+          params.append('order', 'rating_desc');
+          if (filters && filters.minReviews) params.append('minReviews', filters.minReviews);
+          if (filters && filters.region) params.append('region', filters.region);
+          if (filters && filters.county) params.append('county', filters.county);
+          const base = (typeof getLastApiBase === 'function' ? getLastApiBase() : '') || 'https://juseaxerf.com';
+          const resp = await fetch(`${base}/api/attractions/${country}?${params.toString()}`);
+          const data = resp && resp.ok ? await resp.json() : null;
+          if (!data || !Array.isArray(data.data)) return [];
+          return data.data
+            .filter(item => !Number.isFinite(Number(item && item.lat)) || !Number.isFinite(Number(item && item.lng)))
+            .map(item => ({ ...item, lat: null, lng: null, country }));
+        } catch (e) {
+          return [];
+        }
+      },
       async ensureDistanceQueueForMapEntry() {
         if (!this.fromMap) return;
         const existing = this.getDistanceQueueSnapshot();
@@ -928,10 +948,23 @@
         try {
           positions = await fetchAttractionsPositions(this.country);
         } catch (e) { positions = []; }
+        try {
+          const extra = await this.fetchNonGeoQueueCandidates(this.country, filters);
+          if (Array.isArray(extra) && extra.length) positions = positions.concat(extra);
+        } catch (e) {}
         if (!Array.isArray(positions) || !positions.length) return;
-        const baseItem = positions.find(p => String(p.id) === String(this.id));
-        const baseLat = Number(baseItem && baseItem.lat);
-        const baseLng = Number(baseItem && baseItem.lng);
+        let baseItem = positions.find(p => String(p.id) === String(this.id));
+        const currentIdStr = String(this.id);
+        let baseLat = Number(baseItem && baseItem.lat);
+        let baseLng = Number(baseItem && baseItem.lng);
+        if (!Number.isFinite(baseLat) || !Number.isFinite(baseLng)) {
+          const fallback = positions.find(p => String(p && p.id) === currentIdStr && Number.isFinite(p && p.lat) && Number.isFinite(p && p.lng));
+          if (fallback) {
+            baseItem = { ...fallback };
+            baseLat = Number(fallback.lat);
+            baseLng = Number(fallback.lng);
+          }
+        }
         if (!Number.isFinite(baseLat) || !Number.isFinite(baseLng)) return;
         const normalize = (p) => {
           const lat = Number(p && p.lat);
@@ -989,16 +1022,24 @@
           }
           if (!withCoords.length && !withoutCoords.length) return;
         }
-        const currentIdStr = String(this.id);
         const baseCandidate =
           withCoords.find(i => String(i.id) === currentIdStr) ||
           withoutCoords.find(i => String(i.id) === currentIdStr) ||
           normalize({ ...baseItem, lat: baseLat, lng: baseLng });
+        if (baseCandidate && Number.isFinite(baseLat) && Number.isFinite(baseLng) && Number.isFinite(baseCandidate.lat) && Number.isFinite(baseCandidate.lng)) {
+          baseCandidate.distance = this.computeDistanceKm(baseLat, baseLng, baseCandidate.lat, baseCandidate.lng);
+        }
         const restWith = withCoords
           .filter(i => String(i.id) !== currentIdStr)
           .sort((a, b) => (a.distance || Infinity) - (b.distance || Infinity));
+        const isZeroDistance = (item) => Number.isFinite(item && item.distance) && Math.abs(item.distance) <= 1e-4;
+        const zeroDistance = [];
+        const nonZeroWith = [];
+        for (const item of restWith) {
+          (isZeroDistance(item) ? zeroDistance : nonZeroWith).push(item);
+        }
         const restWithout = withoutCoords.filter(i => String(i.id) !== currentIdStr);
-        const queue = [baseCandidate, ...restWith, ...restWithout].filter(Boolean);
+        const queue = [baseCandidate, ...zeroDistance, ...nonZeroWith, ...restWithout].filter(Boolean);
         queue.forEach((item, idx) => { item.page = Math.floor(idx / pageSize) + 1; });
         const currentPage = queue.find(i => String(i.id) === currentIdStr)?.page || 1;
         const payload = {

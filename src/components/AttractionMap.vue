@@ -2478,12 +2478,27 @@ export default {
       try {
         const listCountry = this.resolveListCountryForQueue(meta);
         if (!listCountry) return;
-        const baseLat = Number(meta && meta.lat);
-        const baseLng = Number(meta && meta.lng);
+        let dataset = await this.obtainGeoDatasetForQueue(listCountry);
+        if (!Array.isArray(dataset)) dataset = [];
+        const currentIdStr = String(meta && meta.id);
+        if (!currentIdStr) return;
+        let baseLat = Number(meta && meta.lat);
+        let baseLng = Number(meta && meta.lng);
+        if (!Number.isFinite(baseLat) || !Number.isFinite(baseLng)) {
+          const fallback = dataset.find(item => String(item && item.id) === currentIdStr && Number.isFinite(item && item.lat) && Number.isFinite(item && item.lng));
+          if (fallback) {
+            baseLat = Number(fallback.lat);
+            baseLng = Number(fallback.lng);
+            meta = { ...(meta || {}), lat: baseLat, lng: baseLng };
+          }
+        }
         if (!Number.isFinite(baseLat) || !Number.isFinite(baseLng)) return;
-        const dataset = await this.obtainGeoDatasetForQueue(listCountry);
-        if (!Array.isArray(dataset) || !dataset.length) return;
         const filters = this.getActiveFilters ? this.getActiveFilters() : { minReviews: 0, region: '', county: '' };
+        try {
+          const extra = await this.fetchNonGeoQueueCandidates(listCountry, filters);
+          if (Array.isArray(extra) && extra.length) dataset = dataset.concat(extra);
+        } catch (e) {}
+        if (!dataset.length) return;
         let filtered = dataset.filter(item => {
           if (!item) return false;
           if (String(item.country || '') !== listCountry) return false;
@@ -2511,7 +2526,6 @@ export default {
             lng: Number.isFinite(lng) ? lng : null,
           };
         };
-        const currentIdStr = String(meta && meta.id);
         const pageSize = 20;
         const withCoords = [];
         const withoutCoords = [];
@@ -2531,11 +2545,20 @@ export default {
           withCoords.find(i => String(i.id) === currentIdStr) ||
           withoutCoords.find(i => String(i.id) === currentIdStr) ||
           normalizeItem({ ...meta, country: listCountry, lat: baseLat, lng: baseLng, hasImage: meta && meta.hasImage });
+        if (currentCandidate && Number.isFinite(baseLat) && Number.isFinite(baseLng) && Number.isFinite(currentCandidate.lat) && Number.isFinite(currentCandidate.lng)) {
+          currentCandidate.distance = this.computeDistanceKm(baseLat, baseLng, currentCandidate.lat, currentCandidate.lng);
+        }
         const restWith = withCoords
           .filter(i => String(i.id) !== currentIdStr)
           .sort((a, b) => (a.distance || Infinity) - (b.distance || Infinity));
+        const isZeroDistance = (item) => Number.isFinite(item && item.distance) && Math.abs(item.distance) <= 1e-4;
+        const zeroDistance = [];
+        const nonZeroWith = [];
+        for (const item of restWith) {
+          (isZeroDistance(item) ? zeroDistance : nonZeroWith).push(item);
+        }
         const restWithout = withoutCoords.filter(i => String(i.id) !== currentIdStr);
-        const queue = [currentCandidate, ...restWith, ...restWithout].filter(Boolean);
+        const queue = [currentCandidate, ...zeroDistance, ...nonZeroWith, ...restWithout].filter(Boolean);
         queue.forEach((item, idx) => { item.page = Math.floor(idx / pageSize) + 1; });
         const currentPage = queue.find(i => String(i.id) === currentIdStr)?.page || 1;
         const payload = {
@@ -2603,6 +2626,26 @@ export default {
       const dLng = toRad(lng2 - lng1);
       const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
       return 6371 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    },
+    async fetchNonGeoQueueCandidates(country, filters) {
+      try {
+        const params = new URLSearchParams();
+        params.append('page', '1');
+        params.append('limit', '1000');
+        params.append('order', 'rating_desc');
+        if (filters && filters.minReviews) params.append('minReviews', filters.minReviews);
+        if (filters && filters.region) params.append('region', filters.region);
+        if (filters && filters.county) params.append('county', filters.county);
+        const base = (typeof getLastApiBase === 'function' ? getLastApiBase() : '') || '';
+        const resp = await fetch(`${base}/api/attractions/${country}?${params.toString()}`);
+        const data = resp && resp.ok ? await resp.json() : null;
+        if (!data || !Array.isArray(data.data)) return [];
+        return data.data
+          .filter(item => !Number.isFinite(Number(item && item.lat)) || !Number.isFinite(Number(item && item.lng)))
+          .map(item => ({ ...item, lat: null, lng: null, country }));
+      } catch (e) {
+        return [];
+      }
     },
 
     getImageUrl(meta, imgId) {
