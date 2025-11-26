@@ -2955,6 +2955,17 @@ export default {
 :deep(.popup-rating-label) { opacity: 0.9; font-weight: 700; }
 :deep(.popup-rating-value) { font-weight: 900; }
 
+@media (max-width: 768px) {
+  /* Replace popup gaps with margins on mobile while keeping spacing identical */
+  :deep(.map-popup) { gap: 0; }
+  :deep(.map-popup > * + *) { margin-left: 8px; }
+  :deep(.map-popup .popup-main) { column-gap: 0; row-gap: 0; }
+  :deep(.map-popup .popup-meta),
+  :deep(.map-popup .popup-rating) { margin-top: 2px; }
+  :deep(.map-popup .popup-rating) { margin-left: 8px; gap: 0; }
+  :deep(.map-popup .popup-rating > * + *) { margin-left: 4px; }
+}
+
 /* 景点气泡使用文青衬线字体（覆盖 Leaflet 默认无衬线） */
 :deep(.leaflet-popup-content),
 :deep(.map-popup),
