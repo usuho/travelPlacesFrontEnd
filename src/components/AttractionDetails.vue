@@ -2288,13 +2288,13 @@
   .navigation-controls {
     flex-direction: row;
     gap: 0;
-    margin-right: -16px;
-    margin-bottom: -16px;
+    justify-content: center;
+    width: 100%;
+    margin: 0 auto;
   }
   
   .navigation-controls > * {
     margin-right: 16px;
-    margin-bottom: 16px;
   }
 
   .nav-button {
