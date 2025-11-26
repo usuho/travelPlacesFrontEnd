@@ -1,6 +1,6 @@
-import {createApp} from 'vue'
+import { createApp } from 'vue'
 import App from './App.vue'
-import {createRouter,createWebHistory} from 'vue-router'
+import { createRouter, createWebHashHistory } from 'vue-router'
 import userLogin from './components/userLogin.vue'
 import userRegister from './components/userRegister.vue'
 import CountrySelect from './components/CountrySelect.vue'
@@ -23,8 +23,8 @@ const routes = [
 ]
 
 const router = createRouter({
-    history:createWebHistory(),
-    routes
+  history: createWebHashHistory(),
+  routes
 })
 
 // 全局路由守卫：从任意非首页页面返回到国家选择页时，

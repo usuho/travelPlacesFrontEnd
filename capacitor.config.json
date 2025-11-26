@@ -1,0 +1,19 @@
+{
+  "appId": "com.travelplaces.app",
+  "appName": "TravelPlaces",
+  "webDir": "dist",
+  "bundledWebRuntime": false,
+  "server": {
+    "androidScheme": "https"
+  },
+  "plugins": {
+    "SplashScreen": {
+      "launchAutoHide": true,
+      "backgroundColor": "#FFFFFFFF",
+      "androidScaleType": "CENTER_INSIDE",
+      "showSpinner": false,
+      "splashFullScreen": true,
+      "splashImmersive": true
+    }
+  }
+}
