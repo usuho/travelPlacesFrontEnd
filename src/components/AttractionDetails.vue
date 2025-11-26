@@ -221,7 +221,7 @@
   
   <script>
    import { openDB } from 'idb';
-   import { fetchAttractionsPositions, getLastApiBase } from '../utils/geoApi.js';
+   import { fetchAttractionsPositions, getLastApiBase, withBackendApiKey } from '../utils/geoApi.js';
   import { findCustomAttractionById, deleteCustomAttraction } from '../utils/customAttractions.js'
   import { getImageUrl as getCustomImageUrl, deleteImagesForId as deleteCustomImagesForId } from '../utils/customImageStore.js'
   import CreateAttractionModal from './CreateAttractionModal.vue'
@@ -808,9 +808,9 @@
             this.loading = false
             return
           }
-        }
-        // 1️⃣ 拉取 JSON 数据（平台景点）
-        const response = await fetch(`https://juseaxerf.com/api/attraction/${this.country}/${this.id}`);
+          }
+          // 1️⃣ 拉取 JSON 数据（平台景点）
+        const response = await fetch(`https://juseaxerf.com/api/attraction/${this.country}/${this.id}`, withBackendApiKey());
         const data = await response.json();
 
         if (data) {
@@ -818,10 +818,10 @@
             this.attraction = data;
             this.loading = false; // ✅ 提前结束 loading，先显示文字
 
-        // 2️⃣ 如果 hasImage1/2/3 存在，就异步拉取图片
-        for (let i = 1; i <= 3; i++) {
-          if (data[`hasImage${i}`]) {
-            fetch(`https://juseaxerf.com/api/attraction-image/${this.country}/${this.id}/${i}`)
+          // 2️⃣ 如果 hasImage1/2/3 存在，就异步拉取图片
+          for (let i = 1; i <= 3; i++) {
+            if (data[`hasImage${i}`]) {
+            fetch(`https://juseaxerf.com/api/attraction-image/${this.country}/${this.id}/${i}`, withBackendApiKey())
               .then(response => {
                 if (!response.ok) throw new Error('Failed to fetch image');
                 return response.blob();
@@ -924,10 +924,10 @@
           params.append('limit', '1000');
           params.append('order', 'rating_desc');
           if (filters && filters.minReviews) params.append('minReviews', filters.minReviews);
-          if (filters && filters.region) params.append('region', filters.region);
-          if (filters && filters.county) params.append('county', filters.county);
-          const base = (typeof getLastApiBase === 'function' ? getLastApiBase() : '') || 'https://juseaxerf.com';
-          const resp = await fetch(`${base}/api/attractions/${country}?${params.toString()}`);
+            if (filters && filters.region) params.append('region', filters.region);
+            if (filters && filters.county) params.append('county', filters.county);
+            const base = (typeof getLastApiBase === 'function' ? getLastApiBase() : '') || 'https://juseaxerf.com';
+          const resp = await fetch(`${base}/api/attractions/${country}?${params.toString()}`, withBackendApiKey());
           const data = resp && resp.ok ? await resp.json() : null;
           if (!data || !Array.isArray(data.data)) return [];
           return data.data
@@ -1117,9 +1117,9 @@
             return true;
           }
         } catch (e) {}
-        try {
-          const params = this.buildListQueryParams(targetPage);
-          const response = await fetch(`https://juseaxerf.com/api/attractions/${this.country}?${params.toString()}`);
+          try {
+            const params = this.buildListQueryParams(targetPage);
+          const response = await fetch(`https://juseaxerf.com/api/attractions/${this.country}?${params.toString()}`, withBackendApiKey());
           const data = await response.json();
           if (data && Array.isArray(data.data) && data.data.length) {
             this.ids = data.data.map(item => item.id);

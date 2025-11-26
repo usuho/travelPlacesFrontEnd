@@ -761,6 +761,7 @@
   import CreateAttractionModal from './CreateAttractionModal.vue'
   import { findCustomAttractionById, deleteCustomAttraction } from '../utils/customAttractions.js'
   import { getImageUrl as getCustomImageUrl, deleteImagesForId as deleteCustomImagesForId, setImage as setCustomImage } from '../utils/customImageStore.js'
+  import { withBackendApiKey } from '../utils/geoApi.js';
 
   export default {
     components: { CreateAttractionModal },
@@ -2805,7 +2806,7 @@ const all = this.sortedFavorites || [];
             }
             return;
           }
-          const res = await fetch(`https://juseaxerf.com/api/attraction-image/${f.country}/${f.id}/1`);
+          const res = await fetch(`https://juseaxerf.com/api/attraction-image/${f.country}/${f.id}/1`, withBackendApiKey());
           if (!res.ok) return;
           const blob = await res.blob();
           const url = URL.createObjectURL(blob);
@@ -3742,7 +3743,7 @@ const all = this.sortedFavorites || [];
             county: this.selectedCounty || ''
           }).toString();
 
-          const res = await fetch(`https://juseaxerf.com/api/attractions-names-filtered/${this.country}?${params}`);
+          const res = await fetch(`https://juseaxerf.com/api/attractions-names-filtered/${this.country}?${params}`, withBackendApiKey());
           const data = await res.json();
           this.allAttractions = Array.isArray(data.data) ? data.data : data; // 兼容不同API格式
           console.log('✅ 已加载景点名称数量:', this.allAttractions.length);
@@ -3845,7 +3846,7 @@ const all = this.sortedFavorites || [];
       
       fetchRegions() {
         if (this.selectedCounty) {
-          fetch(`https://juseaxerf.com/api/regions/${this.country}/${this.selectedCounty}`)
+          fetch(`https://juseaxerf.com/api/regions/${this.country}/${this.selectedCounty}`, withBackendApiKey())
           .then(response => response.json())
           .then(data => {
             this.regions = data;
@@ -3855,7 +3856,7 @@ const all = this.sortedFavorites || [];
             console.error('Error fetching regions:', error);
           });
         }else {
-          fetch(`https://juseaxerf.com/api/regions/${this.country}`)
+          fetch(`https://juseaxerf.com/api/regions/${this.country}`, withBackendApiKey())
           .then(response => response.json())
           .then(data => {
             this.regions = data;
@@ -3869,7 +3870,7 @@ const all = this.sortedFavorites || [];
       },
 
       fetchCountis() {
-        fetch(`https://juseaxerf.com/api/countis/${this.country}`)
+        fetch(`https://juseaxerf.com/api/countis/${this.country}`, withBackendApiKey())
           .then(response => response.json())
           .then(data => {
             this.countis = data.filter(county => county && county.trim() !== '');
@@ -3982,7 +3983,7 @@ const all = this.sortedFavorites || [];
         items.forEach(async (a, i) => {
           try {
             if (a && a.hasImage && !a.image1) {
-              const res = await fetch(`https://juseaxerf.com/api/attraction-image/${this.country}/${a.id}/1`);
+              const res = await fetch(`https://juseaxerf.com/api/attraction-image/${this.country}/${a.id}/1`, withBackendApiKey());
               if (res && res.ok) {
                 const blob = await res.blob();
                 const url = URL.createObjectURL(blob);
@@ -4023,7 +4024,7 @@ const all = this.sortedFavorites || [];
 
         while (this.activeFetchToken === fetchToken) {
           try {
-            const response = await fetch(`https://juseaxerf.com/api/attractions/${this.country}?${params.toString()}`);
+            const response = await fetch(`https://juseaxerf.com/api/attractions/${this.country}?${params.toString()}`, withBackendApiKey());
             if (!response.ok) throw new Error(`HTTP ${response.status}`);
             const data = await response.json();
             if (this.activeFetchToken !== fetchToken) return;
@@ -4044,7 +4045,7 @@ const all = this.sortedFavorites || [];
             this.attractions.forEach(async (a, i) => {
               if (a.hasImage) {
                 try {
-                  const res = await fetch(`https://juseaxerf.com/api/attraction-image/${this.country}/${a.id}/1`);
+                  const res = await fetch(`https://juseaxerf.com/api/attraction-image/${this.country}/${a.id}/1`, withBackendApiKey());
                   if (res && res.ok) {
                     const blob = await res.blob();
                     const url = URL.createObjectURL(blob);
