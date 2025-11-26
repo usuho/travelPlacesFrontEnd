@@ -1,6 +1,6 @@
 {
   "appId": "com.travelplaces.app",
-  "appName": "TravelPlaces",
+  "appName": "星垠海角",
   "webDir": "dist",
   "bundledWebRuntime": false,
   "server": {

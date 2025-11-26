@@ -15,12 +15,7 @@
         <item name="android:background">@null</item>
     </style>
 
+    <!-- Pre-Android 12: 启动页直接用正常主题 -->
+    <style name="AppTheme.NoActionBarLaunch" parent="@style/AppTheme.NoActionBar" />
 
-    <style name="AppTheme.NoActionBarLaunch" parent="Theme.SplashScreen">
-        <item name="android:windowSplashScreenBackground">@color/splash_background</item>
-        <item name="android:windowSplashScreenAnimatedIcon">@drawable/splash_logo</item>
-        <item name="android:windowSplashScreenAnimationDuration">0</item>
-        <item name="android:windowSplashScreenIconBackgroundColor">@color/transparent</item>
-        <item name="postSplashScreenTheme">@style/AppTheme.NoActionBar</item>
-    </style>
 </resources>
