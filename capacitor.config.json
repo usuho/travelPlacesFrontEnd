@@ -13,7 +13,9 @@
       "androidScaleType": "CENTER_INSIDE",
       "showSpinner": false,
       "splashFullScreen": true,
-      "splashImmersive": true
+      "splashImmersive": true,
+      "androidIconResourceName": "app_icon",
+      "androidSplashResourceName": "splash_logo"
     }
   }
 }

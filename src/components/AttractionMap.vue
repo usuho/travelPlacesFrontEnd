@@ -2850,13 +2850,17 @@ export default {
 }
 
 .locate-button .locate-icon {
-  width: 16px;
-  height: 16px;
+  width: 18px;
+  height: 18px;
+  min-width: 18px;
+  min-height: 18px;
   border: 2px solid rgba(255, 255, 255, 0.9);
   border-radius: 50%;
   position: relative;
   display: block;
+  box-sizing: border-box;
   aspect-ratio: 1 / 1;
+  flex: none;
 }
 
 .locate-button .locate-icon::after {
