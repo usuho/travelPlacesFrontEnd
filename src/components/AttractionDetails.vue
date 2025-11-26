@@ -2076,6 +2076,27 @@
 
   .title-with-star {
     padding-right: 28px;
+    gap: 0;
+  }
+
+  .title-with-star > * + * {
+    margin-left: 4px;
+  }
+
+  .header-left-group {
+    gap: 0;
+  }
+
+  .header-left-group > * + * {
+    margin-left: 8px;
+  }
+
+  .back-button {
+    gap: 0;
+  }
+
+  .back-button > * + * {
+    margin-left: 10px;
   }
 
   .reviews-summary span {
@@ -2163,8 +2184,17 @@
 
   .secondary-images {
     height:auto;
-    grid-template-columns: repeat(2,1fr);
-    gap:10px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0;
+    margin: -5px; /* 用 margin 还原原先 10px 的间距 */
+  }
+
+  .secondary-images > .secondary-image-container {
+    flex: 0 0 calc(50% - 10px);
+    max-width: calc(50% - 10px);
+    width: calc(50% - 10px);
+    margin: 5px;
   }
 
   .secondary-image {
@@ -2175,7 +2205,11 @@
 
   .info-grid {
     grid-template-columns: 1fr;
-    gap: 16px;
+    gap: 0;
+  }
+
+  .info-grid > * + * {
+    margin-top: 16px;
   }
 
   .info-card {
@@ -2183,9 +2217,13 @@
   }
 
   .info-header {
-    gap: 4px;
+    gap: 0;
     margin-bottom: 8px;
     padding-bottom: 8px;
+  }
+
+  .info-header > * + * {
+    margin-left: 4px;
   }
 
   .info-icon {
@@ -2199,12 +2237,23 @@
   .info-content {
     flex-direction:row;
     flex-wrap: wrap;      /* 超出宽度的项目换行 */
-    gap: 8px;
+    gap: 0;
+    margin-right: -8px;
+    margin-bottom: -8px;
 
   }
 
+  .info-content > * {
+    margin-right: 8px;
+    margin-bottom: 8px;
+  }
+
   .info-item {
-    gap: 3px;
+    gap: 0;
+  }
+
+  .info-item > * + * {
+    margin-top: 3px;
   }
 
   .info-label {
@@ -2238,15 +2287,35 @@
   
   .navigation-controls {
     flex-direction: row;
-    gap: 16px;
+    gap: 0;
+    margin-right: -16px;
+    margin-bottom: -16px;
   }
   
+  .navigation-controls > * {
+    margin-right: 16px;
+    margin-bottom: 16px;
+  }
+
   .nav-button {
     min-width: auto;
     padding: 14px 14px;
     border-radius: 12px;
     font-size: 12px;
     font-weight: 750;
+    gap: 0;
+  }
+
+  .nav-button > * + * {
+    margin-left: 10px;
+  }
+
+  .confirm-actions {
+    gap: 0;
+  }
+
+  .confirm-actions > * + * {
+    margin-left: 8px;
   }
 }
 
