@@ -10,6 +10,7 @@
     "start": "node server.js"
   },
   "dependencies": {
+    "@capacitor/app": "^7.1.0",
     "@capacitor/core": "^7.4.4",
     "@capacitor/filesystem": "^7.1.5",
     "express": "^4.19.2",

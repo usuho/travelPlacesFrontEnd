@@ -1,6 +1,7 @@
 import { createApp } from 'vue'
 import App from './App.vue'
 import { createRouter, createWebHashHistory } from 'vue-router'
+import { App as CapacitorApp } from '@capacitor/app'
 import userLogin from './components/userLogin.vue'
 import userRegister from './components/userRegister.vue'
 import CountrySelect from './components/CountrySelect.vue'
@@ -26,6 +27,22 @@ const router = createRouter({
   history: createWebHashHistory(),
   routes
 })
+
+// Android 实体返回键：和浏览器返回行为一致
+try {
+  CapacitorApp.addListener('backButton', ({ canGoBack }) => {
+    try {
+      const currentPath = router.currentRoute.value && router.currentRoute.value.path;
+      // 非首页：走浏览器 history.back()，触发各页面自己的 popstate/back 逻辑
+      if (currentPath && currentPath !== '/') {
+        window.history.back();
+        return;
+      }
+      // 在首页：退出应用，行为接近浏览器退回/关闭
+      CapacitorApp.exitApp();
+    } catch (e) {}
+  });
+} catch (e) {}
 
 // 全局路由守卫：从任意非首页页面返回到国家选择页时，
 // 在当前右上角 logo 位置创建一个过渡用 overlay
