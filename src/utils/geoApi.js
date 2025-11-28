@@ -30,23 +30,9 @@ function apiBaseCandidates() {
   return list;
 }
 
-function getBackendApiKey() {
-  try {
-    return (import.meta && import.meta.env && import.meta.env.VITE_BACKEND_API_KEY)
-      ? String(import.meta.env.VITE_BACKEND_API_KEY)
-      : '';
-  } catch (e) {
-    return '';
-  }
-}
-
 export function withBackendApiKey(options) {
   const baseOptions = options || {};
   const headers = buildAuthHeaders({ ...(baseOptions.headers || {}) });
-  const key = getBackendApiKey();
-  if (key && !headers['x-api-key']) {
-    headers['x-api-key'] = key;
-  }
 
   return { ...baseOptions, headers };
 }

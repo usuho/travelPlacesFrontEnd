@@ -177,23 +177,7 @@ const AUTH_BASE = (() => {
   return 'https://juseaxerf.com'
 })()
 
-const BACKEND_API_KEY = (() => {
-  try {
-    const val = import.meta && import.meta.env && import.meta.env.VITE_BACKEND_API_KEY
-    return val ? String(val) : ''
-  } catch (e) {
-    return ''
-  }
-})()
-
-const BASE_HEADERS = (() => {
-  const headers = { 'Content-Type': 'application/json' }
-  if (BACKEND_API_KEY) {
-    headers['x-api-key'] = BACKEND_API_KEY
-    headers.api_key = BACKEND_API_KEY
-  }
-  return headers
-})()
+const BASE_HEADERS = { 'Content-Type': 'application/json' }
 
 const REGISTER_ENDPOINTS = ['/api/register']
 
