@@ -9,6 +9,47 @@
   }
 }
 
+/* 本地自托管字体，脱离外网依赖 */
+@font-face {
+  font-family: 'Noto Serif SC';
+  font-style: normal;
+  font-weight: 300;
+  font-display: swap;
+  src: url('../fonts/NotoSerifSC-Light.ttf') format('truetype');
+}
+
+@font-face {
+  font-family: 'Noto Serif SC';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('../fonts/NotoSerifSC-Regular.ttf') format('truetype');
+}
+
+@font-face {
+  font-family: 'Noto Serif SC';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url('../fonts/NotoSerifSC-SemiBold.ttf') format('truetype');
+}
+
+@font-face {
+  font-family: 'Noto Serif SC';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('../fonts/NotoSerifSC-Bold.ttf') format('truetype');
+}
+
+@font-face {
+  font-family: 'ZCOOL XiaoWei';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('../fonts/ZCOOLXiaoWei-Regular.ttf') format('truetype');
+}
+
 /* 统一标题渐变与高光动画（与景点详情页一致） */
 .title-hero {
   background-image:
