@@ -1,44 +1,59 @@
-import {createApp} from 'vue'
+import { createApp } from 'vue'
 import App from './App.vue'
-import {createRouter,createWebHistory} from 'vue-router'
+import { createRouter, createWebHistory } from 'vue-router'
 import userLogin from './components/userLogin.vue'
 import userRegister from './components/userRegister.vue'
 import CountrySelect from './components/CountrySelect.vue'
 import AttractionList from './components/AttractionList.vue'
 import AttractionDetails from './components/AttractionDetails.vue'
 import AttractionMap from './components/AttractionMap.vue'
+import { isAuthenticated } from './stores/auth.js'
 
-import flyIn from './directives/flyIn.js';
-import fadeIn from './directives/fadeIn.js';
-import './assets/styles/global.css';
-
+import flyIn from './directives/flyIn.js'
+import fadeIn from './directives/fadeIn.js'
+import './assets/styles/global.css'
 
 const routes = [
-  { path: '/userlogin', component: userLogin },
-  { path: '/userRegister', component: userRegister },
-  { path: '/', component: CountrySelect },
-  { path: '/attractions/:country', component: AttractionList },
-  { path: '/attraction/:country/:id', component: AttractionDetails },
-  { path: '/map/:country', component: AttractionMap }
+  { path: '/login', component: userLogin, meta: { public: true } },
+  { path: '/register', component: userRegister, meta: { public: true } },
+  { path: '/userlogin', redirect: '/login' },
+  { path: '/userRegister', redirect: '/register' },
+  { path: '/', component: CountrySelect, meta: { requiresAuth: true } },
+  { path: '/attractions/:country', component: AttractionList, meta: { requiresAuth: true } },
+  { path: '/attraction/:country/:id', component: AttractionDetails, meta: { requiresAuth: true } },
+  { path: '/map/:country', component: AttractionMap, meta: { requiresAuth: true } }
 ]
 
 const router = createRouter({
-    history:createWebHistory(),
-    routes
+  history: createWebHistory(),
+  routes
 })
 
-// 全局路由守卫：从任意非首页页面返回到国家选择页时，
-// 在当前右上角 logo 位置创建一个过渡用 overlay
+// 全局路由守卫：拦截未登录用户并负责首页返回动画 overlay
 router.beforeEach((to, from, next) => {
+  const isPublic = !!(to.meta && to.meta.public)
+  const authed = isAuthenticated()
+
+  if (!authed && !isPublic) {
+    next({ path: '/login', query: { redirect: to.fullPath } })
+    return
+  }
+
+  if (authed && isPublic && (to.path === '/login' || to.path === '/register')) {
+    const target = to.query && to.query.redirect ? to.query.redirect : (from && from.fullPath ? from.fullPath : '/')
+    next(target === to.fullPath ? '/' : target)
+    return
+  }
+
   try {
     // 仅在移动端从非首页返回首页时创建 overlay
-    const isMobile = window.innerWidth <= 768;
+    const isMobile = window.innerWidth <= 768
     if (isMobile && to.path === '/' && from.path !== '/') {
-      const cornerLogo = document.querySelector('.corner-logo');
+      const cornerLogo = document.querySelector('.corner-logo')
       if (cornerLogo) {
-        const rect = cornerLogo.getBoundingClientRect();
-        const overlay = cornerLogo.cloneNode(true);
-        overlay.id = 'logo-transition-overlay';
+        const rect = cornerLogo.getBoundingClientRect()
+        const overlay = cornerLogo.cloneNode(true)
+        overlay.id = 'logo-transition-overlay'
         Object.assign(overlay.style, {
           position: 'fixed',
           top: `${rect.top}px`,
@@ -52,16 +67,16 @@ router.beforeEach((to, from, next) => {
           transform: 'translate(0, 0) scale(1)',
           transformOrigin: 'center center',
           transition: 'transform 0.5s ease, opacity 0.5s ease'
-        });
-        document.body.appendChild(overlay);
+        })
+        document.body.appendChild(overlay)
       }
     }
   } catch (e) {}
-  next();
-});
+  next()
+})
 
 const app = createApp(App)
 app.use(router)
-app.directive('fly-in', flyIn);
-app.directive('fade-in', fadeIn);
+app.directive('fly-in', flyIn)
+app.directive('fade-in', fadeIn)
 app.mount('#app')

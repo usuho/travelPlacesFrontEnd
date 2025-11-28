@@ -25,7 +25,8 @@ export default {
   },
   computed: {
     isCountrySelect() {
-      return this.$route && this.$route.path === '/'
+      const path = this.$route && this.$route.path
+      return path === '/' || path === '/login' || path === '/register'
     }
   },
   methods: {

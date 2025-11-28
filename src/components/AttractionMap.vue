@@ -21,7 +21,7 @@ import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { findCustomAttractionById, getAllCustomAttractions } from '../utils/customAttractions.js';
 import { getImageUrl as getCustomImageUrl } from '../utils/customImageStore.js';
-import { fetchAttractionsGeo, fetchAttractionsGeoByIds, fetchAttractionsPositions, fetchAttractionsPositionsByIds, getLastApiBase } from '../utils/geoApi.js';
+import { fetchAttractionsGeo, fetchAttractionsGeoByIds, fetchAttractionsPositions, fetchAttractionsPositionsByIds, getLastApiBase, withBackendApiKey } from '../utils/geoApi.js';
 import { getCountrySlugByIso, isSupportedCountrySlug } from '../utils/countryCatalog.js';
 
 export default {
@@ -2678,7 +2678,7 @@ export default {
         if (filters && filters.region) params.append('region', filters.region);
         if (filters && filters.county) params.append('county', filters.county);
         const base = (typeof getLastApiBase === 'function' ? getLastApiBase() : '') || '';
-        const resp = await fetch(`${base}/api/attractions/${country}?${params.toString()}`);
+        const resp = await fetch(`${base}/api/attractions/${country}?${params.toString()}`, withBackendApiKey());
         const data = resp && resp.ok ? await resp.json() : null;
         if (!data || !Array.isArray(data.data)) return [];
         return data.data

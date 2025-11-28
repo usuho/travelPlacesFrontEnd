@@ -1,3 +1,5 @@
+import { buildAuthHeaders } from '../stores/auth.js';
+
 // Centralized API helpers matching the backend routes in travelPlacesServer/server.js
 
 let lastApiBase = '';
@@ -39,13 +41,10 @@ function getBackendApiKey() {
 }
 
 export function withBackendApiKey(options) {
-  const key = getBackendApiKey();
-  if (!key) return options || {};
-
   const baseOptions = options || {};
-  const headers = { ...(baseOptions.headers || {}) };
-
-  if (!headers['x-api-key']) {
+  const headers = buildAuthHeaders({ ...(baseOptions.headers || {}) });
+  const key = getBackendApiKey();
+  if (key && !headers['x-api-key']) {
     headers['x-api-key'] = key;
   }
 
