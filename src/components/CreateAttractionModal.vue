@@ -88,6 +88,7 @@
 <script>
   import { addCustomAttraction, updateCustomAttraction } from '../utils/customAttractions.js'
   import { getImageUrl as getCustomImageUrl, setImage as setCustomImage, deleteImage as deleteCustomImage } from '../utils/customImageStore.js'
+  import { getGeoKeys } from '../utils/geoKeys.js'
 
 export default {
   name: 'CreateAttractionModal',
@@ -100,6 +101,7 @@ export default {
   emits: ['update:modelValue', 'created', 'updated'],
   data() {
     return {
+      geoKeys: null,
       form: {
         name: '',
         region: '',
@@ -280,10 +282,12 @@ export default {
         // 选择性国家偏置（仅当 position 含中文 → 中国）
         const isChinesePosition = /[\u4e00-\u9fa5]/.test(String(attraction.position || ''));
         const iso2 = isChinesePosition ? 'cn' : '';
-        // 若 position 含中文则优先使用高德地理编码（需 VITE_AMAP_KEY）
+        // 若 position 含中文则优先使用高德地理编码（需服务端提供的 amapKey）
         try {
-          const env = (import.meta && import.meta.env) ? import.meta.env : {};
-          const amapKey = env.VITE_AMAP_KEY;
+          if (!this.geoKeys) {
+            this.geoKeys = await getGeoKeys();
+          }
+          const amapKey = this.geoKeys && this.geoKeys.amapKey;
           let didTryAmap = false;
           if (isChinesePosition && amapKey) {
             didTryAmap = true;
@@ -353,8 +357,7 @@ export default {
 
         // 轻量地理编码：Photon → Open-Meteo → Nominatim
         // 若前面已针对中文地址优先尝试过高德且未命中，则后续服务统一使用英文并不再附加中国相关提示
-        const env2 = (import.meta && import.meta.env) ? import.meta.env : {};
-        const hasAmapKey = !!env2.VITE_AMAP_KEY;
+        const hasAmapKey = !!(this.geoKeys && this.geoKeys.amapKey);
         const useEnglish = !!(isChinesePosition && hasAmapKey);
         const headers = { 'accept-language': useEnglish ? 'en-US,en;q=0.9' : 'zh-CN,zh;q=0.9,en;q=0.8' };
         const getJson = async (url) => {

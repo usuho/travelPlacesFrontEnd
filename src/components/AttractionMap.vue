@@ -22,6 +22,7 @@ import 'leaflet/dist/leaflet.css';
 import { findCustomAttractionById, getAllCustomAttractions } from '../utils/customAttractions.js';
 import { getImageUrl as getCustomImageUrl } from '../utils/customImageStore.js';
 import { fetchAttractionsGeo, fetchAttractionsGeoByIds, fetchAttractionsPositions, fetchAttractionsPositionsByIds, getLastApiBase, withBackendApiKey } from '../utils/geoApi.js';
+import { getGeoKeys } from '../utils/geoKeys.js';
 import { getCountrySlugByIso, isSupportedCountrySlug } from '../utils/countryCatalog.js';
 
 export default {
@@ -30,6 +31,7 @@ export default {
     return {
       map: null,
       country: this.$route.params.country,
+      _geoKeys: null,
       // ·ɲ
       focusId: this.$route.query.focusId || null,
       fromDetails: this.$route.query.from === 'details',
@@ -1724,14 +1726,17 @@ export default {
       const trimAddr = String(address || '').trim();
       if (!trimAddr) return null;
 
-      const env = import.meta && import.meta.env ? import.meta.env : {};
-      const amapKey = env.VITE_AMAP_KEY;
-
-      const openCageKey = env.VITE_OPENCAGE_KEY;
-      const geoapifyKey = env.VITE_GEOAPIFY_KEY;
-      const locationIqKey = env.VITE_LOCATIONIQ_KEY;
-      const mapQuestKey = env.VITE_MAPQUEST_KEY;
-      const positionstackKey = env.VITE_POSITIONSTACK_KEY;
+      if (!this._geoKeys) {
+        this._geoKeys = await getGeoKeys();
+      }
+      const {
+        amapKey,
+        openCageKey,
+        geoapifyKey,
+        locationIqKey,
+        mapQuestKey,
+        positionstackKey
+      } = this._geoKeys || {};
 
       const countryKey = String(hintCountry || this.country || '').toLowerCase();
       const preferAmapLast = !!(opts && opts.amapLast);
