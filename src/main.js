@@ -2,6 +2,7 @@ import { createApp } from 'vue'
 import App from './App.vue'
 import { createRouter, createWebHashHistory } from 'vue-router'
 import { App as CapacitorApp } from '@capacitor/app'
+import { installFetchCache } from './utils/fetchCache.js'
 import userLogin from './components/userLogin.vue'
 import userRegister from './components/userRegister.vue'
 import CountrySelect from './components/CountrySelect.vue'
@@ -12,6 +13,8 @@ import AttractionMap from './components/AttractionMap.vue'
 import flyIn from './directives/flyIn.js';
 import fadeIn from './directives/fadeIn.js';
 import './assets/styles/global.css';
+
+installFetchCache();
 
 
 const routes = [
