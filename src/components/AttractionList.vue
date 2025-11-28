@@ -4380,6 +4380,9 @@ const all = this.sortedFavorites || [];
   align-items: center;
   gap: 12px;
   overflow-x: auto;
+  overflow-y: hidden; /* avoid vertical squeezing when the scrollbar shows */
+  padding: 4px 0 8px; /* reserve room for horizontal scrollbar without clipping content */
+  scrollbar-gutter: stable;
   -ms-overflow-style: none; /* IE/Edge */
   scrollbar-width: none; /* Firefox */
 }
@@ -4413,12 +4416,16 @@ const all = this.sortedFavorites || [];
 .tab-plus {
   width: 22px;
   height: 22px;
+  min-width: 22px;
+  min-height: 22px;
   border-radius: 50%;
   background: #f1f3f5;
   color: #333;
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  flex-shrink: 0;
+  aspect-ratio: 1;
   line-height: 1;
   font-weight: 700;
   cursor: pointer;
