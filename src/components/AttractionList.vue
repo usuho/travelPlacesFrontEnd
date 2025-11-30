@@ -4014,7 +4014,8 @@ const all = this.sortedFavorites || [];
           return;
         }
         const params = new URLSearchParams();
-        params.append('minReviews', this.minReviews);
+        const minReviews = Number.isFinite(this.minReviews) ? this.minReviews : 0;
+        params.append('minReviews', minReviews);
         params.append('order', this.order);
         params.append('page', isregion ? 1 : this.page);
         params.append('limit', this.limit);
@@ -5430,7 +5431,7 @@ const all = this.sortedFavorites || [];
   }
 
   .pagination-controls > * {
-    margin-bottom: 7px;
+    margin-bottom: 4px;
   }
 
   .pagination-controls > * + * {
@@ -5442,6 +5443,7 @@ const all = this.sortedFavorites || [];
     overflow-y: auto;
     padding: 20px;
     padding-top: 0;
+    padding-bottom: 10px;
   }
 
   .back-button {

@@ -1899,6 +1899,7 @@
 
 .info-icon {
   font-size: 1.5rem;
+  margin-right: 4px;
 }
 
 .info-header h3 {
