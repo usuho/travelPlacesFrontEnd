@@ -29,7 +29,6 @@
               autocomplete="country-name"
               required
               :class="{ invalid: !validCountry && (attempted || countryQuery) }"
-              placeholder="开始输入国家名称以筛选（中/英）"
             />
             <datalist id="country-list">
               <option

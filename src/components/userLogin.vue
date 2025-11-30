@@ -167,7 +167,14 @@ export default {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
 }
 
+.title-hero{
+  font-size:2rem;
+}
+
 .title-mixed .title-default {
+  margin-right: 5px;
+  font-size:1.4rem;
+  font-weight: 500;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
 }
 

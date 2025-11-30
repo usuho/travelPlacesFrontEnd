@@ -4014,7 +4014,8 @@ const all = this.sortedFavorites || [];
           return;
         }
         const params = new URLSearchParams();
-        params.append('minReviews', this.minReviews);
+        const minReviews = Number.isFinite(this.minReviews) ? this.minReviews : 0;
+        params.append('minReviews', minReviews);
         params.append('order', this.order);
         params.append('page', isregion ? 1 : this.page);
         params.append('limit', this.limit);
