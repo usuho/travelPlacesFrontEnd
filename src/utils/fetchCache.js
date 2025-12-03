@@ -87,15 +87,20 @@ function responseFromEntry(entry, state) {
   return new Response(body, { status: entry.status || 200, headers });
 }
 
-function shouldCacheJsonPayload(body, headers) {
+function shouldCachePayload(body, headers) {
   try {
     const ct = String((headers && (headers['content-type'] || headers.get?.('content-type'))) || '').toLowerCase();
-    if (!ct.includes('application/json')) return false;
     if (!(body instanceof ArrayBuffer) && !ArrayBuffer.isView(body)) return false;
     const buffer = body instanceof ArrayBuffer ? body : body.buffer;
-    const text = new TextDecoder().decode(buffer);
-    const parsed = JSON.parse(text);
-    return Array.isArray(parsed?.data) || Array.isArray(parsed);
+    if (ct.startsWith('image/')) {
+      return buffer && buffer.byteLength > 0;
+    }
+    if (ct.includes('application/json')) {
+      const text = new TextDecoder().decode(buffer);
+      const parsed = JSON.parse(text);
+      return Array.isArray(parsed?.data) || Array.isArray(parsed);
+    }
+    return false;
   } catch (e) {
     return false;
   }
@@ -103,7 +108,7 @@ function shouldCacheJsonPayload(body, headers) {
 
 function isValidCacheEntry(entry) {
   if (!entry || entry.status >= 500) return false;
-  return shouldCacheJsonPayload(entry.body, entry.headers);
+  return shouldCachePayload(entry.body, entry.headers);
 }
 
 export function installFetchCache(options = {}) {
@@ -178,7 +183,7 @@ export function installFetchCache(options = {}) {
         if (body && body.byteLength <= maxEntryBytes) {
           const headers = {};
           clone.headers.forEach((v, k) => { headers[k] = v; });
-          if (shouldCacheJsonPayload(body, headers)) {
+          if (shouldCachePayload(body, headers)) {
             await saveEntry(key, { ts: Date.now(), status: clone.status, headers, body });
             cleanupExpired(ttlMs);
           }
