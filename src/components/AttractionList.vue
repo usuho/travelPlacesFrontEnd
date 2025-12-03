@@ -964,6 +964,7 @@
         listRenderTick: 0,
         fetchRetryDelay: 2000,
         activeFetchToken: 0,
+        maxFetchRetries: 5,
       };
     },
 
@@ -4023,7 +4024,8 @@ const all = this.sortedFavorites || [];
         if (this.selectedCounty) params.append('county', this.selectedCounty);
         if (this.order === 'rating_desc') params.append('secondary', 'reviews_desc');
 
-        while (this.activeFetchToken === fetchToken) {
+        let attempts = 0;
+        while (this.activeFetchToken === fetchToken && attempts < this.maxFetchRetries) {
           try {
             const response = await fetch(`https://juseaxerf.com/api/attractions/${this.country}?${params.toString()}`, withBackendApiKey());
             if (!response.ok) throw new Error(`HTTP ${response.status}`);
@@ -4077,9 +4079,15 @@ const all = this.sortedFavorites || [];
           } catch (error) {
             console.error('????????:', error);
             if (this.activeFetchToken !== fetchToken) return;
+            attempts += 1;
+            if (attempts >= this.maxFetchRetries) {
+              this.loading = false;
+              break;
+            }
             await this.waitForRetry(this.fetchRetryDelay);
           }
         }
+        this.loading = false;
       },
 
       goBack() {
