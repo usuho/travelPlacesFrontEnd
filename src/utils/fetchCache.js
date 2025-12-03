@@ -48,6 +48,13 @@ async function readEntry(key) {
   return db.get(STORE, key);
 }
 
+async function deleteEntry(key) {
+  try {
+    const db = await getDb();
+    await db.delete(STORE, key);
+  } catch (_) {}
+}
+
 async function cleanupExpired(ttlMs) {
   if (!Number.isFinite(ttlMs) || ttlMs <= 0) return;
   try {
@@ -80,6 +87,25 @@ function responseFromEntry(entry, state) {
   return new Response(body, { status: entry.status || 200, headers });
 }
 
+function shouldCacheJsonPayload(body, headers) {
+  try {
+    const ct = String((headers && (headers['content-type'] || headers.get?.('content-type'))) || '').toLowerCase();
+    if (!ct.includes('application/json')) return false;
+    if (!(body instanceof ArrayBuffer) && !ArrayBuffer.isView(body)) return false;
+    const buffer = body instanceof ArrayBuffer ? body : body.buffer;
+    const text = new TextDecoder().decode(buffer);
+    const parsed = JSON.parse(text);
+    return Array.isArray(parsed?.data) || Array.isArray(parsed);
+  } catch (e) {
+    return false;
+  }
+}
+
+function isValidCacheEntry(entry) {
+  if (!entry || entry.status >= 500) return false;
+  return shouldCacheJsonPayload(entry.body, entry.headers);
+}
+
 export function installFetchCache(options = {}) {
   if (installed || typeof window === 'undefined' || typeof fetch !== 'function') return;
   installed = true;
@@ -109,14 +135,17 @@ export function installFetchCache(options = {}) {
         if (body && body.byteLength <= maxEntryBytes) {
           const headers = {};
           clone.headers.forEach((v, k) => { headers[k] = v; });
-          await saveEntry(key, { ts: Date.now(), status: clone.status, headers, body });
+          if (shouldCacheJsonPayload(body, headers)) {
+            await saveEntry(key, { ts: Date.now(), status: clone.status, headers, body });
+          }
         }
       }).catch(() => {});
     } catch (_) {}
   };
 
   window.fetch = async (input, init = {}) => {
-    const req = new Request(input, init);
+    // 强制绕过浏览器自身的 HTTP 缓存，统一由此层管理
+    const req = new Request(input, { cache: 'no-store', ...init });
     const method = (req.method || 'GET').toUpperCase();
     const cacheable = method === 'GET' && shouldCacheRequest(req);
     const key = cacheable ? buildKey(req) : null;
@@ -124,29 +153,43 @@ export function installFetchCache(options = {}) {
     if (cacheable && key) {
       const cached = await readEntry(key);
       if (cached) {
-        const isFresh = !Number.isFinite(ttlMs) ? true : (Date.now() - (cached.ts || 0)) <= ttlMs;
-        if (!isFresh) refreshInBackground(req, key);
-        return responseFromEntry(cached, isFresh ? 'hit' : 'stale');
+        if (isValidCacheEntry(cached)) {
+          const isFresh = !Number.isFinite(ttlMs) ? true : (Date.now() - (cached.ts || 0)) <= ttlMs;
+          if (!isFresh) refreshInBackground(req, key);
+          return responseFromEntry(cached, isFresh ? 'hit' : 'stale');
+        }
+        await deleteEntry(key);
       }
     }
 
     try {
       const resp = await originalFetch(req);
+      if (resp && resp.status >= 500) {
+        if (cacheable && key) {
+          await deleteEntry(key);
+          const fallback = await readEntry(key);
+          if (isValidCacheEntry(fallback)) return responseFromEntry(fallback, 'fallback');
+        }
+        return resp; // 不缓存 5xx
+      }
       if (cacheable && resp && resp.ok && key) {
         const clone = resp.clone();
         const body = await clone.arrayBuffer();
         if (body && body.byteLength <= maxEntryBytes) {
           const headers = {};
           clone.headers.forEach((v, k) => { headers[k] = v; });
-          await saveEntry(key, { ts: Date.now(), status: clone.status, headers, body });
-          cleanupExpired(ttlMs);
+          if (shouldCacheJsonPayload(body, headers)) {
+            await saveEntry(key, { ts: Date.now(), status: clone.status, headers, body });
+            cleanupExpired(ttlMs);
+          }
         }
       }
       return resp;
     } catch (err) {
       if (cacheable && key) {
-        const stale = await readEntry(key);
-        if (stale) return responseFromEntry(stale, 'fallback');
+        const fallback = await readEntry(key);
+        if (isValidCacheEntry(fallback)) return responseFromEntry(fallback, 'fallback');
+        await deleteEntry(key);
       }
       throw err;
     }

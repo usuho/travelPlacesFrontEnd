@@ -1,0 +1,12 @@
+      }
+    }
+
+    try {
+      const resp = await originalFetch(req);
+      if (resp && resp.status >= 500) {
+        if (cacheable && key) {
+          const fallback = await readEntry(key);
+          if (isValidCacheEntry(fallback)) return responseFromEntry(fallback, 'fallback');
+        }
+        return resp; // 不缓�?5xx
+      }
