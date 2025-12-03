@@ -301,13 +301,13 @@ export default {
           reject(e);
         }
       });
-      // 先尝试快速返回缓存/粗精度，再高精度；仅超时则逐级放宽，提升室内/弱网命中率
-      const attempts = [
-        { enableHighAccuracy: false, timeout: 8000, maximumAge: 600000 }, // 先拿最近10分钟的缓存坐标
-        { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 },
-        { enableHighAccuracy: false, timeout: 15000, maximumAge: 0 },
-        { enableHighAccuracy: true, timeout: 35000, maximumAge: 0 },
-      ];
+      // Prefer high-accuracy (GPS) first, then fall back to cached/low-accuracy.
+      const attempts = [
+        { enableHighAccuracy: true, timeout: 12000, maximumAge: 0 },
+        { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 },
+        { enableHighAccuracy: false, timeout: 15000, maximumAge: 600000 },
+        { enableHighAccuracy: false, timeout: 20000, maximumAge: 0 },
+      ];
       let lastErr = null;
       return (async () => {
         for (const opts of attempts) {

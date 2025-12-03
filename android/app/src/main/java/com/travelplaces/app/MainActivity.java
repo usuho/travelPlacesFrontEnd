@@ -20,11 +20,13 @@ import java.util.List;
 
 public class MainActivity extends BridgeActivity {
     private static final int STORAGE_PERMISSIONS_REQUEST_CODE = 9100;
+    private static final int LOCATION_PERMISSIONS_REQUEST_CODE = 9200;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         requestStoragePermissions();
+        requestLocationPermissions();
     }
 
     private void requestStoragePermissions() {
@@ -64,6 +66,24 @@ public class MainActivity extends BridgeActivity {
                 this,
                 permissionsToRequest.toArray(new String[0]),
                 STORAGE_PERMISSIONS_REQUEST_CODE
+            );
+        }
+    }
+
+    private void requestLocationPermissions() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return;
+        List<String> permissionsToRequest = new ArrayList<>();
+        if (!hasPermission(Manifest.permission.ACCESS_FINE_LOCATION)) {
+            permissionsToRequest.add(Manifest.permission.ACCESS_FINE_LOCATION);
+        }
+        if (!hasPermission(Manifest.permission.ACCESS_COARSE_LOCATION)) {
+            permissionsToRequest.add(Manifest.permission.ACCESS_COARSE_LOCATION);
+        }
+        if (!permissionsToRequest.isEmpty()) {
+            ActivityCompat.requestPermissions(
+                this,
+                permissionsToRequest.toArray(new String[0]),
+                LOCATION_PERMISSIONS_REQUEST_CODE
             );
         }
     }
