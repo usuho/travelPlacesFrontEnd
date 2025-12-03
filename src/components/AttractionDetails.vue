@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="container ">
 
      <!-- 固定顶部区域（标题 + 筛选器） -->
@@ -770,8 +770,11 @@
       translateCounty(country) {
         return this.countyTranslations[country] || '省份';
       },
-
       async fetchAttractionDetails() {
+        const cacheKey = `attractionCache_${this.country}_${this.id}`;
+        const readCachedDetail = () => { try { const raw = localStorage.getItem(cacheKey); return raw ? JSON.parse(raw) : null; } catch (e) { return null; } };
+        const saveCachedDetail = (payload) => { try { localStorage.setItem(cacheKey, JSON.stringify(payload)); } catch (e) {} };
+
         // 自创景点：从本地缓存读取并展示
         if (String(this.country) === 'custom') {
           const a = findCustomAttractionById(this.id)
@@ -797,7 +800,6 @@
             } catch (e) {}
             return
           } else {
-            // 未找到：给出占位，避免空白
             this.attraction = {
               name: '未找到的自创景点',
               rating: 0,
@@ -808,19 +810,35 @@
             this.loading = false
             return
           }
+        }
+
+        // 1️⃣ 拉取 JSON 数据（平台景点），失败则回退本地缓存
+        let data = null;
+        try {
+          const response = await fetch(`https://juseaxerf.com/api/attraction/${this.country}/${this.id}`, withBackendApiKey());
+          if (!response.ok) throw new Error(`HTTP ${response.status}`);
+          const parsed = await response.json();
+          if (!parsed || typeof parsed !== 'object') throw new Error('Invalid payload');
+          data = parsed;
+          saveCachedDetail(parsed);
+        } catch (e) {
+          const cached = readCachedDetail();
+          if (cached) {
+            data = cached;
+          } else {
+            console.error('详情拉取失败且无缓存', e);
+            this.loading = false;
+            return;
           }
-          // 1️⃣ 拉取 JSON 数据（平台景点）
-        const response = await fetch(`https://juseaxerf.com/api/attraction/${this.country}/${this.id}`, withBackendApiKey());
-        const data = await response.json();
+        }
 
-        if (data) {
-            // ✅ 第一步：只加载文字数据
-            this.attraction = data;
-            this.loading = false; // ✅ 提前结束 loading，先显示文字
+        // ② 展示文本内容
+        this.attraction = data;
+        this.loading = false;
 
-          // 2️⃣ 如果 hasImage1/2/3 存在，就异步拉取图片
-          for (let i = 1; i <= 3; i++) {
-            if (data[`hasImage${i}`]) {
+        // ③ 如有图片，继续异步拉取（离线情况下会命中 fetchCache 的 fallback）
+        for (let i = 1; i <= 3; i++) {
+          if (data[`hasImage${i}`]) {
             fetch(`https://juseaxerf.com/api/attraction-image/${this.country}/${this.id}/${i}`, withBackendApiKey())
               .then(response => {
                 if (!response.ok) throw new Error('Failed to fetch image');
@@ -829,11 +847,11 @@
               .then(blob => {
                 const url = URL.createObjectURL(blob);
                 this[`image${i}`] = url;
-              });
+              })
+              .catch(() => {});
           }
         }
-    }
-  },
+      },
       getDistanceQueueSnapshot() {
         try {
           const raw = localStorage.getItem('distanceBrowseQueue');
@@ -2361,3 +2379,5 @@
 }
 
 </style>
+
+

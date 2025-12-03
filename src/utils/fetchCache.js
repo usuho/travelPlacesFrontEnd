@@ -98,7 +98,10 @@ function shouldCachePayload(body, headers) {
     if (ct.includes('application/json')) {
       const text = new TextDecoder().decode(buffer);
       const parsed = JSON.parse(text);
-      return Array.isArray(parsed?.data) || Array.isArray(parsed);
+      const payload = parsed && parsed.data !== undefined ? parsed.data : parsed;
+      if (Array.isArray(payload)) return true;
+      if (payload && typeof payload === 'object') return true;
+      return false;
     }
     return false;
   } catch (e) {
