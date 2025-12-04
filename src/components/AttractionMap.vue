@@ -2308,7 +2308,10 @@ export default {
       // ʹ data- ԴΣ򿪺¼
       return `
         <div class="map-popup" data-id="${String(meta.id)}" data-country="${String(meta.country || this.country)}">
-          <div class="popup-thumb"><img id="${imgId}" src="${imageSrc || ''}" alt="thumb"/></div>
+          <div class="popup-thumb">
+            <div class="popup-image-placeholder"></div>
+            <img id="${imgId}" src="${imageSrc || ''}" alt="thumb"/>
+          </div>
           <div class="popup-main">
             <div class="popup-name">${this.escapeHtml(name)}</div>
             <div class="popup-meta">${this.escapeHtml(county)}  ${this.escapeHtml(region)}</div>
@@ -2324,21 +2327,39 @@ export default {
         marker.bindPopup(this.buildPopup(meta), { autoPan: false });
       } catch (_) {}
     },
-
     attachPopupHandlers(meta) {
-      // ͼƬռλע⣺el.src ڲᱻΪ URLʹΪգ
-      //  getAttribute('src') жǷΪգԴΪǳԼһΡ
+      // ???????l.src ????URL???
+      //  getAttribute('src') ??????????
       const imgId = `img_${meta.country || this.country}_${meta.id}`;
       const el = document.getElementById(imgId);
       if (el) {
-        // ͼƬʧʱֻɫռλͼͼ
+        let placeholder = null;
+        try { placeholder = el.closest('.popup-thumb')?.querySelector('.popup-image-placeholder') || null; } catch (e) {}
+        const applyLoaded = () => {
+          try { el.style.display = ''; } catch (_) {}
+          try { if (placeholder) placeholder.style.display = "none"; } catch (_) {}
+          try { el.classList.add('fade-in-image'); } catch (_) {}
+        };
+        try {
+          el.addEventListener('load', () => {
+            applyLoaded();
+          }, { once: true, passive: true });
+        } catch (e) {}
+        // ??????????
         try {
           el.addEventListener('error', () => {
-            try { el.style.display = 'none'; } catch (e) {}
+            // keep placeholder visible; avoid permanently hiding img if src empty initially
+            try { if (placeholder) placeholder.style.display = ''; } catch (e) {}
+            try { el.classList.remove('fade-in-image'); } catch (e) {}
           }, { once: true, passive: true });
         } catch (e) {}
         this.loadImage(meta).then(src => {
-          if (src) { el.src = src; }
+          if (src) {
+            el.src = src;
+            if (el.complete && el.naturalWidth) applyLoaded();
+          } else {
+            try { if (placeholder) placeholder.style.display = "none"; } catch (_) {}
+          }
         });
       }
       // ת
@@ -2946,8 +2967,10 @@ export default {
 
 /* ʽ */
 :deep(.map-popup) { display: flex; gap: 8px; align-items: center; cursor: pointer; }
-:deep(.popup-thumb) { width: 40px; height: 40px; border-radius: 8px; overflow: hidden; background: #eee; flex: 0 0 auto; }
-:deep(.popup-thumb img) { width: 40px; height: 40px; object-fit: cover; display: block; }
+:deep(.popup-thumb) { width: 40px; height: 40px; border-radius: 8px; overflow: hidden; background: #eee; flex: 0 0 auto; position: relative; }
+:deep(.popup-thumb img) { width: 40px; height: 40px; object-fit: cover; display: block; opacity: 0; transform: scale(0.98); filter: blur(6px); transition: opacity .25s ease, transform .25s ease, filter .25s ease; }
+:deep(.popup-thumb img.fade-in-image) { opacity: 1; transform: scale(1); filter: blur(0); }
+:deep(.popup-image-placeholder) { position: absolute; inset: 0; background: linear-gradient(120deg, #f0f0f0, #e0e0e0, #f0f0f0); background-size: 200% 100%; animation: popupPlaceholderShimmer 1.4s infinite linear; }
 :deep(.popup-main) { display: grid; grid-template-columns: 1fr auto; grid-template-rows: auto auto; column-gap: 8px; row-gap: 2px; }
 :deep(.popup-name) {
   grid-column: 1 / 3;
@@ -2972,6 +2995,11 @@ export default {
   :deep(.map-popup .popup-rating) { margin-top: 2px; }
   :deep(.map-popup .popup-rating) { margin-left: 8px; gap: 0; }
   :deep(.map-popup .popup-rating > * + *) { margin-left: 4px; }
+}
+
+@keyframes popupPlaceholderShimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
 }
 
 /* 景点气泡使用文青衬线字体（覆盖 Leaflet 默认无衬线） */
