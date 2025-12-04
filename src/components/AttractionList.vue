@@ -4816,13 +4816,13 @@ const all = this.sortedFavorites || [];
 
 .page-title {
   font-size: 3rem;
-  font-weight: 700;
+  font-weight: 1;
   margin-bottom: 0;
 }
 
 .title-english {
   font-size: 1.2rem;
-  font-weight: 700;
+  font-weight: 1;
   margin-bottom: 0;
   align-self:center;
 }
@@ -5150,14 +5150,15 @@ const all = this.sortedFavorites || [];
 .attraction-name-text {
     color: #1d1d1f;
     font-size: 1.25rem;
-    font-weight: 600;
+    font-weight: 1;
     line-height: 1.4;
     }
 
   /* 景点卡片标题使用装饰性字体 */
   .attraction-name,
   .attraction-name-text {
-    font-family: 'ZCOOL XiaoWei', 'Noto Serif SC', 'Songti SC', 'STSong', 'Source Han Serif SC', 'SimSun', serif;
+    font-family: 'ZaoZiGongFangChuangJiHei', '造字工房创际黑', 'ZCOOL XiaoWei', 'Noto Serif SC', 'Songti SC', 'STSong', 'Source Han Serif SC', 'SimSun', serif;
+    font-weight: 1;
   }
 
 .attraction-location {
@@ -5481,7 +5482,7 @@ const all = this.sortedFavorites || [];
 
   .attraction-content-mobile .attraction-name {
     font-size: 13px;
-    font-weight: 600;
+    font-weight: 1;
     margin: 0;
     white-space: wrap; 
     line-height: 1.3;
@@ -5520,7 +5521,7 @@ const all = this.sortedFavorites || [];
   /* 第一行：名字 */
   .attraction-name {
     font-size: 1.1rem;
-    font-weight: 600;
+    font-weight: 1;
     line-height: 1.2;
     white-space: wrap; 
     margin: 0;
@@ -5661,7 +5662,7 @@ const all = this.sortedFavorites || [];
 
   .title-english {
     font-size: 0.7rem;
-    font-weight: 700;
+    font-weight: 1;
     margin-bottom: 0;
     align-self:center;
   }

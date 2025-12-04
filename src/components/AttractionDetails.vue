@@ -1620,7 +1620,7 @@
 
 .attraction-title {
   font-size: 2.4rem;
-  font-weight: 700;
+  font-weight: 1;
   line-height: 1.2;
 }
 .fav-badge {

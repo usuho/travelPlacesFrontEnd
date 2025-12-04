@@ -380,6 +380,15 @@ export default {
   padding: 0;
 }
 
+.hero-title.title-hero,
+.title-english.title-hero {
+  font-family: 'ZCOOL XiaoWei', 'Noto Serif SC', 'Songti SC', 'STSong', 'Source Han Serif SC', 'SimSun', serif;
+}
+
+.title-english.title-hero {
+  font-weight: 800;
+}
+
 .hero-subtitle {
   font-size: 1.5rem;
   color: #6e6e73;
@@ -442,20 +451,16 @@ export default {
   margin-bottom: 24px;
 }
 
-.country-name {
-  font-size: 1.75rem;
-  font-weight: 600;
-  margin-bottom: 16px;
-  color: #1d1d1f;
-}
-
 .country-name-desktop-english {
   font-size: 0.7rem;
 }
 
 .country-name-desktop,
-.country-name-mobile {
-  font-family: 'ZCOOL XiaoWei', 'Noto Serif SC', 'Songti SC', 'STSong', 'Source Han Serif SC', 'SimSun', serif;
+.country-name-mobile,
+.country-name-desktop-english,
+.country-name-mobile-english {
+  font-family: 'ZaoZiGongFangChuangJiHei', '造字工房创际黑', 'ZCOOL XiaoWei', 'Noto Serif SC', 'Songti SC', 'STSong', 'Source Han Serif SC', 'SimSun', serif;
+  font-weight: 1;
 }
 
 .country-description {
@@ -538,11 +543,6 @@ export default {
     font-size: 2.5rem;
     margin-right: 12px;
     margin-bottom: 0;
-  }
-
-  .country-name {
-    font-size: 1rem;
-    margin-bottom: 8px;
   }
 
   .country-description {

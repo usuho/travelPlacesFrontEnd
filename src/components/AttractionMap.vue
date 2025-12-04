@@ -21,7 +21,7 @@ import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { findCustomAttractionById, getAllCustomAttractions } from '../utils/customAttractions.js';
 import { getImageUrl as getCustomImageUrl } from '../utils/customImageStore.js';
-import { fetchAttractionsGeo, fetchAttractionsGeoByIds, fetchAttractionsPositions, fetchAttractionsPositionsByIds, getLastApiBase } from '../utils/geoApi.js';
+import { fetchAttractionsGeo, fetchAttractionsGeoByIds, fetchAttractionsPositions, fetchAttractionsPositionsByIds, getLastApiBase, withBackendApiKey } from '../utils/geoApi.js';
 import { getCountrySlugByIso, isSupportedCountrySlug } from '../utils/countryCatalog.js';
 
 export default {
@@ -301,13 +301,20 @@ export default {
           reject(e);
         }
       });
-      // Prefer high-accuracy (GPS) first, then fall back to cached/low-accuracy.
-      const attempts = [
-        { enableHighAccuracy: true, timeout: 12000, maximumAge: 0 },
-        { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 },
-        { enableHighAccuracy: false, timeout: 15000, maximumAge: 600000 },
-        { enableHighAccuracy: false, timeout: 20000, maximumAge: 0 },
-      ];
+      // Prefer high-accuracy (GPS) first, then fall back to cached/low-accuracy.
+
+      const attempts = [
+
+        { enableHighAccuracy: true, timeout: 12000, maximumAge: 0 },
+
+        { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 },
+
+        { enableHighAccuracy: false, timeout: 15000, maximumAge: 600000 },
+
+        { enableHighAccuracy: false, timeout: 20000, maximumAge: 0 },
+
+      ];
+
       let lastErr = null;
       return (async () => {
         for (const opts of attempts) {
@@ -2330,11 +2337,9 @@ export default {
             try { el.style.display = 'none'; } catch (e) {}
           }, { once: true, passive: true });
         } catch (e) {}
-        const rawAttr = el.getAttribute('src');
-        const isCustom = String(meta.country || this.country) === 'custom';
-        if (!rawAttr || isCustom) {
-          this.loadImage(meta).then(src => { if (src) el.src = src; });
-        }
+        this.loadImage(meta).then(src => {
+          if (src) { el.src = src; }
+        });
       }
       // ת
       try {
@@ -2690,24 +2695,15 @@ export default {
     },
 
     getImageUrl(meta, imgId) {
-      // ȳͬõ URL򷵻ؿַռλ popupopen 첽
+      // cache only; loadImage does fetch with API key
+      if (!meta) return '';
       const key = `${meta.country || this.country}-${meta.id}-1`;
       if (this.imageCache.has(key)) return this.imageCache.get(key);
-      if (String(meta.country || this.country) === 'custom') {
-        // ԴԶȡ洢
-        return '';
-      } else {
-        if (meta.hasImage) {
-          // ֱֻ֧棩
-          const base = getLastApiBase();
-          const country = String(meta.country || this.country);
-          return `${base}/api/attraction-image/${country}/${meta.id}/1`;
-        }
-      }
       return '';
     },
 
     async loadImage(meta) {
+      if (!meta) return '';
       const key = `${meta.country || this.country}-${meta.id}-1`;
       if (this.imageCache.has(key)) return this.imageCache.get(key);
       try {
@@ -2718,14 +2714,18 @@ export default {
             const url = await getCustomImageUrl(k);
             if (url) { this.imageCache.set(key, url); return url; }
           }
-        } else {
-          // ʹȱ hasImage ǣҲԼͼڵʱ
-          const base = getLastApiBase();
-          const country = String(meta.country || this.country);
-          const url = `${base}/api/attraction-image/${country}/${meta.id}/1`;
-          this.imageCache.set(key, url);
-          return url;
+          return '';
         }
+        if (!meta.hasImage) return '';
+        const base = getLastApiBase();
+        const country = String(meta.country || this.country);
+        const url = `${base}/api/attraction-image/${country}/${meta.id}/1`;
+        const resp = await fetch(url, withBackendApiKey());
+        if (!resp || !resp.ok) return '';
+        const blob = await resp.blob();
+        const objectUrl = URL.createObjectURL(blob);
+        this.imageCache.set(key, objectUrl);
+        return objectUrl;
       } catch (e) {}
       return '';
     },
@@ -2949,7 +2949,15 @@ export default {
 :deep(.popup-thumb) { width: 40px; height: 40px; border-radius: 8px; overflow: hidden; background: #eee; flex: 0 0 auto; }
 :deep(.popup-thumb img) { width: 40px; height: 40px; object-fit: cover; display: block; }
 :deep(.popup-main) { display: grid; grid-template-columns: 1fr auto; grid-template-rows: auto auto; column-gap: 8px; row-gap: 2px; }
-:deep(.popup-name) { grid-column: 1 / 3; font-weight: 800; max-width: 220px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+:deep(.popup-name) {
+  grid-column: 1 / 3;
+  font-family: 'ZaoZiGongFangChuangJiHei', '造字工房创际黑', 'ZCOOL XiaoWei', 'Noto Serif SC', 'Songti SC', 'STSong', 'Source Han Serif SC', 'SimSun', serif;
+  font-weight: 1;
+  max-width: 220px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 :deep(.popup-meta) { color: #64748b; font-size: 12px; }
 :deep(.popup-rating) { color: #fff; font-weight: 800; padding: 2px 6px; font-size: 12px; border-radius: 6px; align-self: start; display: inline-flex; align-items: center; gap: 4px; }
 :deep(.popup-rating-label) { opacity: 0.9; font-weight: 700; }
@@ -2969,7 +2977,6 @@ export default {
 /* 景点气泡使用文青衬线字体（覆盖 Leaflet 默认无衬线） */
 :deep(.leaflet-popup-content),
 :deep(.map-popup),
-:deep(.popup-name),
 :deep(.popup-meta),
 :deep(.popup-rating),
 :deep(.popup-rating-label),

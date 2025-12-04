@@ -187,7 +187,8 @@ a:hover {
 
 /* 页面主标题统一使用装饰性字体 */
 .title-hero {
-  font-family: 'ZCOOL XiaoWei', 'Noto Serif SC', 'Songti SC', 'STSong', 'Source Han Serif SC', 'SimSun', serif;
+  font-family: 'ZaoZiGongFangChuangJiHei', 'ZCOOL XiaoWei', 'Noto Serif SC', 'Songti SC', 'STSong', 'Source Han Serif SC', 'SimSun', serif;
+  font-weight: 1;
 }
 
 /* 响应式设计 */

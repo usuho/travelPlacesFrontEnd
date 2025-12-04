@@ -9,6 +9,14 @@
   }
 }
 
+@font-face {
+  font-family: 'ZaoZiGongFangChuangJiHei';
+  font-style: normal;
+  font-weight: 1;
+  font-display: swap;
+  src: url('../fonts/zaozigongfangchuangjiheiti.otf') format('opentype');
+}
+
 /* 本地自托管字体，脱离外网依赖 */
 @font-face {
   font-family: 'Noto Serif SC';
