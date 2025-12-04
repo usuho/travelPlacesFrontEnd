@@ -325,7 +325,7 @@
       </div>
 
       <!-- 景点列表 -->
-      <div v-if="!loading" class="attractions-section">
+      <div v-if="!loading && listVisible" class="attractions-section">
         <div v-if="attractions.length === 0" class="empty-state">
           <div class="empty-icon">🏞️</div>
           <h3>暂无景点数据</h3>
@@ -962,14 +962,17 @@
         distanceSortAvailable: false,
         distanceQueue: null,
         listRenderTick: 0,
+        listVisible: true,
+        listShownOnce: false,
         fetchRetryDelay: 2000,
         activeFetchToken: 0,
+        maxFetchRetries: 5,
       };
     },
 
     computed: {
       listRenderKey() {
-        return `${this.order || 'rating_desc'}-${this.page || 1}-${this.listRenderTick}`;
+        return `${this.page || 1}-${this.listRenderTick}`;
       },
       totalPages() {
         return Math.ceil(this.total / this.limit);
@@ -3845,27 +3848,37 @@ const all = this.sortedFavorites || [];
       },
       
       fetchRegions() {
-        if (this.selectedCounty) {
-          fetch(`https://juseaxerf.com/api/regions/${this.country}/${this.selectedCounty}`, withBackendApiKey())
-          .then(response => response.json())
-          .then(data => {
-            this.regions = data;
-            this.filteredRegions = data;
-          })
-          .catch(error => {
-            console.error('Error fetching regions:', error);
-          });
-        }else {
-          fetch(`https://juseaxerf.com/api/regions/${this.country}`, withBackendApiKey())
-          .then(response => response.json())
-          .then(data => {
-            this.regions = data;
-            this.filteredRegions = data;
-          })
-          .catch(error => {
-            console.error('Error fetching regions:', error);
-          });
+        const cacheKey = this.buildRegionsCacheKey();
+        const cached = this.loadRegionsCache(cacheKey);
+        if (cached && cached.length) {
+          this.regions = cached;
+          this.filteredRegions = cached;
         }
+
+        const fetchUrl = this.selectedCounty
+          ? `https://juseaxerf.com/api/regions/${this.country}/${this.selectedCounty}`
+          : `https://juseaxerf.com/api/regions/${this.country}`;
+
+        fetch(fetchUrl, withBackendApiKey({ cache: 'no-store' }))
+          .then(response => {
+            if (!response.ok) {
+              const retryUrl = `${fetchUrl}?_ts=${Date.now()}`;
+              return fetch(retryUrl, withBackendApiKey({ cache: 'reload' }));
+            }
+            return response;
+          })
+          .then(response => {
+            if (!response || !response.ok) throw new Error('HTTP error fetching regions');
+            return response.json();
+          })
+          .then(data => {
+            this.regions = data;
+            this.filteredRegions = data;
+            this.saveRegionsCache(cacheKey, data);
+          })
+          .catch(error => {
+            console.error('Error fetching regions:', error);
+          });
         
       },
 
@@ -3998,13 +4011,93 @@ const all = this.sortedFavorites || [];
       bumpListRenderTick() {
         this.listRenderTick = (this.listRenderTick + 1) % 1000000;
       },
+      showListWithTick(forceTick = false) {
+        this.$nextTick(() => {
+          this.listVisible = true;
+          if (!this.listShownOnce || forceTick) {
+            this.listShownOnce = true;
+            this.bumpListRenderTick();
+          }
+        });
+      },
+      preparePageChange() {
+        this.listVisible = false;
+        this.listShownOnce = false;
+        this.attractions = [];
+        this.loading = true;
+      },
       waitForRetry(delay) {
         return new Promise(resolve => setTimeout(resolve, delay));
+      },
+      fetchAttractionImages(list) {
+        if (!Array.isArray(list) || !list.length) return;
+        list.forEach(async (a, i) => {
+          if (!a || !a.hasImage || a.image1) return;
+          try {
+            const res = await fetch(`https://juseaxerf.com/api/attraction-image/${this.country}/${a.id}/1`, withBackendApiKey());
+            if (res && res.ok) {
+              const blob = await res.blob();
+              const url = URL.createObjectURL(blob);
+              if (this.attractions && this.attractions[i]) {
+                this.attractions[i].image1 = url;
+              }
+            }
+          } catch (e) {}
+        });
+      },
+      buildAttractionsCacheKey(paramsString) {
+        return `attractionsCache:${this.country}:${paramsString}`;
+      },
+      loadAttractionsCache(key) {
+        try {
+          const raw = localStorage.getItem(key);
+          if (!raw) return null;
+          const parsed = JSON.parse(raw);
+          if (!parsed || !Array.isArray(parsed.data)) return null;
+          return parsed;
+        } catch (e) {
+          return null;
+        }
+      },
+      saveAttractionsCache(key, payload) {
+        try {
+          localStorage.setItem(key, JSON.stringify(payload));
+        } catch (e) {}
+      },
+      clearAttractionsCache(key) {
+        try {
+          localStorage.removeItem(key);
+        } catch (e) {}
+      },
+      buildRegionsCacheKey() {
+        const county = this.selectedCounty || '';
+        return `regionsCache:${this.country}:${county}`;
+      },
+      loadRegionsCache(key) {
+        try {
+          const raw = localStorage.getItem(key);
+          if (!raw) return null;
+          const parsed = JSON.parse(raw);
+          if (!Array.isArray(parsed)) return null;
+          return parsed;
+        } catch (e) {
+          return null;
+        }
+      },
+      saveRegionsCache(key, regions) {
+        try {
+          localStorage.setItem(key, JSON.stringify(regions || []));
+        } catch (e) {}
+      },
+      clearRegionsCache(key) {
+        try {
+          localStorage.removeItem(key);
+        } catch (e) {}
       },
 
       async fetchAttractions(isregion) {
         const fetchToken = ++this.activeFetchToken;
-        this.loading = true;
+        this.listShownOnce = false;
         if (this.order === 'distance_near') {
           const applied = this.applyDistanceQueuePage(!!isregion);
           if (!applied) {
@@ -4023,9 +4116,31 @@ const all = this.sortedFavorites || [];
         if (this.selectedCounty) params.append('county', this.selectedCounty);
         if (this.order === 'rating_desc') params.append('secondary', 'reviews_desc');
 
-        while (this.activeFetchToken === fetchToken) {
+        const paramsString = params.toString();
+        const cacheKey = this.buildAttractionsCacheKey(paramsString);
+        const baseUrl = `https://juseaxerf.com/api/attractions/${this.country}?${params.toString()}`;
+        const doFetch = (url, cacheMode = 'default') =>
+          fetch(url, withBackendApiKey({ cache: cacheMode }));
+
+        // 先尝试读取成功缓存，优先渲染，避免重复看到 500
+        const cached = this.loadAttractionsCache(cacheKey);
+        const cachedSnapshot = cached && Array.isArray(cached.data) ? JSON.stringify(cached.data) : null;
+        this.loading = !(cached && Array.isArray(cached.data) && cached.data.length);
+        if (cached && Array.isArray(cached.data) && cached.data.length) {
+          this.total = Number.isFinite(cached.total) ? cached.total : cached.data.length;
+          this.attractions = cached.data.map(a => ({ ...a, image1: '' }));
+          this.fetchAttractionImages(this.attractions);
+          this.showListWithTick(); // 缓存页渲染也触发动画，但仅一次
+        }
+
+        let attempts = 0;
+        while (this.activeFetchToken === fetchToken && attempts < this.maxFetchRetries) {
           try {
-            const response = await fetch(`https://juseaxerf.com/api/attractions/${this.country}?${params.toString()}`, withBackendApiKey());
+            let response = await doFetch(baseUrl, 'no-store'); // 避免浏览器复用 500 缓存
+            if (!response.ok) {
+              const retryUrl = `${baseUrl}&_ts=${Date.now()}`;
+              response = await doFetch(retryUrl, 'reload');
+            }
             if (!response.ok) throw new Error(`HTTP ${response.status}`);
             const data = await response.json();
             if (this.activeFetchToken !== fetchToken) return;
@@ -4037,25 +4152,24 @@ const all = this.sortedFavorites || [];
             const parsedTotal = Number.parseInt(data.total, 10);
             const total = Number.isFinite(parsedTotal) ? parsedTotal : data.data.length;
             this.total = total;
+            const serialized = JSON.stringify(data.data);
+            const sameAsCache = cachedSnapshot && serialized === cachedSnapshot;
+            this.saveAttractionsCache(cacheKey, { total, data: data.data }); // 仅缓存成功响应
+            if (sameAsCache && this.attractions && this.attractions.length) {
+              this.loading = false;
+              this.fetchAttractionImages(this.attractions);
+              // 数据相同不再重复动画
+              this.showListWithTick();
+              return;
+            }
             this.attractions = data.data.map(a => ({
               ...a,
               image1: '',
             }));
             this.loading = false;
 
-            this.attractions.forEach(async (a, i) => {
-              if (a.hasImage) {
-                try {
-                  const res = await fetch(`https://juseaxerf.com/api/attraction-image/${this.country}/${a.id}/1`, withBackendApiKey());
-                  if (res && res.ok) {
-                    const blob = await res.blob();
-                    const url = URL.createObjectURL(blob);
-                    this.attractions[i].image1 = url;
-                  }
-                } catch (e) {}
-              }
-            });
-
+            this.fetchAttractionImages(this.attractions);
+            this.showListWithTick(); // 新数据到达时触发动画
             if (this.order === 'rating_desc') {
               const parsePercent = (v) => {
                 if (v == null) return 0;
@@ -4077,9 +4191,22 @@ const all = this.sortedFavorites || [];
           } catch (error) {
             console.error('????????:', error);
             if (this.activeFetchToken !== fetchToken) return;
+            attempts += 1;
+            if (attempts >= this.maxFetchRetries) {
+              this.loading = false;
+              const cached = this.loadAttractionsCache(cacheKey);
+              if (cached && Array.isArray(cached.data)) {
+                this.total = Number.isFinite(cached.total) ? cached.total : cached.data.length;
+                this.attractions = cached.data.map(a => ({ ...a, image1: '' }));
+                this.listVisible = true;
+                this.showListWithTick();
+              }
+              break;
+            }
             await this.waitForRetry(this.fetchRetryDelay);
           }
         }
+        this.loading = false;
       },
 
       goBack() {
@@ -4102,6 +4229,7 @@ const all = this.sortedFavorites || [];
         localStorage.setItem('attractionMinReviews',this.minReviews);
         localStorage.setItem('attractionsRegion', this.selectedRegion);
         localStorage.setItem('attractionsOrder',this.order)
+        this.preparePageChange();
         this.fetchAttractions(false);
       }
     },
@@ -4114,6 +4242,7 @@ const all = this.sortedFavorites || [];
           localStorage.setItem('attractionMinReviews',this.minReviews);
           localStorage.setItem('attractionsRegion', this.selectedRegion);
           localStorage.setItem('attractionsOrder',this.order)
+          this.preparePageChange();
           this.fetchAttractions(false);
         }
       },
@@ -4128,6 +4257,7 @@ const all = this.sortedFavorites || [];
         if (this.gotoPage && this.gotoPage !== this.page) {
           this.page = this.gotoPage;
           localStorage.setItem('attractionsPage', this.page);
+          this.preparePageChange();
           this.fetchAttractions(false);
         }
       },
