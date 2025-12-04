@@ -2704,9 +2704,7 @@ export default {
       } else {
         if (meta.hasImage) {
           // ֱֻ֧棩
-          const base = getLastApiBase();
-          const country = String(meta.country || this.country);
-          return `${base}/api/attraction-image/${country}/${meta.id}/1`;
+          return '';
         }
       }
       return '';
@@ -2728,8 +2726,13 @@ export default {
           const base = getLastApiBase();
           const country = String(meta.country || this.country);
           const url = `${base}/api/attraction-image/${country}/${meta.id}/1`;
-          this.imageCache.set(key, url);
-          return url;
+          const resp = await fetch(url, withBackendApiKey());
+          if (resp && resp.ok) {
+            const blob = await resp.blob();
+            const objectUrl = URL.createObjectURL(blob);
+            this.imageCache.set(key, objectUrl);
+            return objectUrl;
+          }
         }
       } catch (e) {}
       return '';
@@ -2959,12 +2962,16 @@ export default {
 /* 景点气泡使用文青衬线字体（覆盖 Leaflet 默认无衬线） */
 :deep(.leaflet-popup-content),
 :deep(.map-popup),
-:deep(.popup-name),
 :deep(.popup-meta),
 :deep(.popup-rating),
 :deep(.popup-rating-label),
 :deep(.popup-rating-value) {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+}
+
+:deep(.popup-name) {
+  font-family: 'ZaoZiGongFangChuangJiHei', 'ZCOOL XiaoWei', 'Noto Serif SC', 'Songti SC', 'STSong', 'Source Han Serif SC', 'SimSun', serif;
+  font-weight: 1;
 }
 
 /* мָʾصͼ */

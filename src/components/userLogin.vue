@@ -169,6 +169,8 @@ export default {
 
 .title-hero{
   font-size:2rem;
+  font-family: 'ZCOOL XiaoWei', 'Noto Serif SC', 'Songti SC', 'STSong', 'Source Han Serif SC', 'SimSun', serif;
+  font-weight: 600;
 }
 
 .title-mixed .title-default {

@@ -1,3 +1,11 @@
+@font-face {
+  font-family: 'ZaoZiGongFangChuangJiHei';
+  src: url('../fonts/zaozigongfangchuangjiheiti.otf') format('opentype');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
 @keyframes flyInUp {
   0% {
     opacity: 0;

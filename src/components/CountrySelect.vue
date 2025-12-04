@@ -328,6 +328,11 @@ export default {
 <style scoped>
 @import url('https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@400;600;700&family=ZCOOL+XiaoWei&display=swap');
 
+.title-hero {
+  font-family: 'ZCOOL XiaoWei', 'Noto Serif SC', 'Songti SC', 'STSong', 'Source Han Serif SC', 'SimSun', serif;
+  font-weight: 800;
+}
+
 .country-text-group-mobile {
   display: none;
 }
@@ -456,8 +461,11 @@ export default {
 }
 
 .country-name-desktop,
-.country-name-mobile {
-  font-family: 'ZCOOL XiaoWei', 'Noto Serif SC', 'Songti SC', 'STSong', 'Source Han Serif SC', 'SimSun', serif;
+.country-name-mobile,
+.country-name-desktop-english,
+.country-name-mobile-english {
+  font-family: 'ZaoZiGongFangChuangJiHei', 'ZCOOL XiaoWei', 'Noto Serif SC', 'Songti SC', 'STSong', 'Source Han Serif SC', 'SimSun', serif;
+  font-weight: 1;
 }
 
 .country-description {
