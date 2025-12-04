@@ -57,9 +57,9 @@
           </div>
           
           <div class="filter-group">
-            <label for="region">地区</label>
+            <label for="region">区域</label>
               <select v-model="selectedRegion" id="region">
-                <option value="">所有地区</option>
+                <option value="">所有区域</option>
                 <option v-for="region in regions" :key="region" :value="region">{{ region }}</option>
               </select>
           </div>
@@ -151,7 +151,7 @@
               <input 
                 type="search" 
                 v-model="regionSearch" 
-                placeholder="搜索地区..."
+                placeholder="搜索区域..."
                 class="search-input"
                 ref="regionInput"
                 @input="filterRegions; updateRegionDropdownPosition()"
@@ -281,17 +281,17 @@
 
           </div>
 
-          <!-- 第四行：地区 -->
+          <!-- 第四行：区域 -->
           <div class="mobile-filter-row">
-            <span class="filter-label">地区</span>
+            <span class="filter-label">区域</span>
             <select v-model="selectedRegion">
-              <option value="">所有地区</option>
+              <option value="">所有区域</option>
               <option v-for="region in regions" :key="region" :value="region">{{ region }}</option>
             </select>
             <input 
               type="search" 
               v-model="regionSearch" 
-              placeholder="搜索地区..."
+              placeholder="搜索区域..."
               ref="mobileRegionInput"
               @input="filterRegions(); updateMobileRegionDropdownPosition()"
               @focus="showRegionSuggestions = true; updateMobileRegionDropdownPosition()"
@@ -922,6 +922,47 @@
           thailand: '泰国',
           vietnam: '越南',
           switzerland: '瑞士',
+          france: '法国',
+          germany: '德国',
+          uk: '英国',
+          spain: '西班牙',
+          italy: '意大利',
+          portugal: '葡萄牙',
+          netherlands: '荷兰',
+          sweden: '瑞典',
+          norway: '挪威',
+          austria: '奥地利',
+          belgium: '比利时',
+          finland: '芬兰',
+          luxembourg: '卢森堡',
+          hungary: '匈牙利',
+          czech: '捷克',
+          slovakia: '斯洛伐克',
+          greece: '希腊',
+          croatia: '克罗地亚',
+          lithuania: '立陶宛',
+          latvia: '拉脱维亚',
+          estonia: '爱沙尼亚',
+          korea: '韩国',
+          indonesia: '印度尼西亚',
+          srilanka: '斯里兰卡',
+          maldives: '马尔代夫',
+          argentina: '阿根廷',
+          uruguay: '乌拉圭',
+          brazil: '巴西',
+          paraguay: '巴拉圭',
+          peru: '秘鲁',
+          chile: '智利',
+          bolivia: '玻利维亚',
+          morocco: '摩洛哥',
+          egypt: '埃及',
+          southafrica: '南非',
+          madagascar: '马达加斯加',
+          israel: '以色列',
+          turkey: '土耳其',
+          saudiarabia: '沙特阿拉伯',
+          uae: '阿联酋',
+          qatar: '卡塔尔',
           america: '美国',
           canada: '加拿大',
           mexico: '墨西哥',
@@ -936,7 +977,7 @@
           japan: '都/道/府/县',
           china: '省份',
           america: '州/领地',
-          canada: '省份',
+          canada: '省份/地区',
           mexico: '州',
           australia: '州/领地',
         },
@@ -1116,7 +1157,7 @@
       selectedCounty() {
         if (this.isRestoring) return;
         const resetByDistance = this.handleDistanceQueueResetOnFilters();
-        this.selectedRegion = ''; // 重置地区
+        this.selectedRegion = ''; // 重置区域
         localStorage.setItem('attractionsRegion', ''); // 保存到 localStorage 
         this.fetchRegions();
         this.page = 1;
@@ -2580,7 +2621,7 @@ const all = this.sortedFavorites || [];
         this.showFavorites = !this.showFavorites;
         this.resetSwipeState(true);
         if (this.showFavorites) {
-          // 打开时刷新一次自创景点的信息（名称/地区等）
+          // 打开时刷新一次自创景点的信息（名称/区域等）
           try { this.refreshCustomFavorites(); this.saveFavorites(); } catch(e) {}
           this.updateFavoritesMenuPosition();
           this.$nextTick(() => {
