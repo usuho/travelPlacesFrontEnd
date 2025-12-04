@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="container ">
 
      <!-- 固定顶部区域（标题 + 筛选器） -->
@@ -116,7 +116,7 @@
               </div>
               <div class="info-content">
                 <div class="info-item">
-                  <span class="info-label">地区</span>
+                  <span class="info-label">区域</span>
                   <span class="info-value">{{ attraction.region }}</span>
                 </div>
                 <div class="info-item">
@@ -281,7 +281,7 @@
           japan: '都/道/府/县',
           china: '省份',
           america: '州/领地',
-          canada: '省份',
+          canada: '省份/地区',
           mexico: '州',
           australia: '州/领地',
         },

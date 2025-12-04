@@ -57,9 +57,9 @@
           </div>
           
           <div class="filter-group">
-            <label for="region">地区</label>
+            <label for="region">区域</label>
               <select v-model="selectedRegion" id="region">
-                <option value="">所有地区</option>
+                <option value="">所有区域</option>
                 <option v-for="region in regions" :key="region" :value="region">{{ region }}</option>
               </select>
           </div>
@@ -151,7 +151,7 @@
               <input 
                 type="search" 
                 v-model="regionSearch" 
-                placeholder="搜索地区..."
+                placeholder="搜索区域..."
                 class="search-input"
                 ref="regionInput"
                 @input="filterRegions; updateRegionDropdownPosition()"
@@ -281,17 +281,17 @@
 
           </div>
 
-          <!-- 第四行：地区 -->
+          <!-- 第四行：区域 -->
           <div class="mobile-filter-row">
-            <span class="filter-label">地区</span>
+            <span class="filter-label">区域</span>
             <select v-model="selectedRegion">
-              <option value="">所有地区</option>
+              <option value="">所有区域</option>
               <option v-for="region in regions" :key="region" :value="region">{{ region }}</option>
             </select>
             <input 
               type="search" 
               v-model="regionSearch" 
-              placeholder="搜索地区..."
+              placeholder="搜索区域..."
               ref="mobileRegionInput"
               @input="filterRegions(); updateMobileRegionDropdownPosition()"
               @focus="showRegionSuggestions = true; updateMobileRegionDropdownPosition()"
@@ -936,7 +936,7 @@
           japan: '都/道/府/县',
           china: '省份',
           america: '州/领地',
-          canada: '省份',
+          canada: '省份/地区',
           mexico: '州',
           australia: '州/领地',
         },
@@ -1118,7 +1118,7 @@
       selectedCounty() {
         if (this.isRestoring) return;
         const resetByDistance = this.handleDistanceQueueResetOnFilters();
-        this.selectedRegion = ''; // 重置地区
+        this.selectedRegion = ''; // 重置区域
         localStorage.setItem('attractionsRegion', ''); // 保存到 localStorage 
         this.fetchRegions();
         this.page = 1;
@@ -2582,7 +2582,7 @@ const all = this.sortedFavorites || [];
         this.showFavorites = !this.showFavorites;
         this.resetSwipeState(true);
         if (this.showFavorites) {
-          // 打开时刷新一次自创景点的信息（名称/地区等）
+          // 打开时刷新一次自创景点的信息（名称/区域等）
           try { this.refreshCustomFavorites(); this.saveFavorites(); } catch(e) {}
           this.updateFavoritesMenuPosition();
           this.$nextTick(() => {
