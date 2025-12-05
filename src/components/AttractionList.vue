@@ -1229,7 +1229,7 @@
 
     },
 
-    beforeDestroy() {
+    beforeUnmount() {
       this.activeFetchToken += 1;
       this.clearSwipeResetTimer();
       this.closeFavoritesContextMenu();
