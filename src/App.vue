@@ -187,8 +187,12 @@ a:hover {
 
 /* 页面主标题统一使用装饰性字体 */
 .title-hero {
-  font-family: 'ZaoZiGongFangChuangJiHei', 'ZCOOL XiaoWei', 'Noto Serif SC', 'Songti SC', 'STSong', 'Source Han Serif SC', 'SimSun', serif;
-  font-weight: 1;
+  /* 中文优先使用造字工房创基黑体，英文回退到系统默认字体 */
+  font-family:
+    'ZaoZiGongFangChuangJiHei',
+    -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif,
+    'ZCOOL XiaoWei', 'Noto Serif SC', 'Songti SC', 'STSong', 'Source Han Serif SC', 'SimSun', serif;
+  font-weight: 500;
 }
 
 /* 响应式设计 */

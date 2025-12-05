@@ -632,11 +632,20 @@ export default {
 }
 
 .country-name-desktop,
-.country-name-mobile,
+.country-name-mobile {
+  /* 中文名称：使用造字工房创基黑体，英文仍走系统字体 */
+  font-family:
+    'ZaoZiGongFangChuangJiHei',
+    -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif,
+    '造字工房创际黑', 'ZCOOL XiaoWei', 'Noto Serif SC', 'Songti SC', 'STSong', 'Source Han Serif SC', 'SimSun', serif;
+  font-weight: 1;
+}
+
 .country-name-desktop-english,
 .country-name-mobile-english {
-  font-family: 'ZaoZiGongFangChuangJiHei', '造字工房创际黑', 'ZCOOL XiaoWei', 'Noto Serif SC', 'Songti SC', 'STSong', 'Source Han Serif SC', 'SimSun', serif;
-  font-weight: 1;
+  /* 英文名称：完全使用系统默认西文字体 */
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+  font-weight: 500;
 }
 
 .country-description {
