@@ -106,6 +106,14 @@ export default {
     async mounted() {
       this.loadFavoritesState();
       this.initMap();
+      // 安卓实体返回键：行为与页面“返回”按钮保持一致
+      try {
+        this._onHardwareBack = (evt) => {
+          try { evt && evt.preventDefault && evt.preventDefault(); } catch (e) {}
+          this.handleBack();
+        };
+        window.addEventListener('hardware-back', this._onHardwareBack);
+      } catch (e) {}
       // ¼һηԴĹңڴԴͼʱΪͨĻԴ
       try { if (String(this.country) !== 'custom') localStorage.setItem('lastNonCustomCountry', String(this.country)); } catch (e) {}
       this.normalsCountry = this.determineNormalsCountry();
@@ -144,6 +152,7 @@ export default {
   },
   beforeUnmount() {
     try { if (this._onMapBack) window.removeEventListener('popstate', this._onMapBack); } catch (e) {}
+    try { if (this._onHardwareBack) window.removeEventListener('hardware-back', this._onHardwareBack); } catch (e) {}
     try { this.map && this.map.remove(); } catch (e) {}
   },
   methods: {
@@ -2454,6 +2463,11 @@ export default {
           node.addEventListener('click', async () => {
             // 뿪ͼǰ浱ǰͼͼڴ鷵غָ
             try { this.saveMapView(); } catch (e) {}
+            // 记录当前地图路由，便于详情页使用返回键时能回到地图
+            try {
+              const currentRoute = this.$route && this.$route.fullPath ? this.$route.fullPath : `/map/${this.country}`;
+              sessionStorage.setItem('lastMapRoute', currentRoute);
+            } catch (e) {}
             // ͼʵʹõıɫ飬֤һ
             try {
               const color = this.getRatingColor(meta && meta.rating);

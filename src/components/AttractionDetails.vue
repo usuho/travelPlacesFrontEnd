@@ -294,9 +294,9 @@
       this.bumpAnimKeys();
       this.resetDetailSwipeState(true);
       this.hasNextPage = Array.isArray(this.ids) && this.ids.length >= this.listPageLimit;
+      await this.ensureDistanceQueueForMapEntry();
       this.syncIdsWithDistanceQueue();
       await this.fetchAttractionDetails();
-      await this.ensureDistanceQueueForMapEntry();
     },
     mounted() {
       // 浏览器/手机后退键与页面“返回”按钮一致：一律回到列表页（先退出全屏）
@@ -309,6 +309,14 @@
         };
         window.addEventListener('popstate', this._onDetailsBack, { passive: true });
         try { if (document && document.addEventListener) document.addEventListener('backbutton', this._onDetailsBack, false); } catch(e) {}
+      } catch (e) {}
+      // 安卓实体返回键：与页面蓝色“返回”按钮保持一致
+      try {
+        this._onHardwareBack = (evt) => {
+          try { evt && evt.preventDefault && evt.preventDefault(); } catch (e) {}
+          this.goBack();
+        };
+        window.addEventListener('hardware-back', this._onHardwareBack);
       } catch (e) {}
     },
     watch: {
@@ -332,6 +340,7 @@
       this.clearDetailSwipeResetTimer();
       try { if (this._onDetailsBack) window.removeEventListener('popstate', this._onDetailsBack); } catch(e) {}
       try { if (document && document.removeEventListener && this._onDetailsBack) document.removeEventListener('backbutton', this._onDetailsBack, false); } catch(e) {}
+      try { if (this._onHardwareBack) window.removeEventListener('hardware-back', this._onHardwareBack); } catch (e) {}
     },
     
 
@@ -1218,7 +1227,17 @@
       goBack() {
         if (this.fullscreenImage) { this.closeFullscreen(); return; }
         // 来自地图：返回上一页（地图）
-        if (this.fromMap) { this.$router.back(); return; }
+        if (this.fromMap) {
+          try {
+            const lastMap = sessionStorage.getItem('lastMapRoute');
+            if (lastMap) {
+              this.$router.push(lastMap);
+              return;
+            }
+          } catch (e) {}
+          this.$router.push({ path: `/map/${this.country}` });
+          return;
+        }
         // 默认：回到列表
         const last = localStorage.getItem('lastAttractionsRoute');
         if (last) { this.$router.push(last); return; }

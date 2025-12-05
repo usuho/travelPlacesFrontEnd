@@ -31,18 +31,34 @@ const router = createRouter({
   routes
 })
 
+// 向当前页面派发一个可取消的自定义事件，让各个页面自行决定如何处理实体返回键
+function dispatchHardwareBackToPage() {
+  try {
+    if (typeof window === 'undefined' || typeof window.dispatchEvent !== 'function') return false;
+    const evt = new CustomEvent('hardware-back', { cancelable: true });
+    const keepDefault = window.dispatchEvent(evt);
+    return evt.defaultPrevented || keepDefault === false;
+  } catch (e) {
+    return false;
+  }
+}
+
 // Android 实体返回键：和浏览器返回行为一致
 try {
   CapacitorApp.addListener('backButton', ({ canGoBack }) => {
     try {
-      const currentPath = router.currentRoute.value && router.currentRoute.value.path;
-      // 非首页：走浏览器 history.back()，触发各页面自己的 popstate/back 逻辑
-      if (currentPath && currentPath !== '/') {
-        window.history.back();
-        return;
+      // 优先让当前页面的“返回”按钮逻辑处理（会调用 goBack/handleBack）
+      const handled = dispatchHardwareBackToPage();
+      if (!handled) {
+        const currentPath = router.currentRoute.value && router.currentRoute.value.path;
+        // 非首页：走浏览器 history.back()，触发各页面自己的 popstate/back 逻辑
+        if (currentPath && currentPath !== '/') {
+          window.history.back();
+          return;
+        }
+        // 在首页：退出应用，行为接近浏览器退回/关闭
+        CapacitorApp.exitApp();
       }
-      // 在首页：退出应用，行为接近浏览器退回/关闭
-      CapacitorApp.exitApp();
     } catch (e) {}
   });
 } catch (e) {}

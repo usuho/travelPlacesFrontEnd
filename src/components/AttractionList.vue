@@ -1105,6 +1105,14 @@
         // disabled: do not add popstate interception on list page
         // window.addEventListener('popstate', this._onListBack, { passive: true });
       } catch (e) {}
+      // 安卓实体返回键：走与蓝色“返回”按钮一致的逻辑
+      try {
+        this._onHardwareBack = (evt) => {
+          try { evt && evt.preventDefault && evt.preventDefault(); } catch (e) {}
+          this.goBack();
+        };
+        window.addEventListener('hardware-back', this._onHardwareBack);
+      } catch (e) {}
     },
 
     watch: {
@@ -1207,11 +1215,11 @@
           this.favRightActionId = null;
           this.favRightSwipeItemId = null;
           this.favRightSwipeOffsetX = 0;
-          this.favListTouchScrolling = false;
-          this.setClickGuard();
-          try {
-            document.removeEventListener('mousedown', this.onOutsideClick, { capture: true });
-            document.removeEventListener('touchstart', this.onOutsideClick, { capture: true });
+        this.favListTouchScrolling = false;
+        this.setClickGuard();
+        try {
+          document.removeEventListener('mousedown', this.onOutsideClick, { capture: true });
+          document.removeEventListener('touchstart', this.onOutsideClick, { capture: true });
             window.removeEventListener('resize', this.updateFavoritesMenuPosition);
             window.removeEventListener('scroll', this.updateFavoritesMenuPosition);
           } catch (e) {}
@@ -1238,6 +1246,7 @@
       try {
         window.removeEventListener('resize', this.updateSwipeEnabled);
         if (this._onListBack) window.removeEventListener('popstate', this._onListBack);
+        if (this._onHardwareBack) window.removeEventListener('hardware-back', this._onHardwareBack);
       } catch (e) {}
     },
 
