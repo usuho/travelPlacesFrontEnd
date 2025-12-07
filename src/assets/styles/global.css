@@ -1,6 +1,19 @@
 @font-face {
   font-family: 'ZaoZiGongFangChuangJiHei';
   src: url('../fonts/zaozigongfangchuangjiheiti.otf') format('opentype');
+  /* 仅用于中文相关字形，英文留给系统默认字体 */
+  unicode-range:
+    U+3000-303F,   /* CJK 标点 */
+    U+3400-4DBF,   /* 扩展 A */
+    U+4E00-9FFF,   /* 基本汉字 */
+    U+F900-FAFF,   /* 兼容汉字 */
+    U+20000-2A6DF, /* 扩展 B */
+    U+2A700-2B73F, /* 扩展 C-D */
+    U+2B740-2B81F,
+    U+2B820-2CEAF,
+    U+2CEB0-2EBEF,
+    U+FF01-FF60,   /* 全角标点与数字 */
+    U+FFE0-FFE6;
   font-weight: 400;
   font-style: normal;
   font-display: swap;
