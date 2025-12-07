@@ -5316,8 +5316,7 @@ const all = this.sortedFavorites || [];
     /* 中文走造字工房创基黑体，英文回退系统默认西文字体 */
     font-family:
       'ZaoZiGongFangChuangJiHei',
-      -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif,
-      '造字工房创际黑', 'ZCOOL XiaoWei', 'Noto Serif SC', 'Songti SC', 'STSong', 'Source Han Serif SC', 'SimSun', serif;
+      -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, "Microsoft YaHei", 'Helvetica Neue', Arial, sans-serif;
     font-weight: 500;
   }
 

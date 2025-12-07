@@ -649,7 +649,7 @@ export default {
 .country-name-desktop-english,
 .country-name-mobile-english {
   /* 英文名称：完全使用系统默认西文字体 */
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, "Microsoft YaHei", "Helvetica Neue", Arial, sans-serif;
   font-weight: 500;
 }
 
@@ -731,8 +731,6 @@ export default {
     display: flex;
     align-items: center;
     font-size: 2.5rem;
-    margin-right: 12px;
-    margin-bottom: 0;
   }
 
   .country-name {
