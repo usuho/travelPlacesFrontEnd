@@ -644,7 +644,7 @@ export default {
 .country-name-desktop-english,
 .country-name-mobile-english {
   /* 英文名称：完全使用系统默认西文字体 */
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, "Microsoft YaHei", "Helvetica Neue", Arial, sans-serif;
   font-weight: 500;
 }
 
@@ -672,9 +672,10 @@ export default {
 
   .country-text-group-mobile {
     display: flex;
-    align-items:center;
-    display: flex;
-    flex-direction: column;  /* 中文在上，英文在下 */
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    flex:1;
     line-height: 0.9;
   }
 
@@ -694,7 +695,7 @@ export default {
 
   .country-name-mobile {
     font-size: 1rem;
-    margin-bottom: 8px;
+    margin-bottom: 6px;
   }
 
   .country-name-mobile-english {
@@ -702,14 +703,15 @@ export default {
   }
 
   .country-flag-mobile {
-    margin-right: 1.5rem;
     display: flex;
     line-height: 52px;
+    flex-shrink: 0;
   }
 
   .country-link {
     flex-direction: column;
-    align-items: flex-start;
+    align-items: stretch;
+    width:100%;
   }
 
   .countries-grid {
@@ -726,8 +728,7 @@ export default {
     display: flex;
     align-items: center;
     font-size: 2.5rem;
-    margin-right: 12px;
-    margin-bottom: 0;
+    width: 100%;
   }
 
   .country-description {
