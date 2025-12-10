@@ -3,7 +3,7 @@
     <div class="auth-card card">
       <div class="auth-header">
         <div class="auth-heading">
-          <h2 class="title-default">注册账号</h2>
+          <h2 class="title-default">注册</h2>
         </div>
         <img class="auth-logo" src="/app-icon.png" alt="Travel Places" />
       </div>
