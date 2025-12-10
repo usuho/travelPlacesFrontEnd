@@ -1142,7 +1142,7 @@
         const key = String(this.country || '').toLowerCase();
         const code = map[key];
         if (!code) return null;
-        return `https://flagcdn.com/w640/${code}.png`;
+        return `/flags/${code}.png`;
       },
 
       pageTitleFlagStyle() {
