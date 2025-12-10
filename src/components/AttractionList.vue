@@ -9,8 +9,15 @@
         <div class="header-content">
 
           <div class="title-text-group">
-            <h1 class="page-title title-hero">{{translateCountry(country)}}</h1>
-            <h1 class="title-hero title-english" style="text-transform: uppercase;">{{ country }}</h1>
+            <h1
+              class="page-title title-hero"
+              :style="pageTitleFlagStyle"
+            >
+              {{ translateCountry(country) }}
+            </h1>
+            <h1 class="title-hero title-english" style="text-transform: uppercase;">
+              {{ country }}
+            </h1>
           </div>
           
           <p class="page-subtitle">{{translateCountry(country)}}受欢迎的旅行目的地</p>
@@ -1072,6 +1079,79 @@
           style.touchAction = 'none';
         }
         return style;
+      },
+
+      countryFlagUrl() {
+        const map = {
+          japan: 'jp',
+          china: 'cn',
+          singapore: 'sg',
+          malaysia: 'my',
+          thailand: 'th',
+          vietnam: 'vn',
+          switzerland: 'ch',
+          france: 'fr',
+          germany: 'de',
+          uk: 'gb',
+          spain: 'es',
+          italy: 'it',
+          portugal: 'pt',
+          netherlands: 'nl',
+          sweden: 'se',
+          norway: 'no',
+          austria: 'at',
+          belgium: 'be',
+          finland: 'fi',
+          luxembourg: 'lu',
+          hungary: 'hu',
+          czech: 'cz',
+          slovakia: 'sk',
+          greece: 'gr',
+          croatia: 'hr',
+          lithuania: 'lt',
+          latvia: 'lv',
+          estonia: 'ee',
+          korea: 'kr',
+          indonesia: 'id',
+          srilanka: 'lk',
+          maldives: 'mv',
+          argentina: 'ar',
+          uruguay: 'uy',
+          brazil: 'br',
+          paraguay: 'py',
+          peru: 'pe',
+          chile: 'cl',
+          bolivia: 'bo',
+          morocco: 'ma',
+          egypt: 'eg',
+          southafrica: 'za',
+          madagascar: 'mg',
+          israel: 'il',
+          turkey: 'tr',
+          saudiarabia: 'sa',
+          uae: 'ae',
+          qatar: 'qa',
+          america: 'us',
+          canada: 'ca',
+          mexico: 'mx',
+          iceland: 'is',
+          denmark: 'dk',
+          australia: 'au',
+          newzealand: 'nz'
+        };
+        const key = String(this.country || '').toLowerCase();
+        const code = map[key];
+        if (!code) return null;
+        return `https://flagcdn.com/w640/${code}.png`;
+      },
+
+      pageTitleFlagStyle() {
+        if (!this.countryFlagUrl) return {};
+        return {
+          '--title-hero-base': `url('${this.countryFlagUrl}')`,
+          '--title-hero-base-size': '100% auto',
+          '--title-hero-base-position': 'center center'
+        };
       }
     },
     async created() {
