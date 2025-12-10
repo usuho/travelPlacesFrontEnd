@@ -696,6 +696,20 @@
       </div>
     </teleport>
 
+    <!-- Exporting Progress Dialog -->
+    <teleport to="body">
+      <div v-if="exporting" class="confirm-backdrop" @click.stop>
+        <div class="confirm-dialog" @click.stop>
+          <div class="confirm-message">
+            正在导出收藏，请稍候...
+            <template v-if="exportTotal && exportProgress">
+              （{{ exportProgress }} / {{ exportTotal }}）
+            </template>
+          </div>
+        </div>
+      </div>
+    </teleport>
+
     <!-- Delete Tab Confirm Dialog -->
     <teleport to="body">
       <div v-if="tabDeleteConfirmVisible" class="confirm-backdrop" @click="cancelDeleteTab">
@@ -762,6 +776,8 @@
   import { findCustomAttractionById, deleteCustomAttraction } from '../utils/customAttractions.js'
   import { getImageUrl as getCustomImageUrl, deleteImagesForId as deleteCustomImagesForId, setImage as setCustomImage } from '../utils/customImageStore.js'
   import { withBackendApiKey } from '../utils/geoApi.js';
+  import { Capacitor } from '@capacitor/core';
+  import { Filesystem, Directory, Encoding } from '@capacitor/filesystem';
 
   export default {
     components: { CreateAttractionModal },
@@ -825,6 +841,10 @@
         exportJsonText: '',
         exportFileName: '',
         exportDataUrl: '',
+        exporting: false,
+        exportProgress: 0,
+        exportTotal: 0,
+        exportHasImages: false,
         // 导入失败改为粘贴方式
         showImportPaste: false,
         importPasteText: '',
@@ -1336,16 +1356,16 @@
         this.resetFiltersAndPagination(true);
         this.clearResetFiltersRouteFlag();
       },
-      async getCustomImageData(id) {
+      async getCustomImageData(id, budget) {
         try {
           const d = await openDB('customAttractionsDB', 1);
           const keys = [`${id}:main`, `${id}:sec0`, `${id}:sec1`];
           const out = {};
-          for (const key of keys) {
+
+          const blobToDataUrl = async (blob) => {
+            if (!blob) return '';
             try {
-              const blob = await d.get('images', key);
-              if (!blob) continue;
-              const dataUrl = await new Promise((resolve) => {
+              return await new Promise((resolve) => {
                 try {
                   const fr = new FileReader();
                   fr.onload = () => resolve(fr.result || '');
@@ -1353,6 +1373,78 @@
                   fr.readAsDataURL(blob);
                 } catch (err) { resolve(''); }
               });
+            } catch (e) { return ''; }
+          };
+
+          const maxSide = 720;
+          const quality = 0.8;
+          const blobToScaledDataUrl = async (blob) => {
+            if (!blob) return '';
+            try {
+              const url = URL.createObjectURL(blob);
+              return await new Promise((resolve) => {
+                try {
+                  const img = new Image();
+                  img.onload = () => {
+                    try {
+                      let w = img.naturalWidth || img.width || 0;
+                      let h = img.naturalHeight || img.height || 0;
+                      if (!w || !h) {
+                        resolve('');
+                        return;
+                      }
+                      const scale = Math.min(1, maxSide / Math.max(w, h));
+                      w = Math.max(1, Math.round(w * scale));
+                      h = Math.max(1, Math.round(h * scale));
+                      const canvas = document.createElement('canvas');
+                      canvas.width = w;
+                      canvas.height = h;
+                      const ctx = canvas.getContext('2d');
+                      if (!ctx) {
+                        resolve('');
+                        return;
+                      }
+                      ctx.drawImage(img, 0, 0, w, h);
+                      const dataUrl = canvas.toDataURL('image/jpeg', quality) || '';
+                      resolve(dataUrl);
+                    } catch (err) {
+                      resolve('');
+                    } finally {
+                      try { URL.revokeObjectURL(url); } catch (e) {}
+                    }
+                  };
+                  img.onerror = () => {
+                    try { URL.revokeObjectURL(url); } catch (e) {}
+                    resolve('');
+                  };
+                  img.src = url;
+                } catch (err) {
+                  resolve('');
+                }
+              });
+            } catch (e) { return ''; }
+          };
+
+          for (const key of keys) {
+            try {
+              const blob = await d.get('images', key);
+              if (!blob) continue;
+              const size = blob && blob.size ? blob.size : 0;
+              let dataUrl = '';
+              if (!budget || !Number.isFinite(budget.limit)) {
+                dataUrl = await blobToDataUrl(blob);
+              } else {
+                const remaining = Math.max(0, budget.limit - budget.used);
+                if (size && size <= remaining) {
+                  dataUrl = await blobToDataUrl(blob);
+                  budget.used += size;
+                } else {
+                  // 超出安全阈值时对图片进行压缩
+                  dataUrl = await blobToScaledDataUrl(blob);
+                  // 压缩后体积更小，这里粗略累加原始 size，避免再次大量原图
+                  budget.used += size;
+                }
+              }
               if (dataUrl) out[key.split(':')[1]] = dataUrl;
             } catch (e) {}
           }
@@ -1436,7 +1528,153 @@
           if (input && input.click) input.click();
         } catch (e) {}
       },
+      async sleep(ms) {
+        return new Promise(resolve => setTimeout(resolve, ms));
+      },
+      isNativeAndroid() {
+        try {
+          if (!Capacitor || !Capacitor.isNativePlatform || !Capacitor.isNativePlatform()) {
+            return false;
+          }
+          const platform = Capacitor.getPlatform && Capacitor.getPlatform();
+          return platform === 'android';
+        } catch (e) {
+          return false;
+        }
+      },
+      shouldIncludeImagesForExport() {
+        // 默认允许导出图片，具体是否压缩由 getCustomImageData 的预算控制
+        return true;
+      },
+      getExportImageLimit() {
+        try {
+          // 原生 Android 上保守一些，控制在约 4MB 原始图片数据以内
+          if (this.isNativeAndroid && this.isNativeAndroid()) {
+            return 4 * 1024 * 1024;
+          }
+        } catch (e) {}
+        // 浏览器环境宽松一些，基本不触发压缩
+        return Number.POSITIVE_INFINITY;
+      },
+      async saveExportWithFilesystem(jsonText, fileName) {
+        try {
+          if (!Capacitor || !Capacitor.isNativePlatform || !Capacitor.isNativePlatform()) {
+            return false;
+          }
+          const platform = Capacitor.getPlatform && Capacitor.getPlatform();
+          if (platform !== 'android') return false;
+          const safeName = (fileName || 'favorites.json').replace(/[\\/]+/g, '_');
+          const dir = Directory.Documents;
+          try {
+            await Filesystem.mkdir({ path: 'favorites_exports', directory: dir, recursive: true });
+          } catch (e) {}
+
+          // 如果已存在同名文件，则自动添加后缀避免覆盖
+          let finalName = safeName;
+          try {
+            const listing = await Filesystem.readdir({ path: 'favorites_exports', directory: dir });
+            const files = Array.isArray(listing?.files) ? listing.files : (listing || []);
+            const names = files.map((f) => {
+              if (!f) return '';
+              if (typeof f === 'string') return f;
+              return f.name || f.uri || '';
+            }).filter(Boolean);
+
+            if (names.includes(finalName)) {
+              const dot = safeName.lastIndexOf('.');
+              const base = dot > 0 ? safeName.slice(0, dot) : safeName;
+              const ext = dot > 0 ? safeName.slice(dot) : '';
+              let index = 1;
+              while (index < 1000) {
+                const candidate = `${base}(${index})${ext}`;
+                if (!names.includes(candidate)) {
+                  finalName = candidate;
+                  break;
+                }
+                index += 1;
+              }
+            }
+          } catch (e) {}
+
+          const path = `favorites_exports/${finalName}`;
+          await Filesystem.writeFile({
+            path,
+            data: jsonText,
+            directory: dir,
+            encoding: Encoding.UTF8,
+          });
+          try { alert(`已保存到本机文档目录：${path}`); } catch (e) {}
+          return true;
+        } catch (e) {
+          return false;
+        }
+      },
+      async buildExportItems(rawItems, includeImages, imageBudget) {
+        const items = Array.isArray(rawItems) ? [...rawItems] : [];
+        const result = [];
+        for (let i = 0; i < items.length; i++) {
+          const it = items[i];
+          const pending = !!it.pending;
+          if (String(it.country) === 'custom') {
+            const full = findCustomAttractionById(it.id) || null;
+            const base = { kind: 'custom', pending, data: full };
+            if (includeImages) {
+              try {
+                const images = await this.getCustomImageData(it.id, imageBudget);
+                if (images && Object.keys(images).length) {
+                  base.images = images;
+                  this.exportHasImages = true;
+                }
+              } catch (e) {}
+            }
+            result.push(base);
+          } else {
+            result.push({
+              kind: 'ref',
+              pending,
+              data: {
+                id: it.id,
+                name: it.name,
+                region: it.region,
+                county: it.county,
+                country: it.country,
+                rating: it.rating,
+              },
+            });
+          }
+          this.exportProgress += 1;
+          if (i % 3 === 2) {
+            await this.sleep(0);
+          }
+        }
+        return result;
+      },
+      async buildExportTabs(tabs, includeImages, imageBudget) {
+        const list = Array.isArray(tabs) ? tabs : [];
+        const outTabs = [];
+        let total = 0;
+        list.forEach(t => {
+          if (Array.isArray(t.items)) total += t.items.length;
+        });
+        this.exportTotal = total;
+        this.exportProgress = 0;
+        for (const t of list) {
+          const packedItems = await this.buildExportItems(t.items || [], includeImages, imageBudget);
+          outTabs.push({
+            tabName: t.name || '新建收藏',
+            items: packedItems,
+          });
+        }
+        return outTabs;
+      },
       async exportActiveFavorites(fromChoice) {
+        if (this.exporting) return;
+        this.exporting = true;
+        this.exportProgress = 0;
+        this.exportTotal = 0;
+        this.exportHasImages = false;
+        await this.$nextTick();
+        await this.sleep(0);
         try {
           // When only one (or zero) favorite tab exists, bypass choice dialog
           // Otherwise, require explicit choice if not already chosen
@@ -1446,78 +1684,138 @@
           }
           const active = this.favoriteTabs.find(t => t.id === this.activeTabId);
           const items = Array.isArray(this.favorites) ? [...this.favorites] : [];
-          const payload = {
-            version: 1,
-            type: 'favorites-export',
-            tabName: active ? (active.name || '新的收藏') : '新的收藏',
-            exportedAt: new Date().toISOString(),
-            items: await Promise.all(items.map(async (it) => {
-              const pending = !!it.pending;
-              if (String(it.country) === 'custom') {
-                const full = findCustomAttractionById(it.id) || null;
-                const images = await this.getCustomImageData(it.id);
-                return { kind: 'custom', pending, data: full, images };
-              }
-              return { kind: 'ref', pending, data: {
-                id: it.id,
-                name: it.name,
-                region: it.region,
-                county: it.county,
-                country: it.country,
-                rating: it.rating
-              }};
-            }))
-          };
+          this.exportTotal = items.length;
+          this.exportProgress = 0;
+          const imageBudget = { used: 0, limit: this.getExportImageLimit() };
+          let packedItems;
+          let payload;
+          const allowImages = this.shouldIncludeImagesForExport();
+          try {
+            packedItems = await this.buildExportItems(items, allowImages, imageBudget);
+            payload = {
+              version: 1,
+              type: 'favorites-export',
+              tabName: active ? (active.name || '新的收藏') : '新的收藏',
+              exportedAt: new Date().toISOString(),
+              items: packedItems,
+            };
+          } catch (eBuild) {
+            if (allowImages) {
+              try { alert('导出包含图片的自创景点失败，已改为不导出图片。'); } catch (_) {}
+              this.exportProgress = 0;
+              packedItems = await this.buildExportItems(items, false);
+              payload = {
+                version: 1,
+                type: 'favorites-export',
+                tabName: active ? (active.name || '新的收藏') : '新的收藏',
+                exportedAt: new Date().toISOString(),
+                items: packedItems,
+              };
+            } else {
+              throw eBuild;
+            }
+          }
           const jsonText = JSON.stringify(payload, null, 2);
           const blob = new Blob([jsonText], { type: 'application/json;charset=utf-8' });
           const fileName = (payload.tabName || '收藏')
             .replace(/\s+/g, '_')
             .replace(/[^\w\u4e00-\u9fa5\-_]/g, '') + '_favorites.json';
+
+          // 原生安卓应用优先使用 Capacitor Filesystem 直接写入文件，增加超时保护
+          let fsOk = false;
+          if (this.isNativeAndroid && this.isNativeAndroid()) {
+            try {
+              const fsResult = await Promise.race([
+                this.saveExportWithFilesystem(jsonText, fileName),
+                this.sleep(15000).then(() => 'timeout'),
+              ]);
+              fsOk = fsResult === true;
+              if (fsResult === 'timeout') {
+                try { alert('导出文件较大，直接保存耗时较长，已改用其他导出方式。'); } catch (_) {}
+              }
+            } catch (eFs) {
+              fsOk = false;
+            }
+          }
+          if (fsOk) return;
+
+          const ua = (typeof navigator !== 'undefined' && navigator.userAgent) ? navigator.userAgent : '';
+          const isAndroidWebView = /Android/i.test(ua) && /\bwv\b/i.test(ua);
+
           // 优先使用 Web Share（移动端更友好）
           try {
-            const file = new File([blob], fileName, { type: 'application/json' });
-            if (navigator.canShare && navigator.canShare({ files: [file] })) {
-              await navigator.share({ files: [file], title: fileName });
-              return;
+            if (typeof File !== 'undefined' && navigator && typeof navigator.canShare === 'function') {
+              const file = new File([blob], fileName, { type: 'application/json' });
+              if (navigator.canShare({ files: [file] })) {
+                await navigator.share({ files: [file], title: fileName });
+                return;
+              }
             }
           } catch (eShare) {}
-          // 其次尝试 a[download]
+
+          // 次优先：仅分享文本，兼容不支持文件分享的 Android WebView 等环境
           try {
-            const a = document.createElement('a');
-            if ('download' in a) {
+            if (navigator && typeof navigator.share === 'function') {
+              await navigator.share({ title: fileName, text: jsonText });
+              return;
+            }
+          } catch (eShareText) {}
+
+          // Android WebView 中 download/window.open 对 Blob 常常无效，直接走剪贴板/弹窗回退
+          if (!isAndroidWebView) {
+            // 其次尝试 a[download]
+            try {
+              const a = document.createElement('a');
+              if ('download' in a) {
+                const url = URL.createObjectURL(blob);
+                a.href = url;
+                a.download = fileName;
+                document.body.appendChild(a);
+                a.click();
+                setTimeout(() => {
+                  try { document.body.removeChild(a); } catch(e) {}
+                  try { URL.revokeObjectURL(url); } catch(e) {}
+                }, 0);
+                return;
+              }
+            } catch (eDL) {}
+            // 再次回退：打开新标签页预览（iOS Safari 不支持 download）
+            try {
               const url = URL.createObjectURL(blob);
-              a.href = url;
-              a.download = fileName;
-              document.body.appendChild(a);
-              a.click();
-              setTimeout(() => {
-                try { document.body.removeChild(a); } catch(e) {}
-                try { URL.revokeObjectURL(url); } catch(e) {}
-              }, 0);
+              window.open(url, '_blank', 'noopener');
+              // 给出提示：在新页面通过分享/保存
+              try { alert('已在新页面打开导出的数据，可通过分享或“保存到文件”进行保存。'); } catch(e) {}
+              // 稍后释放 URL
+              setTimeout(() => { try { URL.revokeObjectURL(url); } catch(e) {} }, 4000);
               return;
-            }
-          } catch (eDL) {}
-          // 再次回退：打开新标签页预览（iOS Safari 不支持 download）
-          try {
-            const url = URL.createObjectURL(blob);
-            window.open(url, '_blank', 'noopener');
-            // 给出提示：在新页面通过分享/保存
-            try { alert('已在新页面打开导出的数据，可通过分享或“保存到文件”进行保存。'); } catch(e) {}
-            // 稍后释放 URL
-            setTimeout(() => { try { URL.revokeObjectURL(url); } catch(e) {} }, 4000);
-            return;
-          } catch (eOpen) {}
-          // 最后回退：复制到剪贴板
-          try {
-            if (navigator.clipboard && navigator.clipboard.writeText) {
-              await navigator.clipboard.writeText(jsonText);
-              alert('已复制导出数据到剪贴板，请粘贴保存。');
-              return;
-            }
-          } catch (eClip) {}
-          // 若以上方案均受限，显示回退弹窗以便复制/手动保存
-          this.openExportFallback(jsonText, fileName);
-        } catch (e) {}
+            } catch (eOpen) {}
+          }
+
+          // 最后回退：复制到剪贴板或简短提示
+          if (!this.isNativeAndroid || !this.isNativeAndroid()) {
+            try {
+              if (navigator && navigator.clipboard && navigator.clipboard.writeText) {
+                await navigator.clipboard.writeText(jsonText);
+                alert('已复制导出数据到剪贴板，请粘贴保存。');
+                return;
+              }
+            } catch (eClip) {}
+            // 若以上方案均受限，显示回退弹窗以便复制/手动保存（仅非原生环境）
+            this.openExportFallback(jsonText, fileName);
+          } else {
+            // 原生 Android 上避免在页面中渲染超大 JSON，防止卡死和闪退
+            try {
+              alert('导出文件已生成，但当前手机环境无法直接展示或复制全部内容。如需备份，请在电脑浏览器打开本网站导出。');
+            } catch (_) {}
+          }
+        } catch (e) {
+          try { console.error && console.error('exportActiveFavorites error', e); } catch (_) {}
+          try { alert('导出收藏失败，请稍后重试，或删除部分包含大图片的自创景点后再尝试。'); } catch (_) {}
+        } finally {
+          this.exporting = false;
+          this.exportProgress = 0;
+          this.exportTotal = 0;
+        }
       },
       openExportFallback(jsonText, fileName) {
         try {
@@ -1531,74 +1829,130 @@
       },
       // Export all favorite tabs into a single file
       async exportAllFavorites() {
+        if (this.exporting) return;
+        this.exporting = true;
+        this.exportProgress = 0;
+        this.exportTotal = 0;
+        this.exportHasImages = false;
+        await this.$nextTick();
+        await this.sleep(0);
         try {
           const tabs = Array.isArray(this.favoriteTabs) ? this.favoriteTabs : [];
-          const outTabs = [];
-          for (const t of tabs) {
-            const items = Array.isArray(t.items) ? [...t.items] : [];
-            const tabPack = {
-              tabName: t.name || '新建收藏',
-              items: await Promise.all(items.map(async (it) => {
-                const pending = !!it.pending;
-                if (String(it.country) === 'custom') {
-                  const full = findCustomAttractionById(it.id) || null;
-                  const images = await this.getCustomImageData(it.id);
-                  return { kind: 'custom', pending, data: full, images };
-                }
-                return { kind: 'ref', pending, data: {
-                  id: it.id,
-                  name: it.name,
-                  region: it.region,
-                  county: it.county,
-                  country: it.country,
-                  rating: it.rating
-                }};
-              }))
+          const imageBudget = { used: 0, limit: this.getExportImageLimit() };
+          let outTabs;
+          let payload;
+          const allowImages = this.shouldIncludeImagesForExport();
+          try {
+            outTabs = await this.buildExportTabs(tabs, allowImages, imageBudget);
+            payload = {
+              version: 1,
+              type: 'favorites-export-multi',
+              exportedAt: new Date().toISOString(),
+              tabs: outTabs,
             };
-            outTabs.push(tabPack);
+          } catch (eBuild) {
+            if (allowImages) {
+              try { alert('导出包含图片的自创景点失败，已改为不导出图片。'); } catch (_) {}
+              outTabs = await this.buildExportTabs(tabs, false);
+              payload = {
+                version: 1,
+                type: 'favorites-export-multi',
+                exportedAt: new Date().toISOString(),
+                tabs: outTabs,
+              };
+            } else {
+              throw eBuild;
+            }
           }
-          const payload = { version: 1, type: 'favorites-export-multi', exportedAt: new Date().toISOString(), tabs: outTabs };
           const jsonText = JSON.stringify(payload, null, 2);
           const blob = new Blob([jsonText], { type: 'application/json;charset=utf-8' });
           const fileName = 'all_favorites.json';
+
+          let fsOk = false;
+          if (this.isNativeAndroid && this.isNativeAndroid()) {
+            try {
+              const fsResult = await Promise.race([
+                this.saveExportWithFilesystem(jsonText, fileName),
+                this.sleep(15000).then(() => 'timeout'),
+              ]);
+              fsOk = fsResult === true;
+              if (fsResult === 'timeout') {
+                try { alert('导出文件较大，直接保存耗时较长，已改用其他导出方式。'); } catch (_) {}
+              }
+            } catch (eFs) {
+              fsOk = false;
+            }
+          }
+          if (fsOk) return;
+
+          const ua = (typeof navigator !== 'undefined' && navigator.userAgent) ? navigator.userAgent : '';
+          const isAndroidWebView = /Android/i.test(ua) && /\bwv\b/i.test(ua);
+
+          // 优先使用 Web Share（移动端更友好）
           try {
-            const file = new File([blob], fileName, { type: 'application/json' });
-            if (navigator.canShare && navigator.canShare({ files: [file] })) {
-              await navigator.share({ files: [file], title: fileName });
-              return;
+            if (typeof File !== 'undefined' && navigator && typeof navigator.canShare === 'function') {
+              const file = new File([blob], fileName, { type: 'application/json' });
+              if (navigator.canShare({ files: [file] })) {
+                await navigator.share({ files: [file], title: fileName });
+                return;
+              }
             }
           } catch (eShare) {}
+
+          // 次优先：仅分享文本，兼容不支持文件分享的 Android WebView 等环境
           try {
-            const a = document.createElement('a');
-            if ('download' in a) {
+            if (navigator && typeof navigator.share === 'function') {
+              await navigator.share({ title: fileName, text: jsonText });
+              return;
+            }
+          } catch (eShareText) {}
+
+          if (!isAndroidWebView) {
+            try {
+              const a = document.createElement('a');
+              if ('download' in a) {
+                const url = URL.createObjectURL(blob);
+                a.href = url;
+                a.download = fileName;
+                document.body.appendChild(a);
+                a.click();
+                setTimeout(() => {
+                  try { document.body.removeChild(a); } catch(e) {}
+                  try { URL.revokeObjectURL(url); } catch(e) {}
+                }, 0);
+                return;
+              }
+            } catch (eDL) {}
+            try {
               const url = URL.createObjectURL(blob);
-              a.href = url;
-              a.download = fileName;
-              document.body.appendChild(a);
-              a.click();
-              setTimeout(() => {
-                try { document.body.removeChild(a); } catch(e) {}
-                try { URL.revokeObjectURL(url); } catch(e) {}
-              }, 0);
+              window.open(url, '_blank', 'noopener');
+              try { alert('已在新页面打开导出内容，可通过浏览器保存。'); } catch(e) {}
+              setTimeout(() => { try { URL.revokeObjectURL(url); } catch(e) {} }, 4000);
               return;
-            }
-          } catch (eDL) {}
-          try {
-            const url = URL.createObjectURL(blob);
-            window.open(url, '_blank', 'noopener');
-            try { alert('已在新页面打开导出内容，可通过浏览器保存。'); } catch(e) {}
-            setTimeout(() => { try { URL.revokeObjectURL(url); } catch(e) {} }, 4000);
-            return;
-          } catch (eOpen) {}
-          try {
-            if (navigator.clipboard && navigator.clipboard.writeText) {
-              await navigator.clipboard.writeText(jsonText);
-              alert('已复制导出内容到剪贴板');
-              return;
-            }
-          } catch (eClip) {}
-          this.openExportFallback(jsonText, fileName);
-        } catch (e) {}
+            } catch (eOpen) {}
+          }
+          if (!this.isNativeAndroid || !this.isNativeAndroid()) {
+            try {
+              if (navigator && navigator.clipboard && navigator.clipboard.writeText) {
+                await navigator.clipboard.writeText(jsonText);
+                alert('已复制导出内容到剪贴板');
+                return;
+              }
+            } catch (eClip) {}
+            this.openExportFallback(jsonText, fileName);
+          } else {
+            try {
+              alert('导出文件已生成，但当前手机环境无法直接展示或复制全部内容。如需备份，请在电脑浏览器打开本网站导出。');
+            } catch (_) {}
+          }
+        } catch (e) {
+          try { console.error && console.error('exportAllFavorites error', e); } catch (_) {}
+          try { alert('导出全部收藏失败，请稍后重试，或删除部分包含大图片的自创景点后再尝试。'); } catch (_) {}
+        } finally {
+          this.exporting = false;
+          this.exportProgress = 0;
+          this.exportTotal = 0;
+        }
       },
       closeExportFallback() { this.showExportModal = false; },
       async copyExportJson() {
@@ -5945,22 +6299,3 @@ const all = this.sortedFavorites || [];
 /* 文案显示：桌面显示完整，移动显示简写 */
 .label-desktop { display: inline; }
 .label-mobile { display: none; }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
