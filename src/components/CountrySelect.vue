@@ -12,18 +12,31 @@
         <h1 class="hero-title title-hero">星垠海角</h1>
         <h1 class="title-english title-hero">Stars Meet the Swell</h1>
       </div>
-      <p class="hero-subtitle">选择想探索的国家，发现美与新奇</p>
+      <div class="search-bar">
+        <input
+          v-model="searchQuery"
+          type="search"
+          class="search-input"
+          :placeholder="placeholderText"
+          @focus="searchFocused = true"
+          @blur="searchFocused = false"
+        />
+        <div class="search-placeholder" v-if="!searchQuery">
+          {{ placeholderText }}
+        </div>
+        <span class="search-icon" aria-hidden="true">
+          <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <circle cx="9" cy="9" r="6" stroke="currentColor" stroke-width="2" />
+            <path d="M13 13L17 17" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+          </svg>
+        </span>
+      </div>
     </div>
 
-    <div
-      v-for="(countries, continent) in continents"
-      :key="continent"
-      class="continent-section"
-    >
-      <h2 class="continent-title">{{ translateContinent(continent) }}</h2>
-      <div class="countries-grid" v-fly-in>
+    <div v-if="hasSearchQuery && matchedCountries.length > 0" class="search-results">
+      <div class="countries-grid" v-fly-in :key="searchQuery">
         <div
-          v-for="country in countries"
+          v-for="country in matchedCountries"
           :key="country"
           class="country-card card"
         >
@@ -61,6 +74,59 @@
             <p class="country-description">
               {{ getCountryDescription(country) }}
             </p>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div v-else class="all-continents">
+      <div
+        v-for="(countries, continent) in continents"
+        :key="continent"
+        class="continent-section"
+      >
+        <h2 class="continent-title">{{ translateContinent(continent) }}</h2>
+        <div class="countries-grid" v-fly-in>
+          <div
+            v-for="country in countries"
+            :key="country"
+            :class="['country-card', 'card', { jiggle: isJiggling }]"
+            :style="isJiggling ? jiggleStyle : null"
+          >
+            <div
+              class="country-link"
+              @click="handleCountryClick(country)"
+            >
+              <div class="country-flag-name">
+                <div class="country-flag-mobile">
+                  {{ getCountryEmoji(country) }}
+                </div>
+                
+                <div class="country-text-group-mobile">
+                  <h3 class="country-name-mobile">{{ translateCountry(country) }}</h3>
+                  <h3 class="country-name-mobile-english" style="text-transform: uppercase;">
+                    {{ country }}
+                  </h3>
+                </div>
+              </div>
+
+              
+
+              <div class="country-flag-desktop">
+                {{ getCountryEmoji(country) }}
+              </div>
+
+              <div class="country-text-group-desktop">
+                <h3 class="country-name-desktop">{{ translateCountry(country) }}</h3>
+                <h3 class="country-name-desktop-english" style="text-transform: uppercase;">
+                  {{ country }}
+                </h3>
+              </div>
+              
+
+              <p class="country-description">
+                {{ getCountryDescription(country) }}
+              </p>
+            </div>
           </div>
         </div>
       </div>
@@ -188,6 +254,9 @@ export default {
         australia: '澳大利亚',
         newzealand: '新西兰'
       },
+      placeholderText: '搜寻国家，发现美和新奇',
+      searchQuery: '',
+      searchFocused: false,
       showHeroLogo: false
     };
   },
@@ -230,6 +299,40 @@ export default {
         }
       }, 50);
     });
+  },
+  computed: {
+    hasSearchQuery() {
+      return this.searchQuery.trim().length > 0;
+    },
+    allCountries() {
+      return Object.values(this.continents).flat();
+    },
+    matchedCountries() {
+      if (!this.hasSearchQuery) {
+        return [];
+      }
+      const query = this.searchQuery.trim().toLowerCase();
+      return this.allCountries.filter((country) => {
+        const english = country.toLowerCase();
+        const translation = (this.countryTranslations[country] || '').toLowerCase();
+        return english.includes(query) || translation.includes(query);
+      });
+    },
+    isJiggling() {
+      return (
+        (this.searchFocused && !this.hasSearchQuery) ||
+        (this.hasSearchQuery && this.matchedCountries.length === 0)
+      );
+    },
+    jiggleStyle() {
+      return {
+        animation: 'jiggle 0.3s ease-in-out infinite',
+        transformOrigin: 'center',
+        willChange: 'transform',
+        opacity: '1',
+        transform: 'translateY(0)'
+      };
+    }
   },
   methods: {
     translateCountry(country) {
@@ -572,6 +675,102 @@ export default {
   line-height: 1.6;
 }
 
+.search-bar {
+  position: relative;
+  max-width: 560px;
+  margin: 24px auto 0;
+}
+
+.search-input {
+  width: 100%;
+  padding: 14px 52px 14px 18px;
+  border-radius: 16px;
+  border: 1px solid #dcdde4;
+  background: rgba(255, 255, 255, 0.9);
+  font-size: 1rem;
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.08);
+  transition: box-shadow 0.2s ease, border-color 0.2s ease;
+  text-align: left;
+}
+
+.search-input::placeholder {
+  color: transparent;
+}
+
+.search-input:focus {
+  outline: none;
+  border-color: #8aa9ff;
+  box-shadow: 0 16px 40px rgba(99, 126, 255, 0.2);
+}
+
+.search-icon {
+  position: absolute;
+  right: 16px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: #8b8fa3;
+  width: 22px;
+  height: 22px;
+  pointer-events: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.search-results {
+  margin-top: 10px;
+  margin-bottom: 80px;
+}
+
+.search-placeholder {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  color: #8b8fa3;
+  font-size: 1rem;
+  user-select: none;
+  padding: 0 60px;
+  box-sizing: border-box;
+  text-align: center;
+}
+
+@keyframes jiggle {
+  0% {
+    transform: translate(0, 0) rotate(-0.44deg) scale(1.0009);
+  }
+  25% {
+    transform: translate(0.27px, -0.17px) rotate(0.44deg);
+  }
+  50% {
+    transform: translate(-0.27px, 0.17px) rotate(-0.36deg);
+  }
+  75% {
+    transform: translate(0.17px, 0.17px) rotate(0.36deg);
+  }
+  100% {
+    transform: translate(0, 0) rotate(-0.44deg) scale(1.0009);
+  }
+}
+
+.jiggle,
+.country-card.jiggle {
+  animation: jiggle 0.3s ease-in-out infinite !important;
+  transform-origin: center !important;
+  will-change: transform;
+  opacity: 1 !important;
+}
+
+:deep(.country-card.jiggle) {
+  animation: jiggle 0.3s ease-in-out infinite !important;
+  transform-origin: center !important;
+  will-change: transform;
+  opacity: 1 !important;
+}
+
+
 .continent-section {
   margin-bottom: 100px;
 }
@@ -669,6 +868,20 @@ export default {
 
   .container {
     padding-bottom: 0.01px;
+  }
+
+  .search-bar {
+    margin-top: 12px;
+    max-width: 100%;
+  }
+
+  .search-input {
+    padding: 12px 44px 12px 14px;
+    font-size: 0.95rem;
+  }
+
+  .search-results {
+    margin-bottom: 40px;
   }
 
   .country-text-group-desktop{
