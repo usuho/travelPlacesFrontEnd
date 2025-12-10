@@ -26,8 +26,8 @@
         </div>
         <span class="search-icon" aria-hidden="true">
           <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <circle cx="9" cy="9" r="6" stroke="currentColor" stroke-width="2" />
-            <path d="M13 13L17 17" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+            <circle cx="9" cy="9" r="6" stroke="#8b8fa3" stroke-width="2" />
+            <path d="M13 13L17 17" stroke="#8b8fa3" stroke-width="2" stroke-linecap="round" />
           </svg>
         </span>
       </div>
@@ -718,6 +718,14 @@ export default {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  z-index: 6;
+}
+.search-icon svg {
+  width: 22px;
+  height: 22px;
+  stroke: #8b8fa3;
+  fill: none;
+  display: block;
 }
 
 .search-results {
@@ -735,9 +743,10 @@ export default {
   color: #8b8fa3;
   font-size: 1rem;
   user-select: none;
-  padding: 0 60px;
+  padding: 0 70px;
   box-sizing: border-box;
   text-align: center;
+  z-index: 2;
 }
 
 @keyframes jiggle {
