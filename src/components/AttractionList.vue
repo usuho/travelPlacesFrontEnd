@@ -673,7 +673,7 @@
     <!-- Import Paste Dialog -->
     <teleport to="body">
       <div v-if="showImportPaste" class="confirm-backdrop" @click="cancelImportPaste">
-        <div class="confirm-dialog" @click.stop>
+        <div class="confirm-dialog has-close" @click.stop>
           <button class="confirm-close" aria-label="关闭" @click="cancelImportPaste">×</button>
           <div class="confirm-message">
             无法读取所选文件，请粘贴json文件内文本导入
@@ -692,7 +692,7 @@
     <!-- Export Choice Dialog -->
     <teleport to="body">
       <div v-if="showExportChoice" class="confirm-backdrop" @click="closeExportChoice">
-        <div class="confirm-dialog" @click.stop>
+        <div class="confirm-dialog has-close" @click.stop>
           <button class="confirm-close" aria-label="关闭" @click="closeExportChoice">×</button>
           <div class="confirm-message">导出当前收藏列表或全部收藏列表？</div>
           <div class="confirm-actions">
@@ -708,10 +708,26 @@
       <div v-if="exporting" class="confirm-backdrop" @click.stop>
         <div class="confirm-dialog" @click.stop>
           <div class="confirm-message">
-            正在导出收藏，请稍候...
-            <template v-if="exportTotal && exportProgress">
-              （{{ exportProgress }} / {{ exportTotal }}）
-            </template>
+            <div class="export-progress-header">
+              <span class="export-progress-text">正在导出收藏，请稍候...</span>
+              <span
+                class="export-progress-count"
+                v-if="exportTotal"
+              >
+                {{ exportProgress }} / {{ exportTotal }}
+              </span>
+            </div>
+            <div
+              class="export-progress-bar"
+              v-if="exportTotal"
+            >
+              <div
+                class="export-progress-fill"
+                :style="{
+                  width: Math.min(100, Math.max(0, (exportProgress / exportTotal) * 100)) + '%'
+                }"
+              ></div>
+            </div>
           </div>
         </div>
       </div>
@@ -4968,6 +4984,43 @@ const all = this.sortedFavorites || [];
   font-size: 14px;
   color: #1d1d1f;
 }
+.export-progress-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+  gap: 8px;
+}
+.export-progress-text {
+  flex: 1 1 auto;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.export-progress-count {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  color: #065f46;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+.export-progress-bar {
+  position: relative;
+  width: 100%;
+  height: 6px;
+  border-radius: 9999px;
+  background: #e5e7eb;
+  overflow: hidden;
+}
+.export-progress-fill {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 0;
+  background: #16a34a; /* 绿色进度部分 */
+  transition: width 0.2s ease-out;
+}
 .confirm-message .danger-word {
   color: #c0392b; /* 红色 */
   font-weight: 800; /* 加粗 */
@@ -5190,7 +5243,7 @@ const all = this.sortedFavorites || [];
 .btn-primary:hover { filter: brightness(0.96); }
 
 /* Confirm dialog close button (top-right X) */
-.confirm-dialog { position: fixed; padding-right: 48px; }
+.confirm-dialog.has-close { position: fixed; padding-right: 48px; }
 .confirm-close {
   position: absolute;
   top: 4px;
@@ -6261,10 +6314,6 @@ const all = this.sortedFavorites || [];
 
   .favorites-item {
     gap: 0;
-  }
-
-  .favorites-item > * + * {
-    margin-left: 12px;
   }
 
   .fav-content {
