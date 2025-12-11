@@ -50,32 +50,58 @@
           <input type="text" v-model.trim="form.address" required autocomplete="street-address" />
         </label>
 
-        <div class="grid two desktop">
-          <label class="field">
-            <span>手机号码 *</span>
+        <label class="field field-phone-row">
+          <span>手机号码 *</span>
+          <div class="phone-row">
+            <input
+              class="phone-prefix"
+              list="dial-code-list"
+              v-model.trim="form.mobilePrefix"
+              required
+              autocomplete="tel-country-code"
+              inputmode="tel"
+              placeholder="+86"
+              :class="{ invalid: !validDialCode && (attempted || form.mobilePrefix) }"
+            />
+            <datalist id="dial-code-list">
+              <option
+                v-for="option in filteredDialCodes"
+                :key="`${option.countryValue}-${option.code}`"
+                :value="option.code"
+                :label="`${option.labelZh} / ${option.label}`"
+              />
+            </datalist>
             <input
               type="tel"
+              class="phone-number"
               v-model.trim="form.mobile"
               required
-              autocomplete="tel"
+              autocomplete="tel-national"
+              inputmode="tel"
               :class="{ invalid: !validMobile && (attempted || form.mobile) }"
             />
-          </label>
-          <label class="field">
-            <span>邮箱 *</span>
-            <input
-              type="email"
-              v-model.trim="form.email"
-              required
-              autocomplete="email"
-              :class="{ invalid: !validEmail && (attempted || form.email) }"
-            />
-          </label>
-        </div>
+          </div>
+        </label>
+
+        <label class="field">
+          <span>邮箱 *</span>
+          <input
+            type="email"
+            v-model.trim="form.email"
+            required
+            autocomplete="email"
+            :class="{ invalid: !validEmail && (attempted || form.email) }"
+          />
+        </label>
 
         <label class="field">
           <span>密码 *</span>
-          <input type="password" v-model.trim="form.password" required autocomplete="new-password" />
+          <input
+            type="password"
+            v-model.trim="form.password"
+            required
+            autocomplete="new-password"
+          />
         </label>
 
         <label class="field">
@@ -133,6 +159,11 @@ function titleCaseCountry(name) {
     .join('')
 }
 
+function normalizeDialCodeInput(str) {
+  const digits = String(str || '').replace(/[^\d]/g, '')
+  return digits ? `+${digits}` : ''
+}
+
 const COUNTRY_TRANSLATIONS = {
   'afghanistan': '阿富汗', 'albania': '阿尔巴尼亚', 'algeria': '阿尔及利亚', 'andorra': '安道尔', 'angola': '安哥拉',
   'antigua and barbuda': '安提瓜和巴布达', 'argentina': '阿根廷', 'armenia': '亚美尼亚', 'australia': '澳大利亚',
@@ -180,6 +211,217 @@ const COUNTRY_OPTIONS = Object.entries(COUNTRY_TRANSLATIONS).map(([value, zh]) =
   labelZh: zh
 })).sort((a, b) => a.label.localeCompare(b.label))
 
+const COUNTRY_DIAL_CODES = {
+  'afghanistan': ['+93'],
+  'albania': ['+355'],
+  'algeria': ['+213'],
+  'andorra': ['+376'],
+  'angola': ['+244'],
+  'antigua and barbuda': ['+1'],
+  'argentina': ['+54'],
+  'armenia': ['+374'],
+  'australia': ['+61'],
+  'austria': ['+43'],
+  'azerbaijan': ['+994'],
+  'bahamas': ['+1'],
+  'bahrain': ['+973'],
+  'bangladesh': ['+880'],
+  'barbados': ['+1'],
+  'belarus': ['+375'],
+  'belgium': ['+32'],
+  'belize': ['+501'],
+  'benin': ['+229'],
+  'bhutan': ['+975'],
+  'bolivia': ['+591'],
+  'bosnia and herzegovina': ['+387'],
+  'botswana': ['+267'],
+  'brazil': ['+55'],
+  'brunei': ['+673'],
+  'bulgaria': ['+359'],
+  'burkina faso': ['+226'],
+  'burundi': ['+257'],
+  'cabo verde': ['+238'],
+  'cambodia': ['+855'],
+  'cameroon': ['+237'],
+  'canada': ['+1'],
+  'central african republic': ['+236'],
+  'chad': ['+235'],
+  'chile': ['+56'],
+  'china': ['+86'],
+  'colombia': ['+57'],
+  'comoros': ['+269'],
+  'congo': ['+242', '+243'],
+  'costa rica': ['+506'],
+  "cote d'ivoire": ['+225'],
+  'croatia': ['+385'],
+  'cuba': ['+53'],
+  'cyprus': ['+357'],
+  'czechia': ['+420'],
+  'denmark': ['+45'],
+  'djibouti': ['+253'],
+  'dominica': ['+1'],
+  'dominican republic': ['+1'],
+  'ecuador': ['+593'],
+  'egypt': ['+20'],
+  'el salvador': ['+503'],
+  'equatorial guinea': ['+240'],
+  'eritrea': ['+291'],
+  'estonia': ['+372'],
+  'eswatini': ['+268'],
+  'ethiopia': ['+251'],
+  'fiji': ['+679'],
+  'finland': ['+358'],
+  'france': ['+33'],
+  'gabon': ['+241'],
+  'gambia': ['+220'],
+  'georgia': ['+995'],
+  'germany': ['+49'],
+  'ghana': ['+233'],
+  'greece': ['+30'],
+  'grenada': ['+1'],
+  'guatemala': ['+502'],
+  'guinea': ['+224'],
+  'guinea-bissau': ['+245'],
+  'guyana': ['+592'],
+  'haiti': ['+509'],
+  'holy see': ['+379', '+3906698'],
+  'honduras': ['+504'],
+  'hungary': ['+36'],
+  'iceland': ['+354'],
+  'india': ['+91'],
+  'indonesia': ['+62'],
+  'iran': ['+98'],
+  'iraq': ['+964'],
+  'ireland': ['+353'],
+  'israel': ['+972'],
+  'italy': ['+39'],
+  'jamaica': ['+1'],
+  'japan': ['+81'],
+  'jordan': ['+962'],
+  'kazakhstan': ['+76', '+77'],
+  'kenya': ['+254'],
+  'kiribati': ['+686'],
+  'kuwait': ['+965'],
+  'kyrgyzstan': ['+996'],
+  'laos': ['+856'],
+  'latvia': ['+371'],
+  'lebanon': ['+961'],
+  'lesotho': ['+266'],
+  'liberia': ['+231'],
+  'libya': ['+218'],
+  'liechtenstein': ['+423'],
+  'lithuania': ['+370'],
+  'luxembourg': ['+352'],
+  'madagascar': ['+261'],
+  'malawi': ['+265'],
+  'malaysia': ['+60'],
+  'maldives': ['+960'],
+  'mali': ['+223'],
+  'malta': ['+356'],
+  'marshall islands': ['+692'],
+  'mauritania': ['+222'],
+  'mauritius': ['+230'],
+  'mexico': ['+52'],
+  'micronesia': ['+691'],
+  'moldova': ['+373'],
+  'monaco': ['+377'],
+  'mongolia': ['+976'],
+  'montenegro': ['+382'],
+  'morocco': ['+212'],
+  'mozambique': ['+258'],
+  'myanmar': ['+95'],
+  'namibia': ['+264'],
+  'nauru': ['+674'],
+  'nepal': ['+977'],
+  'netherlands': ['+31'],
+  'new zealand': ['+64'],
+  'nicaragua': ['+505'],
+  'niger': ['+227'],
+  'nigeria': ['+234'],
+  'north korea': ['+850'],
+  'north macedonia': ['+389'],
+  'norway': ['+47'],
+  'oman': ['+968'],
+  'pakistan': ['+92'],
+  'palau': ['+680'],
+  'panama': ['+507'],
+  'papua new guinea': ['+675'],
+  'paraguay': ['+595'],
+  'peru': ['+51'],
+  'philippines': ['+63'],
+  'poland': ['+48'],
+  'portugal': ['+351'],
+  'qatar': ['+974'],
+  'romania': ['+40'],
+  'russia': ['+7'],
+  'rwanda': ['+250'],
+  'saint kitts and nevis': ['+1'],
+  'saint lucia': ['+1'],
+  'saint vincent and the grenadines': ['+1'],
+  'samoa': ['+685'],
+  'san marino': ['+378'],
+  'sao tome and principe': ['+239'],
+  'saudi arabia': ['+966'],
+  'senegal': ['+221'],
+  'serbia': ['+381'],
+  'seychelles': ['+248'],
+  'sierra leone': ['+232'],
+  'singapore': ['+65'],
+  'slovakia': ['+421'],
+  'slovenia': ['+386'],
+  'solomon islands': ['+677'],
+  'somalia': ['+252'],
+  'south africa': ['+27'],
+  'south korea': ['+82'],
+  'south sudan': ['+211'],
+  'spain': ['+34'],
+  'sri lanka': ['+94'],
+  'sudan': ['+249'],
+  'suriname': ['+597'],
+  'sweden': ['+46'],
+  'switzerland': ['+41'],
+  'syria': ['+963'],
+  'tajikistan': ['+992'],
+  'tanzania': ['+255'],
+  'thailand': ['+66'],
+  'timor-leste': ['+670'],
+  'togo': ['+228'],
+  'tonga': ['+676'],
+  'trinidad and tobago': ['+1'],
+  'tunisia': ['+216'],
+  'turkey': ['+90'],
+  'turkmenistan': ['+993'],
+  'tuvalu': ['+688'],
+  'uganda': ['+256'],
+  'ukraine': ['+380'],
+  'united arab emirates': ['+971'],
+  'united kingdom': ['+44'],
+  'united states': ['+1'],
+  'uruguay': ['+598'],
+  'uzbekistan': ['+998'],
+  'vanuatu': ['+678'],
+  'venezuela': ['+58'],
+  'vietnam': ['+84'],
+  'yemen': ['+967'],
+  'zambia': ['+260'],
+  'zimbabwe': ['+263']
+}
+
+const DIAL_CODE_OPTIONS = Object.entries(COUNTRY_DIAL_CODES).flatMap(([countryValue, codes]) => {
+  const meta = COUNTRY_OPTIONS.find(c => c.value === countryValue)
+  const label = (meta && meta.label) || titleCaseCountry(countryValue)
+  const labelZh = (meta && meta.labelZh) || COUNTRY_TRANSLATIONS[countryValue] || ''
+  return codes.map(code => ({
+    countryValue,
+    code,
+    label,
+    labelZh
+  }))
+}).sort((a, b) => {
+  const labelCmp = a.label.localeCompare(b.label)
+  return labelCmp !== 0 ? labelCmp : a.code.localeCompare(b.code)
+})
+
 const AUTH_BASE = (() => {
   try {
     const val = import.meta && import.meta.env && import.meta.env.VITE_API_BASE
@@ -206,6 +448,7 @@ export default {
         country: '',
         company: '',
         address: '',
+        mobilePrefix: '',
         mobile: '',
         email: '',
         password: '',
@@ -245,10 +488,33 @@ export default {
       })
       return hit ? hit.value : ''
     },
+    filteredDialCodes() {
+      const codeQuery = normalizeDialCodeInput(this.form.mobilePrefix)
+      const nameQuery = normalizeCountryInput(this.form.mobilePrefix)
+      if (!codeQuery && !nameQuery) return DIAL_CODE_OPTIONS.slice(0, 80)
+      return DIAL_CODE_OPTIONS.filter(option => {
+        const label = normalizeCountryInput(option.label)
+        const zh = normalizeCountryInput(option.labelZh)
+        const country = normalizeCountryInput(option.countryValue)
+        const code = normalizeDialCodeInput(option.code)
+        const matchesCode = codeQuery ? code.startsWith(codeQuery) : false
+        const matchesName = nameQuery ? (label.includes(nameQuery) || zh.includes(nameQuery) || country.includes(nameQuery)) : false
+        return matchesCode || matchesName
+      }).slice(0, 80)
+    },
+    matchedDialCode() {
+      const normalized = normalizeDialCodeInput(this.form.mobilePrefix)
+      if (!normalized) return ''
+      const hit = DIAL_CODE_OPTIONS.find(option => normalizeDialCodeInput(option.code) === normalized)
+      return hit ? hit.code : ''
+    },
     validMobile() {
       const digits = (this.form.mobile || '').replace(/[^\d]/g, '')
-      // 至少 6 位数字，可含 + - 空格
-      return !!this.form.mobile && digits.length >= 6 && /^[\d+\-\s]+$/.test(this.form.mobile)
+      // 仅输入国家码以外的数字部分，至少 6 位数字
+      return !!digits && digits.length >= 6
+    },
+    validDialCode() {
+      return !!this.matchedDialCode
     },
     validEmail() {
       return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(this.form.email || '')
@@ -264,7 +530,7 @@ export default {
       const { country, ...rest } = this.form
       const filled = Object.values(rest).every(v => !!v)
       const matched = this.form.password && this.form.password === this.form.confirmPassword
-      return filled && matched && this.validMobile && this.validEmail && this.validCountry
+      return filled && matched && this.validMobile && this.validDialCode && this.validEmail && this.validCountry
     }
   },
   methods: {
@@ -273,12 +539,16 @@ export default {
       this.successMessage = ''
       this.attempted = true
       const countryValue = this.matchedCountryValue
+      const dialCode = this.matchedDialCode
+      const mobileDigits = (this.form.mobile || '').replace(/[^\d]/g, '')
 
-      if (!this.isFormValid || !countryValue) {
+      if (!this.isFormValid || !countryValue || !dialCode) {
         if (this.form.password !== this.form.confirmPassword) {
           this.errorMessage = '两次输入的密码不一致'
         } else if (!this.form.inviteCode) {
           this.errorMessage = '请填写邀请码'
+        } else if (!dialCode) {
+          this.errorMessage = '请选择有效的国家区号'
         } else if (!countryValue) {
           this.errorMessage = '国家不在允许列表'
         } else {
@@ -289,13 +559,16 @@ export default {
       this.form.country = countryValue
 
       this.loading = true
+      const fullMobile = `${dialCode}${mobileDigits}`
       const payload = {
         username: this.form.username,
         name: this.form.name,
         country: countryValue,
         company: this.form.company,
         address: this.form.address,
-        mobile: this.form.mobile,
+        mobile: fullMobile,
+        mobileDialCode: dialCode,
+        mobileNational: mobileDigits,
         email: this.form.email,
         password: this.form.password,
         confirmPassword: this.form.confirmPassword,
@@ -410,6 +683,21 @@ export default {
   grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
 }
 
+.phone-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  width: 100%;
+}
+
+.phone-prefix {
+  flex: 0 0 120px;
+}
+
+.phone-number {
+  flex: 1 1 auto;
+}
+
 .field {
   display: flex;
   flex-direction: column;
@@ -481,6 +769,10 @@ button {
   .auth-logo {
     width: 48px;
     height: 48px;
+  }
+
+  .phone-prefix {
+    flex-basis: 110px;
   }
 }
 </style>

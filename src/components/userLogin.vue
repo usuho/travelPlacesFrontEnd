@@ -14,12 +14,24 @@
       <form class="auth-form" @submit.prevent="handleSubmit">
         <label class="field">
           <span>用户名</span>
-          <input type="text" v-model.trim="username" required autocomplete="username" />
+          <input
+            type="text"
+            v-model.trim="username"
+            required
+            autocomplete="username"
+            placeholder="用户名/邮箱/手机号"
+            inputmode="text"
+          />
         </label>
 
         <label class="field">
           <span>密码</span>
-          <input type="password" v-model.trim="password" required autocomplete="current-password" />
+          <input
+            type="password"
+            v-model.trim="password"
+            required
+            autocomplete="current-password"
+          />
         </label>
 
         <p v-if="errorMessage" class="error-message">{{ errorMessage }}</p>
@@ -68,45 +80,72 @@ export default {
     }
   },
   methods: {
+    buildLoginIdentifiers() {
+      const raw = (this.username || '').trim()
+      const candidates = new Set()
+      if (raw) {
+        candidates.add(raw)
+        candidates.add(raw.toLowerCase())
+      }
+
+      // 手机号：只取数字，生成多种格式，兼容带/不带+前缀
+      const digits = raw.replace(/[^\d]/g, '')
+      if (digits.length >= 4) {
+        candidates.add(digits)
+        candidates.add(`+${digits}`)
+        // 有时用户只填本地号码，尝试末 8 位以匹配后端的 endsWith 逻辑
+        if (digits.length > 8) {
+          candidates.add(digits.slice(-8))
+        }
+      }
+
+      return Array.from(candidates)
+    },
     async handleSubmit() {
       this.errorMessage = ''
       if (!this.username || !this.password) {
-        this.errorMessage = '请填写用户名和密码'
+        this.errorMessage = '请填写用户名/邮箱/手机号和密码'
+        return
+      }
+
+      const identifiers = this.buildLoginIdentifiers()
+      if (!identifiers.length) {
+        this.errorMessage = '请输入用户名/邮箱/手机号'
         return
       }
 
       this.loading = true
       let lastError = '登录失败，请稍后重试'
-      const payload = {
-        username: this.username,
-        password: this.password
-      }
       const headers = { ...BASE_HEADERS }
 
       try {
-        for (const path of LOGIN_ENDPOINTS) {
-          const url = `${AUTH_BASE}${path}`
-          const response = await fetch(url, {
-            method: 'POST',
-            headers,
-            body: JSON.stringify(payload)
-          })
+        for (const identifier of identifiers) {
+          const payload = { username: identifier, password: this.password }
 
-          let data = {}
-          try {
-            data = await response.json()
-          } catch (e) {}
+          for (const path of LOGIN_ENDPOINTS) {
+            const url = `${AUTH_BASE}${path}`
+            const response = await fetch(url, {
+              method: 'POST',
+              headers,
+              body: JSON.stringify(payload)
+            })
 
-          if (response.ok) {
-            const token = data.token || data.accessToken || data.jwt || data.sessionToken || (data.data && data.data.token) || COOKIE_ONLY_TOKEN
-            const user = data.user || { username: this.username }
-            setAuthSession(token, user)
-            const redirectPath = (this.$route && this.$route.query && this.$route.query.redirect) ? this.$route.query.redirect : '/'
-            this.$router.replace(redirectPath || '/')
-            return
+            let data = {}
+            try {
+              data = await response.json()
+            } catch (e) {}
+
+            if (response.ok) {
+              const token = data.token || data.accessToken || data.jwt || data.sessionToken || (data.data && data.data.token) || COOKIE_ONLY_TOKEN
+              const user = data.user || { username: identifier }
+              setAuthSession(token, user)
+              const redirectPath = (this.$route && this.$route.query && this.$route.query.redirect) ? this.$route.query.redirect : '/'
+              this.$router.replace(redirectPath || '/')
+              return
+            }
+
+            lastError = data.msg || data.error || data.message || `登录失败（${response.status}）`
           }
-
-          lastError = data.msg || data.error || data.message || `登录失败（${response.status}）`
         }
       } catch (e) {
         lastError = '网络异常，请稍后重试'
