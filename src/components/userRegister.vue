@@ -80,7 +80,23 @@
 
         <label class="field">
           <span>确认密码 *</span>
-          <input type="password" v-model.trim="form.confirmPassword" required autocomplete="new-password" />
+          <input
+            type="password"
+            v-model.trim="form.confirmPassword"
+            required
+            autocomplete="new-password"
+            :class="{ invalid: !passwordsMatch && (attempted || form.confirmPassword) }"
+          />
+        </label>
+
+        <label class="field">
+          <span>邀请码 *</span>
+          <input
+            type="text"
+            v-model.trim="form.inviteCode"
+            required
+            autocomplete="off"
+          />
         </label>
 
         <p v-if="errorMessage" class="error-message">{{ errorMessage }}</p>
@@ -193,7 +209,8 @@ export default {
         mobile: '',
         email: '',
         password: '',
-        confirmPassword: ''
+        confirmPassword: '',
+        inviteCode: ''
       },
       allowedCountries: COUNTRY_OPTIONS,
       countryQuery: '',
@@ -239,6 +256,10 @@ export default {
     validCountry() {
       return !!this.matchedCountryValue
     },
+    passwordsMatch() {
+      if (!this.form.confirmPassword) return true
+      return this.form.password === this.form.confirmPassword
+    },
     isFormValid() {
       const { country, ...rest } = this.form
       const filled = Object.values(rest).every(v => !!v)
@@ -254,9 +275,15 @@ export default {
       const countryValue = this.matchedCountryValue
 
       if (!this.isFormValid || !countryValue) {
-        this.errorMessage = this.form.password !== this.form.confirmPassword
-          ? '两次输入的密码不一致'
-          : '请检查必填项并确保格式正确（国家/手机/邮箱）'
+        if (this.form.password !== this.form.confirmPassword) {
+          this.errorMessage = '两次输入的密码不一致'
+        } else if (!this.form.inviteCode) {
+          this.errorMessage = '请填写邀请码'
+        } else if (!countryValue) {
+          this.errorMessage = '国家不在允许列表'
+        } else {
+          this.errorMessage = '请检查必填项并确保格式正确（国家/手机/邮箱）'
+        }
         return
       }
       this.form.country = countryValue
@@ -271,7 +298,8 @@ export default {
         mobile: this.form.mobile,
         email: this.form.email,
         password: this.form.password,
-        confirmPassword: this.form.confirmPassword
+        confirmPassword: this.form.confirmPassword,
+        inviteCode: this.form.inviteCode
       }
 
       let lastError = '注册失败，请稍后重试'
