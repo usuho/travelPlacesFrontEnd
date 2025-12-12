@@ -7,9 +7,10 @@
         @mousedown="startHeroLongPress"
         @mouseup="cancelHeroLongPress"
         @mouseleave="cancelHeroLongPress"
-        @touchstart.prevent="startHeroLongPress"
+        @touchstart="startHeroLongPress"
         @touchend="cancelHeroLongPress"
         @touchcancel="cancelHeroLongPress"
+        @contextmenu.prevent
       >
         <img
           ref="heroLogo"
@@ -17,6 +18,7 @@
           :class="{ 'hero-logo-hidden': !showHeroLogo }"
           src="/site-icon.png"
           alt="网站 Logo"
+          draggable="false"
         />
         <img
           class="hero-logo hero-logo-colored"
@@ -26,9 +28,12 @@
           }"
           src="/app-icon-android.png"
           alt=""
+          draggable="false"
           aria-hidden="true"
         />
-        <div v-if="showLogoutTooltip" class="logo-tooltip">长按登出</div>
+        <transition name="logo-tooltip-fade">
+          <div v-if="showLogoutTooltip" class="logo-tooltip">长按登出</div>
+        </transition>
       </div>
       <div class="title-text-group">
         <h1 class="hero-title title-hero">星垠海角</h1>
@@ -389,7 +394,7 @@ export default {
       this.tooltipTimer = setTimeout(() => {
         this.showLogoutTooltip = false;
         this.tooltipTimer = null;
-      }, 1800);
+      }, 1200);
     },
     startHeroLongPress() {
       if (this.logoutInProgress) return;
@@ -755,12 +760,18 @@ export default {
   border-radius: 50%;
   object-fit: cover;
   transition: opacity 0.6s ease;
+  -webkit-touch-callout: none;
+  user-select: none;
+  touch-action: manipulation;
 }
 
 .hero-logo-wrapper {
   position: relative;
   display: inline-block;
   cursor: pointer;
+  -webkit-touch-callout: none;
+  user-select: none;
+  touch-action: manipulation;
 }
 
 .hero-logo-colored {
@@ -779,13 +790,24 @@ export default {
   bottom: -36px;
   left: 50%;
   transform: translateX(-50%);
-  background: rgba(0, 0, 0, 0.75);
+  background: rgba(0, 0, 0, 0.65);
   color: #fff;
   padding: 6px 10px;
   border-radius: 10px;
   font-size: 0.85rem;
   white-space: nowrap;
   box-shadow: 0 8px 20px rgba(0, 0, 0, 0.2);
+  opacity: 0.85;
+}
+
+.logo-tooltip-fade-enter-active,
+.logo-tooltip-fade-leave-active {
+  transition: opacity 0.2s ease;
+}
+
+.logo-tooltip-fade-enter-from,
+.logo-tooltip-fade-leave-to {
+  opacity: 0;
 }
 
 .hero-logo-hidden {
