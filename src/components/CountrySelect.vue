@@ -1,13 +1,35 @@
 <template>
   <div class="container">
     <div class="hero-section">
-      <img
-        ref="heroLogo"
-        class="hero-logo"
-        :class="{ 'hero-logo-hidden': !showHeroLogo }"
-        src="/site-icon.png"
-        alt="网站 Logo"
-      />
+      <div
+        class="hero-logo-wrapper"
+        @click="handleHeroLogoClick"
+        @mousedown="startHeroLongPress"
+        @mouseup="cancelHeroLongPress"
+        @mouseleave="cancelHeroLongPress"
+        @touchstart.prevent="startHeroLongPress"
+        @touchend="cancelHeroLongPress"
+        @touchcancel="cancelHeroLongPress"
+      >
+        <img
+          ref="heroLogo"
+          class="hero-logo"
+          :class="{ 'hero-logo-hidden': !showHeroLogo }"
+          src="/site-icon.png"
+          alt="网站 Logo"
+        />
+        <img
+          class="hero-logo hero-logo-colored"
+          :class="{
+            'hero-logo-hidden': !showHeroLogo,
+            'logo-colored-visible': logoColorizing
+          }"
+          src="/app-icon-android.png"
+          alt=""
+          aria-hidden="true"
+        />
+        <div v-if="showLogoutTooltip" class="logo-tooltip">长按登出</div>
+      </div>
       <div class="title-text-group">
         <h1 class="hero-title title-hero">星垠海角</h1>
         <h1 class="title-english title-hero">Stars Meet the Swell</h1>
@@ -135,6 +157,10 @@
 </template>
 
 <script>
+import { clearAuthSession } from '../stores/auth.js';
+
+const LONG_PRESS_MS = 800;
+
 export default {
   data() {
     return {
@@ -257,7 +283,13 @@ export default {
       placeholderText: '搜寻国家，发现美和新奇',
       searchQuery: '',
       searchFocused: false,
-      showHeroLogo: false
+      showHeroLogo: false,
+      showLogoutTooltip: false,
+      tooltipTimer: null,
+      longPressTimer: null,
+      logoColorizing: false,
+      longPressHandled: false,
+      logoutInProgress: false
     };
   },
   mounted() {
@@ -300,6 +332,16 @@ export default {
       }, 50);
     });
   },
+  beforeUnmount() {
+    if (this.longPressTimer) {
+      clearTimeout(this.longPressTimer);
+      this.longPressTimer = null;
+    }
+    if (this.tooltipTimer) {
+      clearTimeout(this.tooltipTimer);
+      this.tooltipTimer = null;
+    }
+  },
   computed: {
     hasSearchQuery() {
       return this.searchQuery.trim().length > 0;
@@ -335,6 +377,78 @@ export default {
     }
   },
   methods: {
+    handleHeroLogoClick() {
+      if (this.logoutInProgress || this.longPressHandled) {
+        this.longPressHandled = false;
+        return;
+      }
+      this.showLogoutTooltip = true;
+      if (this.tooltipTimer) {
+        clearTimeout(this.tooltipTimer);
+      }
+      this.tooltipTimer = setTimeout(() => {
+        this.showLogoutTooltip = false;
+        this.tooltipTimer = null;
+      }, 1800);
+    },
+    startHeroLongPress() {
+      if (this.logoutInProgress) return;
+      this.longPressHandled = false;
+      this.logoColorizing = true;
+      if (this.longPressTimer) {
+        clearTimeout(this.longPressTimer);
+      }
+      this.longPressTimer = setTimeout(() => {
+        this.longPressHandled = true;
+        this.triggerLogout();
+      }, LONG_PRESS_MS);
+    },
+    cancelHeroLongPress() {
+      if (this.longPressHandled || this.logoutInProgress) return;
+      this.logoColorizing = false;
+      if (this.longPressTimer) {
+        clearTimeout(this.longPressTimer);
+        this.longPressTimer = null;
+      }
+    },
+    async triggerLogout() {
+      if (this.logoutInProgress) return;
+      this.logoutInProgress = true;
+      this.logoColorizing = true;
+      this.showLogoutTooltip = false;
+      if (this.longPressTimer) {
+        clearTimeout(this.longPressTimer);
+        this.longPressTimer = null;
+      }
+      if (this.tooltipTimer) {
+        clearTimeout(this.tooltipTimer);
+        this.tooltipTimer = null;
+      }
+      this.performClientCleanup();
+      try {
+        await this.$router.replace('/login');
+      } catch (e) {
+        try {
+          this.$router.push('/login');
+        } catch (_) {}
+      }
+    },
+    performClientCleanup() {
+      try {
+        clearAuthSession();
+      } catch (e) {}
+      try {
+        localStorage.clear();
+      } catch (e) {}
+      try {
+        sessionStorage.clear();
+      } catch (e) {}
+      try {
+        if (typeof caches !== 'undefined' && caches.keys) {
+          caches.keys().then((keys) => keys.forEach((k) => caches.delete(k)));
+        }
+      } catch (e) {}
+    },
     translateCountry(country) {
       return this.countryTranslations[country] || country;
     },
@@ -640,6 +754,38 @@ export default {
   height: 120px;
   border-radius: 50%;
   object-fit: cover;
+  transition: opacity 0.6s ease;
+}
+
+.hero-logo-wrapper {
+  position: relative;
+  display: inline-block;
+  cursor: pointer;
+}
+
+.hero-logo-colored {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.logo-colored-visible {
+  opacity: 1;
+}
+
+.logo-tooltip {
+  position: absolute;
+  bottom: -36px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(0, 0, 0, 0.75);
+  color: #fff;
+  padding: 6px 10px;
+  border-radius: 10px;
+  font-size: 0.85rem;
+  white-space: nowrap;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.2);
 }
 
 .hero-logo-hidden {
