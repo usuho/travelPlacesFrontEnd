@@ -13,6 +13,19 @@ let hydrated = false;
 let pendingTimer = null;
 let inflight = null;
 
+function isLocalHost(host) {
+  if (!host) return false;
+  const h = host.toLowerCase();
+  return (
+    h === 'localhost' ||
+    h === '127.0.0.1' ||
+    h === '::1' ||
+    h.startsWith('192.168.') ||
+    h.startsWith('10.') ||
+    /^172\.(1[6-9]|2[0-9]|3[0-1])\./.test(h)
+  );
+}
+
 function apiBases() {
   const list = [];
   const last = getLastApiBase();
@@ -23,18 +36,18 @@ function apiBases() {
     }
   } catch (e) {}
   try {
-    if (typeof window !== 'undefined' && window.location && window.location.origin) {
-      list.push(window.location.origin);
+    if (typeof window !== 'undefined' && window.location && window.location.hostname) {
       const host = window.location.hostname || '';
-      // 仅对本地/内网主机添加 :3000 端口候选，避免对线上域名拼错端口
-      if (host === 'localhost' || host === '127.0.0.1' || host.startsWith('192.168.') || host.startsWith('10.') || host.startsWith('172.')) {
+      const origin = window.location.origin || '';
+      if (isLocalHost(host)) {
         list.push(`http://${host}:3000`);
       }
+      list.push('http://localhost:3000');
+      list.push('http://127.0.0.1:3000');
+      if (origin) list.push(origin);
     }
   } catch (e) {}
   list.push('https://juseaxerf.com');
-  list.push('http://localhost:3000');
-  list.push('http://127.0.0.1:3000');
   return Array.from(new Set(list.filter(Boolean).map(b => b.replace(/\/$/, ''))));
 }
 

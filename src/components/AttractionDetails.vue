@@ -790,19 +790,30 @@
           if (a) {
             this.attraction = a
             this.loading = false
-            this.image1 = a?.images?.main || null
-            this.image2 = (a?.images?.secondary && a.images.secondary[0]) ? a.images.secondary[0] : null
-            this.image3 = (a?.images?.secondary && a.images.secondary[1]) ? a.images.secondary[1] : null
+            const mainRef = a?.images?.main || ''
+            const secRefs = Array.isArray(a?.images?.secondary) ? a.images.secondary : []
+            this.image1 = mainRef || null
+            this.image2 = secRefs[0] || null
+            this.image3 = secRefs[1] || null
             try {
-              if (!this.image1 && a.hasImage1) {
+              if (mainRef) {
+                const u1 = await getCustomImageUrl(mainRef)
+                if (u1) this.image1 = u1
+              } else if (!this.image1 && a.hasImage1) {
                 const u1 = await getCustomImageUrl(`${this.id}:main`)
                 if (u1) this.image1 = u1
               }
-              if (!this.image2 && a.hasImage2) {
+              if (secRefs[0]) {
+                const u2 = await getCustomImageUrl(secRefs[0])
+                if (u2) this.image2 = u2
+              } else if (!this.image2 && a.hasImage2) {
                 const u2 = await getCustomImageUrl(`${this.id}:sec0`)
                 if (u2) this.image2 = u2
               }
-              if (!this.image3 && a.hasImage3) {
+              if (secRefs[1]) {
+                const u3 = await getCustomImageUrl(secRefs[1])
+                if (u3) this.image3 = u3
+              } else if (!this.image3 && a.hasImage3) {
                 const u3 = await getCustomImageUrl(`${this.id}:sec1`)
                 if (u3) this.image3 = u3
               }

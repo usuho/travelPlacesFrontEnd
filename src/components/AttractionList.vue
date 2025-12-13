@@ -540,10 +540,10 @@
           @touchmove.passive="onFavoritesListTouchMove"
           @touchend.passive="onFavoritesListTouchEnd"
         >
-          <template v-for="(f, i) in sortedFavorites" :key="f.country + '-' + f.id">
+          <template v-for="(f, i) in sortedFavorites" :key="`fav-frag-${i}-${f.country}-${f.id}`">
             <div
-              class="favorites-placeholder"
               v-if="dragging && placeholderIndex === i && dragIndex !== i"
+              class="favorites-placeholder"
               :style="placeholderStyle"
             ></div>
             <div
@@ -589,13 +589,14 @@
             class="favorites-placeholder"
             v-if="dragging && placeholderIndex === sortedFavorites.length"
             :style="placeholderStyle"
+            :key="'fav-ph-end'"
           ></div>
           <!-- 新增：创建自创景点的 + 项（位于清空收藏上方） -->
-          <div class="favorites-add" @click.stop="showCreateModal = true" title="创建景点">
+          <div class="favorites-add" @click.stop="showCreateModal = true" title="创建景点" :key="'fav-add'">
             <div class="plus-circle">+</div>
           </div>
           <!-- 新增：导入/导出按钮行（位于 + 项下方，清空收藏上方）；当列表为空时隐藏 -->
-          <div class="favorites-actions-row">
+          <div class="favorites-actions-row" :key="'fav-actions-row'">
             <button class="favorites-action-btn" @click.stop="onImportClick">导入</button>
             <button class="favorites-action-btn primary" @click.stop="promptExportFavorites">导出</button>
             <!-- 隐藏的文件输入用于读取 -->
@@ -608,7 +609,7 @@
             />
           </div>
           <!-- 删除收藏列表操作（与拖出选项卡删除一致）；空白时也显示，且放入可滚动列表中 -->
-          <div class="favorites-clear" @click="promptClearFavorites">
+          <div class="favorites-clear" @click="promptClearFavorites" :key="'fav-clear'">
             🗑️ 删除收藏
           </div>
         </transition-group>
@@ -1408,27 +1409,60 @@
         this.clearResetFiltersRouteFlag();
       },
       async getCustomImageData(id) {
+        const toDataUrl = async (blob) => {
+          if (!blob) return '';
+          return await new Promise((resolve) => {
+            try {
+              const fr = new FileReader();
+              fr.onload = () => resolve(fr.result || '');
+              fr.onerror = () => resolve('');
+              fr.readAsDataURL(blob);
+            } catch (err) { resolve(''); }
+          });
+        };
+        const result = {};
+        const custom = findCustomAttractionById(id) || {};
+        const refs = {
+          main: (custom.images && custom.images.main) || '',
+          sec0: (custom.images && Array.isArray(custom.images.secondary) && custom.images.secondary[0]) || '',
+          sec1: (custom.images && Array.isArray(custom.images.secondary) && custom.images.secondary[1]) || ''
+        };
+        const slots = [
+          { slot: 'main', storeKey: `${id}:main` },
+          { slot: 'sec0', storeKey: `${id}:sec0` },
+          { slot: 'sec1', storeKey: `${id}:sec1` },
+        ];
         try {
           const d = await openDB('customAttractionsDB', 1);
-          const keys = [`${id}:main`, `${id}:sec0`, `${id}:sec1`];
-          const out = {};
-          for (const key of keys) {
+          for (const { slot, storeKey } of slots) {
             try {
-              const blob = await d.get('images', key);
-              if (!blob) continue;
-              const dataUrl = await new Promise((resolve) => {
-                try {
-                  const fr = new FileReader();
-                  fr.onload = () => resolve(fr.result || '');
-                  fr.onerror = () => resolve('');
-                  fr.readAsDataURL(blob);
-                } catch (err) { resolve(''); }
-              });
-              if (dataUrl) out[key.split(':')[1]] = dataUrl;
+              const blob = await d.get('images', storeKey);
+              if (blob) {
+                const dataUrl = await toDataUrl(blob);
+                if (dataUrl) { result[slot] = dataUrl; continue; }
+              }
             } catch (e) {}
+            const ref = refs[slot] || '';
+            if (ref && typeof ref === 'string' && ref.startsWith('data:')) {
+              result[slot] = ref;
+              continue;
+            }
+            const tryKeys = [];
+            if (ref) tryKeys.push(ref);
+            tryKeys.push(storeKey);
+            for (const key of tryKeys) {
+              try {
+                const url = await getCustomImageUrl(key);
+                if (!url) continue;
+                const resp = await fetch(url);
+                const blob = await resp.blob();
+                const dataUrl = await toDataUrl(blob);
+                if (dataUrl) { result[slot] = dataUrl; break; }
+              } catch (e) {}
+            }
           }
-          return out;
-        } catch (e) { return {}; }
+        } catch (e) {}
+        return result;
       },
       async upsertCustomFromImport(custom, images) {
         const id = custom && custom.id ? String(custom.id) : ('custom_' + Date.now());
@@ -4738,6 +4772,9 @@ const all = this.sortedFavorites || [];
 .tab-plus {
   width: 22px;
   height: 22px;
+  min-width: 22px;
+  min-height: 22px;
+  flex: 0 0 22px;
   border-radius: 50%;
   background: #f1f3f5;
   color: #333;
@@ -4748,6 +4785,8 @@ const all = this.sortedFavorites || [];
   font-weight: 700;
   cursor: pointer;
   user-select: none;
+  aspect-ratio: 1 / 1;
+  align-self: center;
 }
 .tab-plus:hover { background: #e9ecef; }
 .tab-placeholder {
@@ -6023,12 +6062,6 @@ const all = this.sortedFavorites || [];
 /* 文案显示：桌面显示完整，移动显示简写 */
 .label-desktop { display: inline; }
 .label-mobile { display: none; }
-
-
-
-
-
-
 
 
 
