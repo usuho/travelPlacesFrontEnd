@@ -7,7 +7,8 @@ import CountrySelect from './components/CountrySelect.vue'
 import AttractionList from './components/AttractionList.vue'
 import AttractionDetails from './components/AttractionDetails.vue'
 import AttractionMap from './components/AttractionMap.vue'
-import { isAuthenticated } from './stores/auth.js'
+import { getAuthUser, isAuthenticated } from './stores/auth.js'
+import { ensureUserDataHydrated, setSyncUsername } from './stores/userDataSync.js'
 
 import flyIn from './directives/flyIn.js'
 import fadeIn from './directives/fadeIn.js'
@@ -79,4 +80,6 @@ const app = createApp(App)
 app.use(router)
 app.directive('fly-in', flyIn)
 app.directive('fade-in', fadeIn)
+setSyncUsername((getAuthUser() && getAuthUser().username) || '')
+try { ensureUserDataHydrated() } catch (e) {}
 app.mount('#app')

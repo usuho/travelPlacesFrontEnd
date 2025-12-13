@@ -220,6 +220,7 @@
   import { findCustomAttractionById, deleteCustomAttraction } from '../utils/customAttractions.js'
   import { getImageUrl as getCustomImageUrl, deleteImagesForId as deleteCustomImagesForId } from '../utils/customImageStore.js'
   import CreateAttractionModal from './CreateAttractionModal.vue'
+  import { ensureUserDataHydrated, queueUserDataSync } from '../stores/userDataSync.js'
 
   export default {
     components: { CreateAttractionModal },
@@ -283,6 +284,7 @@
       };
     },
     async created() {
+      try { await ensureUserDataHydrated(); } catch (e) {}
       // 初始化收藏导航（若来自收藏）
       this.reloadFavState();
       this.updateIsFavorited();
@@ -541,6 +543,7 @@
       },
       saveFavoriteTabs(tabs) {
         try { localStorage.setItem('favoriteTabs_all', JSON.stringify(tabs || [])); } catch(e) {}
+        try { queueUserDataSync(); } catch (e) {}
       },
       // 将所有 tabs 的 items 合并为去重列表并写回旧的 favorites_all（仅用于兼容展示，不影响每个 tab 独立状态）
       recomputeAndSaveFavoritesAllFromTabs() {

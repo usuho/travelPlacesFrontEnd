@@ -24,6 +24,7 @@ import { getImageUrl as getCustomImageUrl } from '../utils/customImageStore.js';
 import { fetchAttractionsGeo, fetchAttractionsGeoByIds, fetchAttractionsPositions, fetchAttractionsPositionsByIds, getLastApiBase, withBackendApiKey } from '../utils/geoApi.js';
 import { getGeoKeys } from '../utils/geoKeys.js';
 import { getCountrySlugByIso, isSupportedCountrySlug } from '../utils/countryCatalog.js';
+import { ensureUserDataHydrated } from '../stores/userDataSync.js';
 
 export default {
   name: 'AttractionMap',
@@ -106,6 +107,7 @@ export default {
     }
   },
     async mounted() {
+      try { await ensureUserDataHydrated(); } catch (e) {}
       this.loadFavoritesState();
       this.initMap();
       // ¼һηԴĹңڴԴͼʱΪͨĻԴ
@@ -3120,8 +3122,6 @@ export default {
   overscroll-behavior: contain;
 }
 </style>
-
-
 
 
 

@@ -52,6 +52,7 @@
 
 <script>
 import { COOKIE_ONLY_TOKEN, setAuthSession } from '../stores/auth.js'
+import { pullUserDataFromServer, setSyncUsername } from '../stores/userDataSync.js'
 
 const AUTH_BASE = (() => {
   try {
@@ -139,6 +140,10 @@ export default {
               const token = data.token || data.accessToken || data.jwt || data.sessionToken || (data.data && data.data.token) || COOKIE_ONLY_TOKEN
               const user = data.user || { username: identifier }
               setAuthSession(token, user)
+              try {
+                setSyncUsername(user && user.username ? user.username : identifier)
+                await pullUserDataFromServer()
+              } catch (e) {}
               const redirectPath = (this.$route && this.$route.query && this.$route.query.redirect) ? this.$route.query.redirect : '/'
               this.$router.replace(redirectPath || '/')
               return

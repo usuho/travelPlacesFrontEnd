@@ -1,4 +1,21 @@
+import { queueUserDataSync } from '../stores/userDataSync.js'
+
 const KEY = 'customAttractions'
+
+function sanitizeCustomAttraction(attraction) {
+  if (!attraction || typeof attraction !== 'object') return null;
+  const images = attraction.images || {};
+  const clean = (val) => (typeof val === 'string' && val.startsWith('data:')) ? '' : (typeof val === 'string' ? val : '');
+  const secondary = Array.isArray(images.secondary) ? images.secondary.map(clean) : [];
+  while (secondary.length < 2) secondary.push('');
+  return {
+    ...attraction,
+    images: {
+      main: clean(images.main),
+      secondary: secondary.slice(0, 2)
+    }
+  };
+}
 
 export function getAllCustomAttractions() {
   try {
@@ -12,7 +29,11 @@ export function getAllCustomAttractions() {
 
 export function saveAllCustomAttractions(list) {
   try {
-    localStorage.setItem(KEY, JSON.stringify(list || []))
+    const normalized = (list || [])
+      .map(sanitizeCustomAttraction)
+      .filter(Boolean);
+    localStorage.setItem(KEY, JSON.stringify(normalized))
+    queueUserDataSync()
   } catch (e) {}
 }
 

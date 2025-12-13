@@ -1,5 +1,13 @@
 <template>
   <div id="app">
+    <div class="sync-indicator" :class="syncIndicatorClass">
+      <span class="sync-icon">
+        <span v-if="syncStatus === 'syncing'" class="sync-spinner"></span>
+        <span v-else-if="syncStatus === 'ok'">✔</span>
+        <span v-else>✖</span>
+      </span>
+      <span class="sync-username">{{ displayUsername }}</span>
+    </div>
     <router-view></router-view>
     <!-- Global top-right site icon -->
     <img
@@ -15,6 +23,9 @@
 </template>
 
 <script>
+import { userDataSyncState } from './stores/userDataSync.js'
+import { getAuthUser } from './stores/auth.js'
+
 export default {
   name: 'App',
   data() {
@@ -27,6 +38,20 @@ export default {
     isCountrySelect() {
       const path = this.$route && this.$route.path
       return path === '/' || path === '/login' || path === '/register'
+    },
+    syncStatus() {
+      return userDataSyncState.status || 'idle'
+    },
+    syncIndicatorClass() {
+      return {
+        'sync-ok': this.syncStatus === 'ok',
+        'sync-syncing': this.syncStatus === 'syncing',
+        'sync-error': this.syncStatus === 'error'
+      }
+    },
+    displayUsername() {
+      const authUser = getAuthUser && getAuthUser()
+      return userDataSyncState.username || (authUser && authUser.username) || '未登录'
     }
   },
   methods: {
@@ -84,6 +109,53 @@ html, body {
   pointer-events: auto;
   opacity: 0.5;
   transition: transform 0.3s ease, opacity 0.3s ease;
+}
+
+.sync-indicator {
+  position: fixed;
+  top: 12px;
+  left: 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.9);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
+  z-index: 1100;
+  backdrop-filter: blur(4px);
+}
+
+.sync-icon {
+  width: 16px;
+  height: 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+}
+
+.sync-indicator .sync-spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid #cbd5e1;
+  border-top-color: #22c55e;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+.sync-indicator.sync-ok .sync-icon { color: #16a34a; }
+.sync-indicator.sync-error .sync-icon { color: #dc2626; }
+.sync-indicator.sync-syncing .sync-icon { color: #0ea5e9; }
+
+.sync-username {
+  font-size: 14px;
+  color: #0f172a;
+  font-weight: 600;
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* 全局按钮样式 */

@@ -144,6 +144,7 @@
 
 <script>
 import { setAuthSession } from '../stores/auth.js'
+import { pullUserDataFromServer, setSyncUsername } from '../stores/userDataSync.js'
 
 function normalizeCountryInput(str) {
   return String(str || '').trim().toLowerCase().replace(/\s+/g, ' ')
@@ -600,6 +601,10 @@ export default {
             }
             if (token) {
               setAuthSession(token, user)
+              try {
+                setSyncUsername(user && user.username ? user.username : this.form.username)
+                await pullUserDataFromServer()
+              } catch (e) {}
               const redirectPath = (this.$route && this.$route.query && this.$route.query.redirect) ? this.$route.query.redirect : '/'
               this.$router.replace(redirectPath || '/')
             } else {

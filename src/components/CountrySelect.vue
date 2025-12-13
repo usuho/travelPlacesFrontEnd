@@ -163,6 +163,7 @@
 
 <script>
 import { clearAuthSession } from '../stores/auth.js';
+import { resetUserDataSync } from '../stores/userDataSync.js';
 
 const LONG_PRESS_MS = 800;
 
@@ -439,6 +440,9 @@ export default {
       }
     },
     performClientCleanup() {
+      try {
+        resetUserDataSync();
+      } catch (e) {}
       try {
         clearAuthSession();
       } catch (e) {}

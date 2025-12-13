@@ -762,9 +762,10 @@
   <script>
   import { openDB } from 'idb';
   import CreateAttractionModal from './CreateAttractionModal.vue'
-  import { findCustomAttractionById, deleteCustomAttraction } from '../utils/customAttractions.js'
+  import { addCustomAttraction, findCustomAttractionById, deleteCustomAttraction } from '../utils/customAttractions.js'
   import { getImageUrl as getCustomImageUrl, deleteImagesForId as deleteCustomImagesForId, setImage as setCustomImage } from '../utils/customImageStore.js'
   import { withBackendApiKey } from '../utils/geoApi.js';
+  import { ensureUserDataHydrated, queueUserDataSync, uploadCustomImage } from '../stores/userDataSync.js'
 
   export default {
     components: { CreateAttractionModal },
@@ -1152,6 +1153,7 @@
       this.fetchRegions();
       this.fetchCountis();
       this.fetchAllAttractions();
+      try { await ensureUserDataHydrated(); } catch (e) {}
       this.loadFavorites();
       // 确保自创景点收藏信息为最新
       try { this.refreshCustomFavorites(); this.saveFavorites(); } catch(e) {}
@@ -1427,6 +1429,48 @@
           }
           return out;
         } catch (e) { return {}; }
+      },
+      async upsertCustomFromImport(custom, images) {
+        const id = custom && custom.id ? String(custom.id) : ('custom_' + Date.now());
+        const base = { ...(custom || {}), id, country: 'custom' };
+        const refs = {
+          main: (base.images && base.images.main) || '',
+          secondary: Array.isArray(base.images && base.images.secondary) ? [...base.images.secondary] : []
+        };
+        while (refs.secondary.length < 2) refs.secondary.push('');
+
+        const uploadAndCache = async (slot, dataUrl) => {
+          if (!dataUrl) return;
+          try {
+            const key = await uploadCustomImage(id, slot, dataUrl);
+            if (key) {
+              if (slot === 'main') refs.main = key;
+              if (slot === 'sec0') refs.secondary[0] = key;
+              if (slot === 'sec1') refs.secondary[1] = key;
+            }
+            // 缓存本地缩略图
+            const map = { main: 'main', sec0: 'sec0', sec1: 'sec1' };
+            const suffix = map[slot] || slot;
+            await setCustomImage(`${id}:${suffix}`, dataUrl);
+          } catch (e) {}
+        };
+
+        const imgs = images && typeof images === 'object' ? images : {};
+        if (imgs.main) await uploadAndCache('main', imgs.main);
+        if (imgs.sec0) await uploadAndCache('sec0', imgs.sec0);
+        if (imgs.sec1) await uploadAndCache('sec1', imgs.sec1);
+
+        const payload = {
+          ...base,
+          hasImage1: !!refs.main,
+          hasImage2: !!refs.secondary[0],
+          hasImage3: !!refs.secondary[1],
+          images: {
+            main: refs.main || '',
+            secondary: [refs.secondary[0] || '', refs.secondary[1] || '']
+          }
+        };
+        return addCustomAttraction(payload);
       },
 
       // 从浏览器地理编码缓存中移除某个自创景点的经纬度
@@ -1744,27 +1788,39 @@
               for (const entry of arr) {
                 if (!entry || !entry.kind) continue;
                 if (entry.kind === 'custom' && entry.data) {
+
                   let custom = entry.data;
+
                   if (!custom.id) custom.id = 'custom_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
+
                   const existed = findCustomAttractionById(custom.id);
+
                   if (existed && JSON.stringify(existed) !== JSON.stringify(custom)) {
+
                     custom = { ...custom, id: 'custom_' + Date.now() + '_' + Math.random().toString(36).slice(2, 5) };
+
                   }
-                  try {
-                    const allRaw = localStorage.getItem('customAttractions');
-                    const all = allRaw ? (JSON.parse(allRaw) || []) : [];
-                    const idx = all.findIndex(a => String(a.id) === String(custom.id));
-                    if (idx >= 0) all[idx] = custom; else all.push(custom);
-                    localStorage.setItem('customAttractions', JSON.stringify(all));
-                  } catch (e) {}
-                  try {
-                    if (entry.images && typeof entry.images === 'object') {
-                      if (entry.images.main) await setCustomImage(`${custom.id}:main`, entry.images.main);
-                      if (entry.images.sec0) await setCustomImage(`${custom.id}:sec0`, entry.images.sec0);
-                      if (entry.images.sec1) await setCustomImage(`${custom.id}:sec1`, entry.images.sec1);
-                    }
-                  } catch (e) {}
-                  items.push({ id: custom.id, name: custom.name, region: custom.region, county: custom.county, country: 'custom', pending: !!entry.pending });
+
+                  const savedCustom = await this.upsertCustomFromImport(custom, entry.images || {});
+
+                  const targetCustom = savedCustom || custom;
+
+                  items.push({
+
+                    id: targetCustom.id,
+
+                    name: targetCustom.name,
+
+                    region: targetCustom.region,
+
+                    county: targetCustom.county,
+
+                    country: 'custom',
+
+                    pending: !!entry.pending
+
+                  });
+
                 } else if (entry.kind === 'ref' && entry.data) {
                   const it = entry.data;
                   items.push({ id: it.id, name: it.name, region: it.region, county: it.county, country: it.country, rating: it.rating, pending: !!entry.pending });
@@ -1789,39 +1845,39 @@
           for (const entry of data.items) {
             if (!entry || !entry.kind) continue;
             if (entry.kind === 'custom' && entry.data) {
+
               let custom = entry.data;
-              // 确保有ID
+
               if (!custom.id) custom.id = 'custom_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
-              // 若ID已存在且不同内容，则生成新ID
+
               const existed = findCustomAttractionById(custom.id);
+
               if (existed && JSON.stringify(existed) !== JSON.stringify(custom)) {
+
                 custom = { ...custom, id: 'custom_' + Date.now() + '_' + Math.random().toString(36).slice(2, 5) };
+
               }
-              // 写入/更新本地自创库
-              try {
-                const allRaw = localStorage.getItem('customAttractions');
-                const all = allRaw ? (JSON.parse(allRaw) || []) : [];
-                const idx = all.findIndex(a => String(a.id) === String(custom.id));
-                if (idx >= 0) all[idx] = custom; else all.push(custom);
-                localStorage.setItem('customAttractions', JSON.stringify(all));
-              } catch (e) {}
-                            // 还原图片（如导出包含）
-              try {
-                if (entry.images && typeof entry.images === 'object') {
-                  if (entry.images.main) await setCustomImage(`${custom.id}:main`, entry.images.main);
-                  if (entry.images.sec0) await setCustomImage(`${custom.id}:sec0`, entry.images.sec0);
-                  if (entry.images.sec1) await setCustomImage(`${custom.id}:sec1`, entry.images.sec1);
-                }
-              } catch (e) {}
-              // 推入收藏项（自创）
+
+              const savedCustom = await this.upsertCustomFromImport(custom, entry.images || {});
+
+              const targetCustom = savedCustom || custom;
+
               items.push({
-                id: custom.id,
-                name: custom.name,
-                region: custom.region,
-                county: custom.county,
+
+                id: targetCustom.id,
+
+                name: targetCustom.name,
+
+                region: targetCustom.region,
+
+                county: targetCustom.county,
+
                 country: 'custom',
+
                 pending: !!entry.pending
+
               });
+
             } else if (entry.kind === 'ref' && entry.data) {
               const it = entry.data;
               items.push({
@@ -1865,27 +1921,39 @@
             for (const entry of arr) {
               if (!entry || !entry.kind) continue;
               if (entry.kind === 'custom' && entry.data) {
+
                 let custom = entry.data;
+
                 if (!custom.id) custom.id = 'custom_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
+
                 const existed = findCustomAttractionById(custom.id);
+
                 if (existed && JSON.stringify(existed) !== JSON.stringify(custom)) {
+
                   custom = { ...custom, id: 'custom_' + Date.now() + '_' + Math.random().toString(36).slice(2, 5) };
+
                 }
-                try {
-                  const allRaw = localStorage.getItem('customAttractions');
-                  const all = allRaw ? (JSON.parse(allRaw) || []) : [];
-                  const idx = all.findIndex(a => String(a.id) === String(custom.id));
-                  if (idx >= 0) all[idx] = custom; else all.push(custom);
-                  localStorage.setItem('customAttractions', JSON.stringify(all));
-                } catch (e) {}
-                try {
-                  if (entry.images && typeof entry.images === 'object') {
-                    if (entry.images.main) await setCustomImage(`${custom.id}:main`, entry.images.main);
-                    if (entry.images.sec0) await setCustomImage(`${custom.id}:sec0`, entry.images.sec0);
-                    if (entry.images.sec1) await setCustomImage(`${custom.id}:sec1`, entry.images.sec1);
-                  }
-                } catch (e) {}
-                items.push({ id: custom.id, name: custom.name, region: custom.region, county: custom.county, country: 'custom', pending: !!entry.pending });
+
+                const savedCustom = await this.upsertCustomFromImport(custom, entry.images || {});
+
+                const targetCustom = savedCustom || custom;
+
+                items.push({
+
+                  id: targetCustom.id,
+
+                  name: targetCustom.name,
+
+                  region: targetCustom.region,
+
+                  county: targetCustom.county,
+
+                  country: 'custom',
+
+                  pending: !!entry.pending
+
+                });
+
               } else if (entry.kind === 'ref' && entry.data) {
                 const it = entry.data;
                 items.push({ id: it.id, name: it.name, region: it.region, county: it.county, country: it.country, rating: it.rating, pending: !!entry.pending });
@@ -1909,34 +1977,39 @@
         for (const entry of data.items) {
           if (!entry || !entry.kind) continue;
           if (entry.kind === 'custom' && entry.data) {
+
             let custom = entry.data;
+
             if (!custom.id) custom.id = 'custom_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
+
             const existed = findCustomAttractionById(custom.id);
+
             if (existed && JSON.stringify(existed) !== JSON.stringify(custom)) {
+
               custom = { ...custom, id: 'custom_' + Date.now() + '_' + Math.random().toString(36).slice(2, 5) };
+
             }
-            try {
-              const allRaw = localStorage.getItem('customAttractions');
-              const all = allRaw ? (JSON.parse(allRaw) || []) : [];
-              const idx = all.findIndex(a => String(a.id) === String(custom.id));
-              if (idx >= 0) all[idx] = custom; else all.push(custom);
-              localStorage.setItem('customAttractions', JSON.stringify(all));
-            } catch (e) {}
-            try {
-              if (entry.images && typeof entry.images === 'object') {
-                if (entry.images.main) await setCustomImage(`${custom.id}:main`, entry.images.main);
-                if (entry.images.sec0) await setCustomImage(`${custom.id}:sec0`, entry.images.sec0);
-                if (entry.images.sec1) await setCustomImage(`${custom.id}:sec1`, entry.images.sec1);
-              }
-            } catch (e) {}
+
+            const savedCustom = await this.upsertCustomFromImport(custom, entry.images || {});
+
+            const targetCustom = savedCustom || custom;
+
             items.push({
-              id: custom.id,
-              name: custom.name,
-              region: custom.region,
-              county: custom.county,
+
+              id: targetCustom.id,
+
+              name: targetCustom.name,
+
+              region: targetCustom.region,
+
+              county: targetCustom.county,
+
               country: 'custom',
+
               pending: !!entry.pending
+
             });
+
           } else if (entry.kind === 'ref' && entry.data) {
             const it = entry.data;
             items.push({
@@ -2054,6 +2127,7 @@
         try {
           localStorage.setItem(key, JSON.stringify(this.favoriteTabs));
         } catch(e) {}
+        try { queueUserDataSync(); } catch (e) {}
       },
       getFavoritesStorageKey() {
         // 跨国家共用收藏（多选项卡）
@@ -2123,6 +2197,7 @@
         this.activeTabId = id;
         // 记忆选中的tab
         try { localStorage.setItem('favoriteTabs_activeId', id); } catch(e) {}
+        try { queueUserDataSync(); } catch (e) {}
 
         const at = this.favoriteTabs.find(t => t.id === id);
         this.favorites = at ? at.items : [];
@@ -2916,9 +2991,11 @@ const all = this.sortedFavorites || [];
         try {
           if (String(f.country) === 'custom') {
             const a = findCustomAttractionById(f.id);
-            let url = a && a.images && a.images.main ? a.images.main : '';
+            let url = '';
+            if (a && a.images && a.images.main) {
+              url = await getCustomImageUrl(a.images.main);
+            }
             if (!url && a && a.hasImage1) {
-              // 从 IndexedDB 读取主图
               url = await getCustomImageUrl(`${f.id}:main`);
             }
             if (url) {
@@ -5946,15 +6023,6 @@ const all = this.sortedFavorites || [];
 /* 文案显示：桌面显示完整，移动显示简写 */
 .label-desktop { display: inline; }
 .label-mobile { display: none; }
-
-
-
-
-
-
-
-
-
 
 
 

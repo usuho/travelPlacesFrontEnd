@@ -89,6 +89,7 @@
   import { addCustomAttraction, updateCustomAttraction } from '../utils/customAttractions.js'
   import { getImageUrl as getCustomImageUrl, setImage as setCustomImage, deleteImage as deleteCustomImage } from '../utils/customImageStore.js'
   import { getGeoKeys } from '../utils/geoKeys.js'
+  import { uploadCustomImage } from '../stores/userDataSync.js'
 
 export default {
   name: 'CreateAttractionModal',
@@ -199,8 +200,14 @@ export default {
       const id = (this.mode === 'edit' && this.initial && this.initial.id)
         ? String(this.initial.id)
         : ('custom_' + Date.now())
+      const existingImages = (this.initial && this.initial.images) || {}
+      const imageRefs = {
+        main: (existingImages && existingImages.main) || '',
+        secondary: Array.isArray(existingImages && existingImages.secondary) ? [...existingImages.secondary] : []
+      }
+      while (imageRefs.secondary.length < 2) imageRefs.secondary.push('')
 
-      // 先把图片写入 IndexedDB，避免 localStorage 超限失败；编辑模式下，未重新上传则保留原图
+      // 先把图片写入 IndexedDB，避免localStorage 超限失败；编辑模式下，未重新上传则保留原图
       try {
         if (this.form.images.main) {
           await setCustomImage(`${id}:main`, this.form.images.main)
@@ -211,7 +218,6 @@ export default {
         if (this.form.images.secondary[1]) {
           await setCustomImage(`${id}:sec1`, this.form.images.secondary[1])
         }
-        // 编辑模式下，清理不再使用的图片缓存
         if (this.mode === 'edit' && this.initial) {
           if (this.initial.hasImage1 && !this.form.images.main) {
             await deleteCustomImage(`${id}:main`)
@@ -224,6 +230,38 @@ export default {
           }
         }
       } catch (e) {}
+
+      // 上传到 S3，获取引用路径
+      const uploadSlot = async (slot, dataUrl) => {
+        if (!dataUrl) return null
+        try {
+          const key = await uploadCustomImage(id, slot, dataUrl)
+          return key || null
+        } catch (e) {
+          return null
+        }
+      }
+
+      const uploadedMain = await uploadSlot('main', this.form.images.main)
+      if (uploadedMain) {
+        imageRefs.main = uploadedMain
+      } else if (this.mode === 'edit' && this.initial && this.initial.hasImage1 && !this.form.images.main) {
+        imageRefs.main = ''
+      }
+
+      const uploadedSec0 = await uploadSlot('sec0', this.form.images.secondary[0])
+      if (uploadedSec0) {
+        imageRefs.secondary[0] = uploadedSec0
+      } else if (this.mode === 'edit' && this.initial && this.initial.hasImage2 && !this.form.images.secondary[0]) {
+        imageRefs.secondary[0] = ''
+      }
+
+      const uploadedSec1 = await uploadSlot('sec1', this.form.images.secondary[1])
+      if (uploadedSec1) {
+        imageRefs.secondary[1] = uploadedSec1
+      } else if (this.mode === 'edit' && this.initial && this.initial.hasImage3 && !this.form.images.secondary[1]) {
+        imageRefs.secondary[1] = ''
+      }
 
       // 若为编辑模式，清理该自创景点的地理编码浏览器缓存（视为全新景点）
       try {
@@ -252,13 +290,12 @@ export default {
         duration: this.form.duration,
         details: this.form.details,
         overview: this.form.overview,
-        // 是否存在图片：以当前表单为准，用户删除后为 false，避免详情页显示 skeleton
-        hasImage1: !!this.form.images.main,
-        hasImage2: !!this.form.images.secondary[0],
-        hasImage3: !!this.form.images.secondary[1],
+        hasImage1: !!imageRefs.main,
+        hasImage2: !!imageRefs.secondary[0],
+        hasImage3: !!imageRefs.secondary[1],
         images: {
-          main: '',
-          secondary: []
+          main: imageRefs.main || '',
+          secondary: [imageRefs.secondary[0] || '', imageRefs.secondary[1] || '']
         },
         createdAt: new Date().toISOString()
       }
@@ -269,7 +306,6 @@ export default {
       this.$emit('update:modelValue', false)
     },
 
-    // —— 自创景点保存后：异步预先进行地理编码并写入共享缓存 ——
     async prefetchCustomGeocode(attraction) {
       try {
         if (!attraction || !attraction.id) return;
