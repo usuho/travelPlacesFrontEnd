@@ -3,11 +3,7 @@
     <!-- 固定顶部区域（标题 + 筛选器） -->
     <div class="fixed-header">
       <header class="page-header">
-        <button @click="goBack" class="back-button top-back-button desktop-back-button">
-          返回
-        </button>
         <div class="header-content">
-
           <div class="title-text-group">
             <h1
               class="page-title title-hero"
@@ -5037,10 +5033,6 @@ const all = this.sortedFavorites || [];
   box-shadow: 0 4px 15px rgba(0, 122, 255, 0.3);
 }
 
-.top-back-button {
-  margin-bottom: 0;
-}
-
 .bottom-back-button {
   margin-bottom: 0;
 }
@@ -5657,10 +5649,6 @@ const all = this.sortedFavorites || [];
   .back-button {
     padding: 11px 16px;
     font-size: 14px;
-  }
-
-  .desktop-back-button {
-    display: none;
   }
 
   .attraction-content-mobile {

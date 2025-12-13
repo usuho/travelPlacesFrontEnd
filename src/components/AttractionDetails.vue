@@ -5,25 +5,8 @@
     <div class="fixed-header">
       <!-- 页面头部 -->
       <header class="page-header">
-        <div class="header-left-group">
-          <button @click="goBack" class="back-button top-back-button">
-            返回
-          </button>
-          <button
-            v-if="String(country)==='custom'"
-            class="edit-button edit-button-desktop"
-            @click="showEditModal = true"
-            title="编辑自创景点"
-          >编辑</button>
-        </div>
         <div class="header-content">
           <div class="title-row">
-            <button
-              v-if="String(country)==='custom'"
-              class="edit-button edit-button-mobile"
-              @click="showEditModal = true"
-              title="编辑自创景点"
-            >编辑</button>
             <h1 :key="titleAnimKey" class="attraction-title title-with-star title-hero">
               <button
                 class="star-btn"
@@ -40,14 +23,26 @@
               <span class="title-text">{{ attraction ? attraction.name : '' }}</span>
             </h1>
           </div>
-          <div v-if="attraction && showStats" class="rating-section">
-            <div class="rating-badge" :style="{ background: ratingBackgroundColor }">
+          <div v-if="attraction" class="rating-section">
+            <div
+              v-if="!isCustomAttraction"
+              class="rating-badge"
+              :style="{ background: ratingBackgroundColor }"
+            >
               <span class="rating-label">好评率</span>
               <span class="rating-text">{{ attraction.rating }}</span>
             </div>
+            <button
+              v-else
+              class="edit-button rating-edit-button"
+              @click="showEditModal = true"
+              title="编辑自创景点"
+            >
+              编辑
+            </button>
             <div class="reviews-summary">
-              <span class="total-reviews">{{ attraction.total_reviews }} 条评论</span>
-              <span class="positive-reviews">{{ attraction.positive_reviews }} 条好评</span>
+              <span class="total-reviews">{{ totalReviewsText }}</span>
+              <span class="positive-reviews">{{ positiveReviewsText }}</span>
             </div>
           </div>
         </div>
@@ -340,23 +335,37 @@
         return this.$route.query.from === 'favorites';
       },
       ratingBackgroundColor() {
-      const rating = this.attraction && this.attraction.rating;
-      if (rating !== undefined && rating !== null && String(rating).trim() !== '') {
+        const rating = this.attraction && this.attraction.rating;
+        if (rating !== undefined && rating !== null && String(rating).trim() !== '') {
+          return this.getRatingColor(rating);
+        }
+        const stored = localStorage.getItem('selectedAttractionRatingColor');
+        if (stored) return stored;
         return this.getRatingColor(rating);
-      }
-      const stored = localStorage.getItem('selectedAttractionRatingColor');
-      if (stored) return stored;
-      return this.getRatingColor(rating);
-    },
-    showStats() {
-      return String(this.country) !== 'custom';
-    },
-    detailSwipeStyle() {
-      return {
-        opacity: this.detailSwipeOpacity,
-        transition: this.detailSwipeResetting ? 'opacity 0.2s ease' : 'none',
-      };
-    },
+      },
+      isCustomAttraction() {
+        return String(this.country) === 'custom';
+      },
+      totalReviewsText() {
+        if (!this.attraction) return '';
+        if (this.isCustomAttraction) return '-- 条评论';
+        const total = this.attraction.total_reviews;
+        const display = (total === undefined || total === null || total === '') ? '-' : total;
+        return `${display} 条评论`;
+      },
+      positiveReviewsText() {
+        if (!this.attraction) return '';
+        if (this.isCustomAttraction) return '-- 条好评';
+        const positive = this.attraction.positive_reviews;
+        const display = (positive === undefined || positive === null || positive === '') ? '-' : positive;
+        return `${display} 条好评`;
+      },
+      detailSwipeStyle() {
+        return {
+          opacity: this.detailSwipeOpacity,
+          transition: this.detailSwipeResetting ? 'opacity 0.2s ease' : 'none',
+        };
+      },
     nextDisabled() {
         if (this.isFavoritesMode) return this.favIndex >= this.favNav.length - 1;
         if (this.fromSearch) return true;
@@ -1557,10 +1566,6 @@
   box-shadow: 0 4px 15px rgba(0, 122, 255, 0.3);
 }
 
-.top-back-button {
-  margin: 8px;
-}
-
 .bottom-back-button {
   margin-bottom: 0;
   align-self: center;
@@ -1568,27 +1573,22 @@
 
 /* 编辑按钮（自创景点） */
 .edit-button {
-  padding: 6px 12px;
-  border-radius: 10px;
-  background: #e5e7eb;
+  padding: 4px 12px;
+  border-radius: 20px;
+  background: linear-gradient(135deg, #f8f9fa 0%, #e5e7eb 100%);
   color: #111827;
-  border: none;
+  border: 1px solid rgba(0, 0, 0, 0.05);
   cursor: pointer;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+  transition: filter 0.2s ease, transform 0.2s ease;
 }
 
-.edit-button-mobile {
-  position: absolute;
-  left: 0;
-  top: 50%;
-  transform: translateY(-50%);
+.rating-edit-button {
+  align-items: center;
+  justify-content: center;
 }
 
-.edit-button-desktop {
-  display: none;
-}
-
-.edit-button:hover { filter: brightness(0.95); }
+.edit-button:hover { filter: brightness(0.97); transform: translateY(-1px); }
 
 .back-icon {
   font-size: 18px;
@@ -1622,6 +1622,7 @@
   align-items: center;
   justify-content: center;
   flex-wrap: wrap;
+  gap: 12px;
 }
 
 .rating-badge {
@@ -1880,12 +1881,6 @@
     gap: 0;
     z-index: 2;
   }
-  .edit-button-desktop {
-    display: inline-flex;
-  }
-  .edit-button-mobile {
-    display: none;
-  }
 }
 
 .info-header {
@@ -2086,10 +2081,6 @@
     line-height: 13px;
   }
 
-  .edit-button {
-    margin-left: 10px;
-  }
-
   .info-section {
     padding: 0px 10px;
     padding-top: 15px;
@@ -2098,10 +2089,6 @@
 
   .fixed-header {
     padding:0;
-  }
-
-  .top-back-button {
-    display:none;
   }
 
   .page-header {
