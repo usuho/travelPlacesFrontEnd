@@ -21,6 +21,19 @@ const state = reactive({
   user: saved.user || null
 });
 
+function hasPersistedSession() {
+  try {
+    const raw = (typeof localStorage !== 'undefined')
+      ? localStorage.getItem(STORAGE_KEY)
+      : '';
+    if (!raw) return false;
+    const parsed = JSON.parse(raw);
+    return !!(parsed && parsed.token);
+  } catch (e) {
+    return false;
+  }
+}
+
 function persist() {
   try {
     localStorage.setItem(
@@ -42,9 +55,17 @@ export function clearAuthSession() {
   try {
     localStorage.removeItem(STORAGE_KEY);
   } catch (e) {}
+  try {
+    sessionStorage.removeItem(STORAGE_KEY);
+  } catch (e) {}
 }
 
 export function isAuthenticated() {
+  if (!state.token) return false;
+  if (!hasPersistedSession()) {
+    clearAuthSession();
+    return false;
+  }
   return !!state.token;
 }
 
@@ -62,4 +83,8 @@ export function buildAuthHeaders(headers = {}) {
     headers.Authorization = `Bearer ${token}`;
   }
   return headers;
+}
+
+export function hasPersistedSessionToken() {
+  return hasPersistedSession();
 }

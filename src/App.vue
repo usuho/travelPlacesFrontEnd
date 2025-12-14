@@ -40,6 +40,7 @@
 <script>
 import { userDataSyncState, resetUserDataSync } from './stores/userDataSync.js'
 import { getAuthUser, clearAuthSession } from './stores/auth.js'
+import { clearAllImages } from './utils/customImageStore.js'
 
 const LONG_PRESS_MS = 800;
 
@@ -173,6 +174,7 @@ export default {
       try { clearAuthSession() } catch (e) {}
       try { localStorage.clear() } catch (e) {}
       try { sessionStorage.clear() } catch (e) {}
+      try { clearAllImages() } catch (e) {}
       try {
         if (typeof caches !== 'undefined' && caches.keys) {
           caches.keys().then(keys => keys.forEach(k => caches.delete(k)))

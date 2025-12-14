@@ -766,7 +766,7 @@
   import { addCustomAttraction, findCustomAttractionById, deleteCustomAttraction } from '../utils/customAttractions.js'
   import { getImageUrl as getCustomImageUrl, deleteImagesForId as deleteCustomImagesForId, setImage as setCustomImage } from '../utils/customImageStore.js'
   import { withBackendApiKey } from '../utils/geoApi.js';
-  import { ensureUserDataHydrated, queueUserDataSync, uploadCustomImage } from '../stores/userDataSync.js'
+  import { ensureUserDataHydrated, queueUserDataSync, uploadCustomImage, deleteCustomImages } from '../stores/userDataSync.js'
 
   export default {
     components: { CreateAttractionModal },
@@ -2674,11 +2674,20 @@
         const id = this.tabDeleteTargetId;
         if (!id) { this.cancelDeleteTab(); return; }
                 // 在删除整个收藏列表前，清理自创景点缓存与缩略图
+        const remoteKeys = [];
         try {
           const tab = this.favoriteTabs.find(t => t.id === id);
           const items = tab && Array.isArray(tab.items) ? tab.items : [];
           items.forEach(it => {
             if (String(it.country) === 'custom') {
+              try {
+                const custom = findCustomAttractionById(it.id) || {};
+                const imgs = custom.images || {};
+                if (imgs.main) remoteKeys.push(imgs.main);
+                if (Array.isArray(imgs.secondary)) {
+                  imgs.secondary.forEach(k => { if (k) remoteKeys.push(k); });
+                }
+              } catch (e) {}
               try { deleteCustomAttraction(it.id); } catch(e) {}
               try { deleteCustomImagesForId(it.id); } catch(e) {}
               try { this.removeGeoCacheForCustom(it.id); } catch(e) {}
@@ -2703,6 +2712,7 @@
           this.favorites = at ? at.items : [];
           this.saveFavorites();
         }
+        try { if (remoteKeys.length) deleteCustomImages(remoteKeys); } catch (e) {}
         this.cancelDeleteTab();
       },
       attachEditOutsideListeners(editId) {
@@ -6062,7 +6072,5 @@ const all = this.sortedFavorites || [];
 /* 文案显示：桌面显示完整，移动显示简写 */
 .label-desktop { display: inline; }
 .label-mobile { display: none; }
-
-
 
 

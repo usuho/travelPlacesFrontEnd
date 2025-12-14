@@ -1,5 +1,6 @@
 import { openDB } from 'idb';
 import { getLastApiBase, withBackendApiKey } from './geoApi.js';
+import { clearAuthSession } from '../stores/auth.js';
 
 const DB_NAME = 'customAttractionsDB';
 const STORE = 'images';
@@ -75,6 +76,13 @@ export async function deleteImage(key) {
   } catch (e) {}
 }
 
+export async function clearAllImages() {
+  try {
+    const d = await db();
+    await d.clear(STORE);
+  } catch (e) {}
+}
+
 function isLocalHost(host) {
   if (!host) return false;
   const h = host.toLowerCase();
@@ -118,8 +126,16 @@ async function fetchRemoteImage(key) {
   const bases = apiBases();
   for (const base of bases) {
     try {
-      const url = `${base}/api/user/custom-image?key=${encodeURIComponent(key)}`;
-      const resp = await fetch(url, withBackendApiKey());
+      const url = `${base}/api/user/custom-image?key=${encodeURIComponent(key)}&ts=${Date.now()}`;
+      const resp = await fetch(url, { ...withBackendApiKey(), cache: 'no-store' });
+      if (resp && resp.status === 401) {
+        try { clearAuthSession(); } catch (e) {}
+        try { localStorage.clear(); } catch (e) {}
+        try { sessionStorage.clear(); } catch (e) {}
+        try { if (typeof caches !== 'undefined' && caches.keys) { caches.keys().then(keys => keys.forEach(k => caches.delete(k))); } } catch (e) {}
+        try { window.location && window.location.replace && window.location.replace('/login'); } catch (e) {}
+        return null;
+      }
       if (resp && resp.ok) {
         return await resp.blob();
       }

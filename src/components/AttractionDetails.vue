@@ -220,7 +220,7 @@
   import { findCustomAttractionById, deleteCustomAttraction } from '../utils/customAttractions.js'
   import { getImageUrl as getCustomImageUrl, deleteImagesForId as deleteCustomImagesForId } from '../utils/customImageStore.js'
   import CreateAttractionModal from './CreateAttractionModal.vue'
-  import { ensureUserDataHydrated, queueUserDataSync } from '../stores/userDataSync.js'
+  import { ensureUserDataHydrated, queueUserDataSync, deleteCustomImages } from '../stores/userDataSync.js'
 
   export default {
     components: { CreateAttractionModal },
@@ -638,9 +638,20 @@
       },
       performDeleteCustom() {
         const id = this.attraction?.id || this.id;
+        const keysToDelete = [];
+        try {
+          const imgs = this.attraction && this.attraction.images;
+          if (imgs) {
+            if (imgs.main) keysToDelete.push(imgs.main);
+            if (imgs.secondary && Array.isArray(imgs.secondary)) {
+              imgs.secondary.forEach(k => { if (k) keysToDelete.push(k); });
+            }
+          }
+        } catch (e) {}
         // 从自创景点存储中删除
         try { deleteCustomAttraction(id); } catch(e) {}
         try { deleteCustomImagesForId(id); } catch(e) {}
+        try { if (keysToDelete.length) deleteCustomImages(keysToDelete); } catch (e) {}
         // 同步清除浏览器地理编码缓存
         try {
           const storeKey = 'geoCache_v1';
@@ -783,6 +794,11 @@
         return this.countyTranslations[country] || '省份';
       },
 
+      isRenderableImage(val) {
+        if (!val) return false
+        if (typeof val !== 'string') return false
+        return val.startsWith('data:') || val.startsWith('blob:') || val.startsWith('http')
+      },
       async fetchAttractionDetails() {
         // 自创景点：从本地缓存读取并展示
         if (String(this.country) === 'custom') {
@@ -792,9 +808,10 @@
             this.loading = false
             const mainRef = a?.images?.main || ''
             const secRefs = Array.isArray(a?.images?.secondary) ? a.images.secondary : []
-            this.image1 = mainRef || null
-            this.image2 = secRefs[0] || null
-            this.image3 = secRefs[1] || null
+            // 仅在可直接渲染时先行展示，否则保持 null 以显示 skeleton
+            this.image1 = this.isRenderableImage(mainRef) ? mainRef : null
+            this.image2 = this.isRenderableImage(secRefs[0]) ? secRefs[0] : null
+            this.image3 = this.isRenderableImage(secRefs[1]) ? secRefs[1] : null
             try {
               if (mainRef) {
                 const u1 = await getCustomImageUrl(mainRef)
@@ -1248,11 +1265,13 @@
         // 退出详情页或关闭全屏后，不再持有列表传来的颜色，避免污染下次进入
         try { localStorage.removeItem('selectedAttractionRatingColor'); } catch(e) {}
       },
-      onCustomUpdated(saved) {
+      async onCustomUpdated(saved) {
         try {
           // 刷新当前详情对象
           const a = findCustomAttractionById(saved && saved.id ? saved.id : this.id);
           if (a) {
+            // 先清除旧的本地图片缓存并强制重新取最新
+            try { await deleteCustomImagesForId(a.id); } catch (e) {}
             this.attraction = a;
             // 刷新图片（从 IndexedDB 取最新）
             this.image1 = null; this.image2 = null; this.image3 = null;

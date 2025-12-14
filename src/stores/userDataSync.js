@@ -1,6 +1,7 @@
 import { reactive } from 'vue';
-import { buildAuthHeaders, getAuthUser, isAuthenticated } from './auth.js';
+import { buildAuthHeaders, getAuthUser, isAuthenticated, clearAuthSession } from './auth.js';
 import { withBackendApiKey, getLastApiBase } from '../utils/geoApi.js';
+import { clearAllImages } from '../utils/customImageStore.js';
 
 const syncState = reactive({
   status: 'idle', // idle | syncing | ok | error
@@ -51,6 +52,16 @@ function apiBases() {
   return Array.from(new Set(list.filter(Boolean).map(b => b.replace(/\/$/, ''))));
 }
 
+function handleUnauthorized() {
+  try { clearAuthSession(); } catch (e) {}
+  try { resetUserDataSync(); } catch (e) {}
+  try { localStorage.clear(); } catch (e) {}
+  try { sessionStorage.clear(); } catch (e) {}
+  try { clearAllImages(); } catch (e) {}
+  try { if (typeof caches !== 'undefined' && caches.keys) { caches.keys().then(keys => keys.forEach(k => caches.delete(k))); } } catch (e) {}
+  try { window.location && window.location.replace && window.location.replace('/login'); } catch (e) {}
+}
+
 async function fetchWithFallback(path, options) {
   const bases = apiBases();
   let lastError = null;
@@ -59,6 +70,10 @@ async function fetchWithFallback(path, options) {
     const url = `${base}${path}`;
     try {
       const resp = await fetch(url, opts);
+      if (resp && resp.status === 401) {
+        handleUnauthorized();
+        throw new Error('Unauthorized');
+      }
       if (resp && resp.ok) return resp;
       const text = resp ? await resp.text() : '';
       lastError = { status: resp && resp.status, body: text.slice(0, 200), url };
@@ -217,6 +232,30 @@ export async function uploadCustomImage(customId, slot, dataUrl) {
   } catch (err) {
     setStatus('error', err && err.message ? err.message : 'Upload failed');
     throw err;
+  }
+}
+
+export async function deleteCustomImages(keys) {
+  if (!isAuthenticated()) return false;
+  const list = Array.isArray(keys) ? keys.filter(Boolean) : [keys].filter(Boolean);
+  if (!list.length) return true;
+  setStatus('syncing', '');
+  try {
+    const resp = await fetchWithFallback('/api/user/custom-image', {
+      method: 'DELETE',
+      headers: buildAuthHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify({ keys: list })
+    });
+    if (resp && resp.ok) {
+      setStatus('ok', '');
+      return true;
+    }
+    const text = resp ? await resp.text() : '';
+    setStatus('error', text.slice(0, 200) || 'Failed to delete images');
+    return false;
+  } catch (err) {
+    setStatus('error', err && err.message ? err.message : 'Failed to delete images');
+    return false;
   }
 }
 

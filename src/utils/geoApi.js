@@ -1,4 +1,4 @@
-import { buildAuthHeaders } from '../stores/auth.js';
+import { buildAuthHeaders, clearAuthSession } from '../stores/auth.js';
 
 // Centralized API helpers matching the backend routes in travelPlacesServer/server.js
 
@@ -60,6 +60,14 @@ export async function fetchJson(path, options) {
       if (resp && resp.ok) {
         lastApiBase = base;
         return await resp.json();
+      }
+      if (resp && resp.status === 401) {
+        try { clearAuthSession(); } catch (e) {}
+        try { localStorage.clear(); } catch (e) {}
+        try { sessionStorage.clear(); } catch (e) {}
+        try { if (typeof caches !== 'undefined' && caches.keys) { caches.keys().then(keys => keys.forEach(k => caches.delete(k))); } } catch (e) {}
+        try { window.location && window.location.replace && window.location.replace('/login'); } catch (e) {}
+        return null;
       }
     } catch (_) {
       // try next base

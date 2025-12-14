@@ -87,9 +87,9 @@
 
 <script>
   import { addCustomAttraction, updateCustomAttraction } from '../utils/customAttractions.js'
-  import { getImageUrl as getCustomImageUrl, setImage as setCustomImage, deleteImage as deleteCustomImage } from '../utils/customImageStore.js'
+  import { getImageUrl as getCustomImageUrl, setImage as setCustomImage, deleteImage as deleteCustomImage, deleteImagesForId as deleteCustomImagesForId } from '../utils/customImageStore.js'
   import { getGeoKeys } from '../utils/geoKeys.js'
-  import { uploadCustomImage } from '../stores/userDataSync.js'
+  import { uploadCustomImage, deleteCustomImages } from '../stores/userDataSync.js'
 
 export default {
   name: 'CreateAttractionModal',
@@ -112,7 +112,9 @@ export default {
         details: '',
         overview: '',
         images: { main: '', secondary: ['', ''] }
-      }
+      },
+      mainCleared: false,
+      secondaryCleared: [false, false]
     }
   },
   computed: {
@@ -133,6 +135,8 @@ export default {
     close() { this.$emit('update:modelValue', false) },
     loadFromInitial() {
       try {
+        this.mainCleared = false
+        this.secondaryCleared = [false, false]
         // 文本类字段
         this.form.name = this.initial.name || ''
         this.form.region = this.initial.region || ''
@@ -162,16 +166,30 @@ export default {
         reader.readAsDataURL(file)
       })
     },
+    async blobToDataURL(blob) {
+      return new Promise((resolve) => {
+        try {
+          const fr = new FileReader()
+          fr.onload = () => resolve(fr.result || '')
+          fr.onerror = () => resolve('')
+          fr.readAsDataURL(blob)
+        } catch (e) { resolve('') }
+      })
+    },
     async onMainImage(e) {
       const file = e.target.files && e.target.files[0]
       if (!file) return
       this.form.images.main = await this.readFileAsDataURL(file)
+      this.mainCleared = false
     },
     async onSecondaryImage(e, idx) {
       const file = e.target.files && e.target.files[0]
       if (!file) return
       const url = await this.readFileAsDataURL(file)
       this.$set ? this.$set(this.form.images.secondary, idx, url) : (this.form.images.secondary[idx] = url)
+      if (idx === 0 || idx === 1) {
+        this.$set ? this.$set(this.secondaryCleared, idx, false) : (this.secondaryCleared[idx] = false)
+      }
     },
     onMainButtonClick(e){
       if (this.form.images.main) {
@@ -189,10 +207,12 @@ export default {
     },
     clearMainImage() {
       this.form.images.main = ''
+      this.mainCleared = true
     },
     clearSecondaryImage(idx) {
       if (idx === 0 || idx === 1) {
         this.$set ? this.$set(this.form.images.secondary, idx, '') : (this.form.images.secondary[idx] = '')
+        this.$set ? this.$set(this.secondaryCleared, idx, true) : (this.secondaryCleared[idx] = true)
       }
     },
     async submit() {
@@ -206,6 +226,7 @@ export default {
         secondary: Array.isArray(existingImages && existingImages.secondary) ? [...existingImages.secondary] : []
       }
       while (imageRefs.secondary.length < 2) imageRefs.secondary.push('')
+      const toDeleteRemote = []
 
       // 先把图片写入 IndexedDB，避免localStorage 超限失败；编辑模式下，未重新上传则保留原图
       try {
@@ -231,7 +252,22 @@ export default {
         }
       } catch (e) {}
 
-      // 上传到 S3，获取引用路径
+      const initialImages = (this.initial && this.initial.images) || {}
+      const normalizeForUpload = async (val) => {
+        if (!val) return { shouldUpload: false, dataUrl: '' }
+        if (typeof val === 'string' && val.startsWith('data:')) {
+          return { shouldUpload: true, dataUrl: val }
+        }
+        if (typeof val === 'string' && (val.startsWith('blob:') || val.startsWith('http'))) {
+          try {
+            const resp = await fetch(val)
+            const blob = await resp.blob()
+            const dataUrl = await this.blobToDataURL(blob)
+            return dataUrl ? { shouldUpload: true, dataUrl } : { shouldUpload: false, dataUrl: '' }
+          } catch (e) { return { shouldUpload: false, dataUrl: '' } }
+        }
+        return { shouldUpload: false, dataUrl: '' }
+      }
       const uploadSlot = async (slot, dataUrl) => {
         if (!dataUrl) return null
         try {
@@ -242,24 +278,45 @@ export default {
         }
       }
 
-      const uploadedMain = await uploadSlot('main', this.form.images.main)
-      if (uploadedMain) {
-        imageRefs.main = uploadedMain
-      } else if (this.mode === 'edit' && this.initial && this.initial.hasImage1 && !this.form.images.main) {
+      // main
+      const normMain = await normalizeForUpload(this.form.images.main)
+      const mainChanged = normMain.shouldUpload && this.form.images.main !== (initialImages.main || '')
+      if (mainChanged) {
+        const uploadedMain = await uploadSlot('main', normMain.dataUrl)
+        if (uploadedMain) {
+          if (imageRefs.main && imageRefs.main !== uploadedMain) toDeleteRemote.push(imageRefs.main)
+          imageRefs.main = uploadedMain
+        }
+      } else if (this.mainCleared) {
+        if (imageRefs.main) toDeleteRemote.push(imageRefs.main)
         imageRefs.main = ''
       }
 
-      const uploadedSec0 = await uploadSlot('sec0', this.form.images.secondary[0])
-      if (uploadedSec0) {
-        imageRefs.secondary[0] = uploadedSec0
-      } else if (this.mode === 'edit' && this.initial && this.initial.hasImage2 && !this.form.images.secondary[0]) {
+      // sec0
+      const normSec0 = await normalizeForUpload(this.form.images.secondary[0])
+      const sec0Changed = normSec0.shouldUpload && this.form.images.secondary[0] !== (initialImages.secondary && initialImages.secondary[0] || '')
+      if (sec0Changed) {
+        const uploadedSec0 = await uploadSlot('sec0', normSec0.dataUrl)
+        if (uploadedSec0) {
+          if (imageRefs.secondary[0] && imageRefs.secondary[0] !== uploadedSec0) toDeleteRemote.push(imageRefs.secondary[0])
+          imageRefs.secondary[0] = uploadedSec0
+        }
+      } else if (this.secondaryCleared[0]) {
+        if (imageRefs.secondary[0]) toDeleteRemote.push(imageRefs.secondary[0])
         imageRefs.secondary[0] = ''
       }
 
-      const uploadedSec1 = await uploadSlot('sec1', this.form.images.secondary[1])
-      if (uploadedSec1) {
-        imageRefs.secondary[1] = uploadedSec1
-      } else if (this.mode === 'edit' && this.initial && this.initial.hasImage3 && !this.form.images.secondary[1]) {
+      // sec1
+      const normSec1 = await normalizeForUpload(this.form.images.secondary[1])
+      const sec1Changed = normSec1.shouldUpload && this.form.images.secondary[1] !== (initialImages.secondary && initialImages.secondary[1] || '')
+      if (sec1Changed) {
+        const uploadedSec1 = await uploadSlot('sec1', normSec1.dataUrl)
+        if (uploadedSec1) {
+          if (imageRefs.secondary[1] && imageRefs.secondary[1] !== uploadedSec1) toDeleteRemote.push(imageRefs.secondary[1])
+          imageRefs.secondary[1] = uploadedSec1
+        }
+      } else if (this.secondaryCleared[1]) {
+        if (imageRefs.secondary[1]) toDeleteRemote.push(imageRefs.secondary[1])
         imageRefs.secondary[1] = ''
       }
 
@@ -277,6 +334,21 @@ export default {
               localStorage.setItem(storeKey, JSON.stringify(obj))
             }
           }
+        }
+      } catch (e) {}
+
+      // 清理本地缓存的旧图，确保下次读取不会返回旧版本
+      try { await deleteCustomImagesForId(id); } catch (e) {}
+      // 可选：将最新 dataURL 写回缓存以便立即展示
+      try {
+        if (this.form.images.main && this.form.images.main.startsWith('data:') && imageRefs.main) {
+          await setCustomImage(`${id}:main`, this.form.images.main)
+        }
+        if (this.form.images.secondary[0] && this.form.images.secondary[0].startsWith('data:') && imageRefs.secondary[0]) {
+          await setCustomImage(`${id}:sec0`, this.form.images.secondary[0])
+        }
+        if (this.form.images.secondary[1] && this.form.images.secondary[1].startsWith('data:') && imageRefs.secondary[1]) {
+          await setCustomImage(`${id}:sec1`, this.form.images.secondary[1])
         }
       } catch (e) {}
 
@@ -299,6 +371,12 @@ export default {
         },
         createdAt: new Date().toISOString()
       }
+      // 删除被替换或清除的远端图片
+      try {
+        if (toDeleteRemote.length) {
+          await deleteCustomImages(toDeleteRemote)
+        }
+      } catch (e) {}
       const saved = addCustomAttraction(attraction)
       // 异步预先建立地理编码缓存（自创景点统一异步），两端页面共用
       try { this.prefetchCustomGeocode(saved); } catch (e) {}

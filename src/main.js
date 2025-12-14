@@ -7,7 +7,7 @@ import CountrySelect from './components/CountrySelect.vue'
 import AttractionList from './components/AttractionList.vue'
 import AttractionDetails from './components/AttractionDetails.vue'
 import AttractionMap from './components/AttractionMap.vue'
-import { getAuthUser, isAuthenticated } from './stores/auth.js'
+import { getAuthUser, isAuthenticated, getAuthToken, hasPersistedSessionToken, clearAuthSession } from './stores/auth.js'
 import { ensureUserDataHydrated, setSyncUsername } from './stores/userDataSync.js'
 
 import flyIn from './directives/flyIn.js'
@@ -83,3 +83,13 @@ app.directive('fade-in', fadeIn)
 setSyncUsername((getAuthUser() && getAuthUser().username) || '')
 try { ensureUserDataHydrated() } catch (e) {}
 app.mount('#app')
+
+// 若浏览器缓存/LocalStorage 被清空且内存中仍有 token，则立即登出避免同步空数据
+setInterval(() => {
+  try {
+    if (getAuthToken() && !hasPersistedSessionToken()) {
+      clearAuthSession();
+      router.replace('/login').catch(() => {});
+    }
+  } catch (e) {}
+}, 2000);
