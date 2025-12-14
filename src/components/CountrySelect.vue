@@ -791,17 +791,17 @@ export default {
 
 .logo-tooltip {
   position: absolute;
-  bottom: -36px;
+  bottom: -34px;
   left: 50%;
   transform: translateX(-50%);
   background: rgba(0, 0, 0, 0.65);
   color: #fff;
-  padding: 6px 10px;
+  padding: 4px 6px;
   border-radius: 10px;
-  font-size: 0.85rem;
+  font-size: 1rem;
   white-space: nowrap;
   box-shadow: 0 8px 20px rgba(0, 0, 0, 0.2);
-  opacity: 0.85;
+  opacity: 0.5;
 }
 
 .logo-tooltip-fade-enter-active,
@@ -1037,6 +1037,11 @@ export default {
 
 /* 移动端优化：保持两列，但卡片缩小 */
 @media (max-width: 768px) {
+
+  .logo-tooltip {
+    font-size: 0.85rem;
+    bottom: -27px;
+  }
 
   .container {
     padding-bottom: 0.01px;

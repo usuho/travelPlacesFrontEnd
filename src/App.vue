@@ -15,8 +15,8 @@
     >
       <span class="sync-icon">
         <span v-if="syncStatus === 'syncing'" class="sync-spinner"></span>
-        <span v-else-if="syncStatus === 'ok'">✔</span>
-        <span v-else>✖</span>
+        <span v-else-if="syncStatus === 'ok'">√</span>
+        <span v-else>×</span>
       </span>
       <span class="sync-username">{{ displayUsername }}</span>
       <transition name="sync-tooltip-fade">
@@ -241,8 +241,8 @@ html, body {
   left: 12px;
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  padding: 6px 10px;
+  gap: 2px;
+  padding: 2px 6px;
   border-radius: 14px;
   background: rgba(255, 255, 255, 0.9);
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
@@ -265,19 +265,16 @@ html, body {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  font-size: 14px;
+  font-size: 20x;
+  font-weight: 1000;
 }
 
 @media (max-width: 768px) {
   .sync-indicator {
-    transform: scale(0.7);
+    transform: scale(0.8);
     transform-origin: top left;
-  }
-  .sync-tooltip {
-    font-size: 9px;
-    padding: 3px 6px;
-    top: calc(100% + 4px);
-    transform-origin: top left;
+    top: 58px;
+    left: 20px;
   }
 }
 
@@ -306,9 +303,9 @@ html, body {
 
 .sync-tooltip {
   position: absolute;
-  top: calc(100% + 6px);
+  top: calc(100% + 10px);
   left: 0;
-  padding: 4px 8px;
+  padding: 4px 6px;
   border-radius: 10px;
   background: rgba(0, 0, 0, 0.75);
   color: #fff;
