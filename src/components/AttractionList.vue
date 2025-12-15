@@ -4227,7 +4227,7 @@ const all = this.sortedFavorites || [];
         this.attractions = pageItems;
         this.loading = false;
         this.prefetchDistanceQueueImages(pageItems);
-        this.bumpListRenderTick();
+        this.showListWithTick(true);
         return true;
       },
       prefetchDistanceQueueImages(items) {
