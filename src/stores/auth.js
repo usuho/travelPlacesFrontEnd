@@ -1,6 +1,7 @@
 import { reactive } from 'vue';
 
 export const COOKIE_ONLY_TOKEN = '__cookie_only__';
+export const REMEMBER_PASSWORD_KEY = 'travelplaces_remember_password';
 const STORAGE_KEY = 'travelplaces_auth';
 
 function loadSession() {
@@ -57,6 +58,29 @@ export function clearAuthSession() {
   } catch (e) {}
   try {
     sessionStorage.removeItem(STORAGE_KEY);
+  } catch (e) {}
+}
+
+export function clearLocalStoragePreservingRememberPassword() {
+  let rememberRaw = null;
+  try {
+    rememberRaw = (typeof localStorage !== 'undefined')
+      ? localStorage.getItem(REMEMBER_PASSWORD_KEY)
+      : null;
+  } catch (e) {
+    rememberRaw = null;
+  }
+
+  try {
+    if (typeof localStorage !== 'undefined') {
+      localStorage.clear();
+    }
+  } catch (e) {}
+
+  try {
+    if (rememberRaw != null && typeof localStorage !== 'undefined') {
+      localStorage.setItem(REMEMBER_PASSWORD_KEY, rememberRaw);
+    }
   } catch (e) {}
 }
 

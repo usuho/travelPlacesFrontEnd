@@ -39,7 +39,7 @@
 
 <script>
 import { userDataSyncState, resetUserDataSync } from './stores/userDataSync.js'
-import { getAuthUser, clearAuthSession } from './stores/auth.js'
+import { getAuthUser, clearAuthSession, clearLocalStoragePreservingRememberPassword } from './stores/auth.js'
 import { clearAllImages } from './utils/customImageStore.js'
 
 const LONG_PRESS_MS = 800;
@@ -172,7 +172,7 @@ export default {
     performClientCleanup() {
       try { resetUserDataSync() } catch (e) {}
       try { clearAuthSession() } catch (e) {}
-      try { localStorage.clear() } catch (e) {}
+      try { clearLocalStoragePreservingRememberPassword() } catch (e) {}
       try { sessionStorage.clear() } catch (e) {}
       try { clearAllImages() } catch (e) {}
       try {

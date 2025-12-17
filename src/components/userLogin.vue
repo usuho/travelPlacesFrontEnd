@@ -24,15 +24,29 @@
           />
         </label>
 
-        <label class="field">
-          <span>密码</span>
-          <input
-            type="password"
-            v-model.trim="password"
-            required
-            autocomplete="current-password"
-          />
-        </label>
+        <div class="field-group">
+          <label class="field">
+            <span>密码</span>
+            <input
+              type="password"
+              v-model.trim="password"
+              required
+              autocomplete="current-password"
+            />
+          </label>
+
+          <div class="remember-row">
+            <label class="remember-label">
+              <input
+                class="remember-checkbox"
+                type="checkbox"
+                v-model="rememberPassword"
+              />
+              <span class="remember-box" aria-hidden="true"></span>
+              <span class="remember-text">记住密码</span>
+            </label>
+          </div>
+        </div>
 
         <p v-if="errorMessage" class="error-message">{{ errorMessage }}</p>
 
@@ -51,7 +65,7 @@
 </template>
 
 <script>
-import { COOKIE_ONLY_TOKEN, setAuthSession } from '../stores/auth.js'
+import { COOKIE_ONLY_TOKEN, REMEMBER_PASSWORD_KEY, setAuthSession } from '../stores/auth.js'
 import { pullUserDataFromServer, setSyncUsername } from '../stores/userDataSync.js'
 
 const AUTH_BASE = (() => {
@@ -76,11 +90,54 @@ export default {
     return {
       username: '',
       password: '',
+      rememberPassword: false,
       loading: false,
       errorMessage: ''
     }
   },
+  mounted() {
+    this.restoreRememberPassword()
+  },
+  watch: {
+    rememberPassword(next) {
+      if (next) {
+        this.persistRememberPassword()
+      } else {
+        this.clearRememberPassword()
+      }
+    }
+  },
   methods: {
+    restoreRememberPassword() {
+      try {
+        const raw = localStorage.getItem(REMEMBER_PASSWORD_KEY)
+        if (!raw) return
+        const config = JSON.parse(raw)
+        const enabled = !!(config && config.enabled)
+        this.rememberPassword = enabled
+        if (!enabled) return
+        if (typeof config.username === 'string') this.username = config.username
+        if (typeof config.password === 'string') this.password = config.password
+      } catch (e) {}
+    },
+    persistRememberPassword() {
+      if (!this.rememberPassword) return
+      try {
+        localStorage.setItem(
+          REMEMBER_PASSWORD_KEY,
+          JSON.stringify({
+            enabled: true,
+            username: this.username || '',
+            password: this.password || ''
+          })
+        )
+      } catch (e) {}
+    },
+    clearRememberPassword() {
+      try {
+        localStorage.removeItem(REMEMBER_PASSWORD_KEY)
+      } catch (e) {}
+    },
     buildLoginIdentifiers() {
       const raw = (this.username || '').trim()
       const candidates = new Set()
@@ -140,6 +197,11 @@ export default {
               const token = data.token || data.accessToken || data.jwt || data.sessionToken || (data.data && data.data.token) || COOKIE_ONLY_TOKEN
               const user = data.user || { username: identifier }
               setAuthSession(token, user)
+              if (this.rememberPassword) {
+                this.persistRememberPassword()
+              } else {
+                this.clearRememberPassword()
+              }
               try {
                 setSyncUsername(user && user.username ? user.username : identifier)
                 await pullUserDataFromServer()
@@ -240,6 +302,76 @@ export default {
 
 .field input {
   width: 100%;
+}
+
+.field-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.remember-row {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.remember-label {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  font-weight: 500;
+  color: #1d1d1f;
+  cursor: pointer;
+  user-select: none;
+}
+
+.remember-checkbox {
+  position: absolute;
+  opacity: 0;
+  width: 1px;
+  height: 1px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.remember-box {
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  border: 1px solid #d2d2d7;
+  background: #fff;
+  box-shadow: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+
+.remember-box::after {
+  content: '';
+  width: 8px;
+  height: 4px;
+  border-left: 2px solid #fff;
+  border-bottom: 2px solid #fff;
+  transform: rotate(-45deg) scale(0);
+  transition: transform 0.15s ease;
+}
+
+.remember-checkbox:checked + .remember-box {
+  background: #007aff;
+  border-color: #007aff;
+}
+
+.remember-checkbox:checked + .remember-box::after {
+  transform: rotate(-45deg) scale(1);
+}
+
+.remember-checkbox:focus-visible + .remember-box {
+  outline: 2px solid rgba(0, 122, 255, 0.35);
+  outline-offset: 2px;
 }
 
 button {

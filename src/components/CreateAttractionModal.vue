@@ -2,7 +2,7 @@
   <div v-if="modelValue" class="modal-mask">
     <div class="modal" @click.stop>
       <div class="modal-header">
-        <h3>{{ mode === 'edit' ? '修改景点' : '创建景点' }}</h3>
+        <h3>{{ mode === 'edit' ? '编辑景点' : '创建景点' }}</h3>
         <button class="close" @click="close">×</button>
       </div>
 
@@ -78,7 +78,14 @@
 
       <div class="modal-footer">
         <button class="ghost" @click="close">取消</button>
-        <button class="primary" :disabled="!canSubmit" @click="submit">{{ mode === 'edit' ? '修改' : '创建' }}</button>
+        <button class="primary" :disabled="!canSubmit || loading" @click="submit">
+          <span v-if="!loading">{{ mode === 'edit' ? '修改' : '创建' }}</span>
+          <span v-else>正在更新...</span>
+        </button>
+      </div>
+
+      <div v-if="loading" class="modal-loading-overlay">
+        <div class="modal-loading-spinner"></div>
       </div>
     </div>
   </div>
@@ -103,6 +110,7 @@ export default {
   data() {
     return {
       geoKeys: null,
+      loading: false,
       form: {
         name: '',
         region: '',
@@ -124,15 +132,58 @@ export default {
     }
   },
   mounted() {
-    try { if (this.mode === 'edit' && this.initial && this.modelValue) { this.loadFromInitial() } } catch(e) {}
+    try { if (this.mode === 'edit' && this.initial && this.modelValue) { this.loadFromInitialWithSpinner() } } catch(e) {}
   },
   watch: {
     modelValue(val){
-      if (val && this.mode==='edit' && this.initial) { this.loadFromInitial() }
+      if (val && this.mode==='edit' && this.initial) { this.loadFromInitialWithSpinner() }
     }
   },
   methods: {
     close() { this.$emit('update:modelValue', false) },
+    async loadFromInitialWithSpinner() {
+      this.mainCleared = false
+      this.secondaryCleared = [false, false]
+      this.form.name = this.initial.name || ''
+      this.form.region = this.initial.region || ''
+      this.form.county = this.initial.county || ''
+      this.form.position = this.initial.position || ''
+      this.form.duration = this.initial.duration || ''
+      this.form.details = this.initial.details || ''
+      this.form.overview = this.initial.overview || ''
+      const id = this.initial.id
+      const tasks = []
+      if (this.initial.hasImage1 && !this.form.images.main) {
+        tasks.push((async () => {
+          const u = await getCustomImageUrl(`${id}:main`)
+          if (u) this.form.images.main = u
+        })())
+      }
+      if (this.initial.hasImage2 && !this.form.images.secondary[0]) {
+        tasks.push((async () => {
+          const u = await getCustomImageUrl(`${id}:sec0`)
+          if (u) {
+            this.$set ? this.$set(this.form.images.secondary, 0, u) : (this.form.images.secondary[0] = u)
+          }
+        })())
+      }
+      if (this.initial.hasImage3 && !this.form.images.secondary[1]) {
+        tasks.push((async () => {
+          const u = await getCustomImageUrl(`${id}:sec1`)
+          if (u) {
+            this.$set ? this.$set(this.form.images.secondary, 1, u) : (this.form.images.secondary[1] = u)
+          }
+        })())
+      }
+      if (tasks.length) {
+        this.loading = true
+        try {
+          await Promise.all(tasks)
+        } finally {
+          this.loading = false
+        }
+      }
+    },
     loadFromInitial() {
       try {
         this.mainCleared = false
@@ -216,8 +267,10 @@ export default {
       }
     },
     async submit() {
-      if (!this.canSubmit) return
-      const id = (this.mode === 'edit' && this.initial && this.initial.id)
+      if (!this.canSubmit || this.loading) return
+      this.loading = true
+      try {
+        const id = (this.mode === 'edit' && this.initial && this.initial.id)
         ? String(this.initial.id)
         : ('custom_' + Date.now())
       const existingImages = (this.initial && this.initial.images) || {}
@@ -382,6 +435,9 @@ export default {
       try { this.prefetchCustomGeocode(saved); } catch (e) {}
       if (this.mode === 'edit') this.$emit('updated', saved); else this.$emit('created', saved)
       this.$emit('update:modelValue', false)
+      } finally {
+        this.loading = false
+      }
     },
 
     async prefetchCustomGeocode(attraction) {
@@ -524,7 +580,7 @@ export default {
 
 <style scoped>
 .modal-mask { position: fixed; inset: 0; background: rgba(0,0,0,.35); display: flex; align-items: center; justify-content: center; z-index: 2000; overflow: hidden; }
-.modal { width: min(680px, 94vw); max-width: 94vw; max-height: 80vh; overflow: hidden; background: #fff; border-radius: 12px; box-shadow: 0 12px 32px rgba(0,0,0,.18); display: flex; flex-direction: column; }
+.modal { position: relative; width: min(680px, 94vw); max-width: 94vw; max-height: 80vh; overflow: hidden; background: #fff; border-radius: 12px; box-shadow: 0 12px 32px rgba(0,0,0,.18); display: flex; flex-direction: column; }
 .modal-header { display: flex; align-items: center; justify-content: space-between; padding: 14px 16px; border-bottom: 1px solid #eef0f3; }
 .modal-body { padding: 16px; overflow: auto; overflow-x: hidden; }
 .modal-body { -webkit-overflow-scrolling: touch; }
@@ -535,6 +591,27 @@ export default {
 .primary:disabled { opacity: .5; cursor: not-allowed; }
 .ghost { background: #fff; border: 1px solid #cfd6e4; color: #334155; padding: 8px 14px; border-radius: 8px; cursor: pointer; }
 .ghost:hover { background: #f6f8fa; }
+
+.modal-loading-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(255,255,255,0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10;
+}
+.modal-loading-spinner {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: 3px solid #d1d5db;
+  border-top-color: #3b82f6;
+  animation: modal-spin 0.8s linear infinite;
+}
+@keyframes modal-spin {
+  to { transform: rotate(360deg); }
+}
 
 .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px 16px; max-width: 100%; }
 label { display: flex; flex-direction: column; gap: 6px; font-size: 13px; color: #334155; }

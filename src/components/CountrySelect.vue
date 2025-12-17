@@ -162,7 +162,7 @@
 </template>
 
 <script>
-import { clearAuthSession } from '../stores/auth.js';
+import { clearAuthSession, clearLocalStoragePreservingRememberPassword } from '../stores/auth.js';
 import { resetUserDataSync } from '../stores/userDataSync.js';
 import { clearAllImages } from '../utils/customImageStore.js';
 
@@ -448,7 +448,7 @@ export default {
         clearAuthSession();
       } catch (e) {}
       try {
-        localStorage.clear();
+        clearLocalStoragePreservingRememberPassword();
       } catch (e) {}
       try {
         sessionStorage.clear();

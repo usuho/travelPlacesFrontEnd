@@ -1,6 +1,6 @@
 import { openDB } from 'idb';
 import { getLastApiBase, withBackendApiKey } from './geoApi.js';
-import { clearAuthSession } from '../stores/auth.js';
+import { clearAuthSession, clearLocalStoragePreservingRememberPassword } from '../stores/auth.js';
 
 const DB_NAME = 'customAttractionsDB';
 const STORE = 'images';
@@ -138,7 +138,7 @@ async function fetchRemoteImage(key) {
       const resp = await fetch(url, { ...withBackendApiKey(), cache: 'no-store' });
       if (resp && resp.status === 401) {
         try { clearAuthSession(); } catch (e) {}
-        try { localStorage.clear(); } catch (e) {}
+        try { clearLocalStoragePreservingRememberPassword(); } catch (e) {}
         try { sessionStorage.clear(); } catch (e) {}
         try { if (typeof caches !== 'undefined' && caches.keys) { caches.keys().then(keys => keys.forEach(k => caches.delete(k))); } } catch (e) {}
         try { window.location && window.location.replace && window.location.replace('/login'); } catch (e) {}

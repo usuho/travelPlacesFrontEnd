@@ -1,5 +1,5 @@
 import { reactive } from 'vue';
-import { buildAuthHeaders, getAuthUser, isAuthenticated, clearAuthSession } from './auth.js';
+import { buildAuthHeaders, getAuthUser, isAuthenticated, clearAuthSession, clearLocalStoragePreservingRememberPassword } from './auth.js';
 import { withBackendApiKey, getLastApiBase } from '../utils/geoApi.js';
 import { clearAllImages } from '../utils/customImageStore.js';
 
@@ -55,7 +55,7 @@ function apiBases() {
 function handleUnauthorized() {
   try { clearAuthSession(); } catch (e) {}
   try { resetUserDataSync(); } catch (e) {}
-  try { localStorage.clear(); } catch (e) {}
+  try { clearLocalStoragePreservingRememberPassword(); } catch (e) {}
   try { sessionStorage.clear(); } catch (e) {}
   try { clearAllImages(); } catch (e) {}
   try { if (typeof caches !== 'undefined' && caches.keys) { caches.keys().then(keys => keys.forEach(k => caches.delete(k))); } } catch (e) {}
