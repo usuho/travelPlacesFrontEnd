@@ -40,6 +40,18 @@ export async function setImage(key, dataUrl) {
 export async function getImageUrl(key) {
   try {
     const d = await db();
+    const isRemoteKey = typeof key === 'string' && key.includes('/');
+
+    // 对于远程 key（带路径的标识），始终从网络拉取最新图片，避免 IndexedDB 中旧 Blob 造成“换图不生效”
+    if (isRemoteKey) {
+      const remoteBlob = await fetchRemoteImage(key);
+      if (remoteBlob) {
+        try { return URL.createObjectURL(remoteBlob); } catch (e) { return ''; }
+      }
+      return '';
+    }
+
+    // 对于本地派生 key（如 customId:slot），仍然使用 IndexedDB 做离线/加速缓存
     const blob = await d.get(STORE, key);
     if (!blob) {
       const remoteKey = deriveRemoteKey(key);
@@ -50,11 +62,7 @@ export async function getImageUrl(key) {
       }
       return '';
     }
-    try {
-      return URL.createObjectURL(blob);
-    } catch (e) {
-      return '';
-    }
+    try { return URL.createObjectURL(blob); } catch (e) { return ''; }
   } catch (e) {
     return '';
   }

@@ -3022,7 +3022,18 @@ const all = this.sortedFavorites || [];
         } catch (e) {}
       },
       thumbKey(f) {
-        return `${f.country}-${f.id}`;
+        const base = `${f.country}-${f.id}`;
+        if (String(f.country) !== 'custom') return base;
+        // 对自创景点：将当前主图引用一起纳入 key，
+        // 这样每次更换/清空主图时都会生成全新的缩略图 key，
+        // 避免收藏列表继续复用旧的缩略图缓存
+        try {
+          const a = findCustomAttractionById(f.id);
+          const mainRef = a && a.images && a.images.main;
+          return `${base}-${mainRef || 'none'}`;
+        } catch (e) {
+          return base;
+        }
       },
       favoritesListEl() {
         const ref = this.$refs.favoritesList;
@@ -3047,7 +3058,9 @@ const all = this.sortedFavorites || [];
             }
             return;
           }
-          const res = await fetch(`https://juseaxerf.com/api/attraction-image/${f.country}/${f.id}/1`, withBackendApiKey());
+          const ts = Date.now();
+          const imageUrl = `https://juseaxerf.com/api/attraction-image/${f.country}/${f.id}/1?ts=${ts}`;
+          const res = await fetch(imageUrl, withBackendApiKey({ cache: 'no-store' }));
           if (!res.ok) return;
           const blob = await res.blob();
           const url = URL.createObjectURL(blob);
@@ -4234,7 +4247,12 @@ const all = this.sortedFavorites || [];
         items.forEach(async (a, i) => {
           try {
             if (a && a.hasImage && !a.image1) {
-              const res = await fetch(`https://juseaxerf.com/api/attraction-image/${this.country}/${a.id}/1`, withBackendApiKey());
+              // 自创景点的图片允许被用户频繁修改，这里对 custom 国别禁用浏览器缓存
+              const isCustomCountry = String(this.country) === 'custom';
+              const ts = Date.now();
+              const baseUrl = `https://juseaxerf.com/api/attraction-image/${this.country}/${a.id}/1`;
+              const url = isCustomCountry ? `${baseUrl}?ts=${ts}` : baseUrl;
+              const res = await fetch(url, withBackendApiKey(isCustomCountry ? { cache: 'no-store' } : {}));
               if (res && res.ok) {
                 const blob = await res.blob();
                 const url = URL.createObjectURL(blob);
@@ -4272,7 +4290,12 @@ const all = this.sortedFavorites || [];
         list.forEach(async (a, i) => {
           if (!a || !a.hasImage || a.image1) return;
           try {
-            const res = await fetch(`https://juseaxerf.com/api/attraction-image/${this.country}/${a.id}/1`, withBackendApiKey());
+            // 自创景点的图片允许被用户频繁修改，这里强制禁用浏览器缓存，避免出现“换图后仍显示旧图”的情况
+            const isCustomCountry = String(this.country) === 'custom';
+            const ts = Date.now();
+            const baseUrl = `https://juseaxerf.com/api/attraction-image/${this.country}/${a.id}/1`;
+            const url = isCustomCountry ? `${baseUrl}?ts=${ts}` : baseUrl;
+            const res = await fetch(url, withBackendApiKey(isCustomCountry ? { cache: 'no-store' } : {}));
             if (res && res.ok) {
               const blob = await res.blob();
               const url = URL.createObjectURL(blob);
@@ -6072,5 +6095,3 @@ const all = this.sortedFavorites || [];
 /* 文案显示：桌面显示完整，移动显示简写 */
 .label-desktop { display: inline; }
 .label-mobile { display: none; }
-
-
