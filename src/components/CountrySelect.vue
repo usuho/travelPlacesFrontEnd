@@ -1,13 +1,36 @@
 <template>
   <div class="container">
     <div class="hero-section">
-      <img
-        ref="heroLogo"
-        class="hero-logo"
-        :class="{ 'hero-logo-hidden': !showHeroLogo }"
-        src="/site-icon.png"
-        alt="网站 Logo"
-      />
+     <div
+        class="hero-logo-wrapper"
+        @mousedown="startHeroLongPress"
+        @mouseup="cancelHeroLongPress"
+        @mouseleave="cancelHeroLongPress"
+        @touchstart="startHeroLongPress"
+        @touchend="cancelHeroLongPress"
+        @touchcancel="cancelHeroLongPress"
+        @contextmenu.prevent
+      >
+        <img
+          ref="heroLogo"
+          class="hero-logo"
+          :class="{ 'hero-logo-hidden': !showHeroLogo }"
+          src="/site-icon.png"
+          alt="网站 Logo"
+          draggable="false"
+        />
+        <img
+          class="hero-logo hero-logo-colored"
+          :class="{
+            'hero-logo-hidden': !showHeroLogo,
+            'logo-colored-visible': logoColorizing
+          }"
+          src="/app-icon-android.png"
+          alt=""
+          draggable="false"
+          aria-hidden="true"
+        />
+      </div>
       <div class="title-text-group">
         <h1 class="hero-title title-hero">星垠海角</h1>
         <h1 class="title-english title-hero">Stars Meet the Swell</h1>
@@ -136,6 +159,9 @@
 </template>
 
 <script>
+
+const LONG_PRESS_MS = 800;
+
 export default {
   data() {
     return {
@@ -258,7 +284,11 @@ export default {
       placeholderText: '搜寻国家，发现美和新奇',
       searchQuery: '',
       searchFocused: false,
-      showHeroLogo: false
+      showHeroLogo: false,
+      longPressTimer: null,
+      logoColorizing: false,
+      longPressHandled: false,
+      logoutInProgress: false
     };
   },
   mounted() {
@@ -301,6 +331,12 @@ export default {
       }, 50);
     });
   },
+  beforeUnmount() {
+    if (this.longPressTimer) {
+      clearTimeout(this.longPressTimer);
+      this.longPressTimer = null;
+    }
+  },
   computed: {
     hasSearchQuery() {
       return this.searchQuery.trim().length > 0;
@@ -336,6 +372,25 @@ export default {
     }
   },
   methods: {
+    startHeroLongPress() {
+      if (this.logoutInProgress) return;
+      this.longPressHandled = false;
+      this.logoColorizing = true;
+      if (this.longPressTimer) {
+        clearTimeout(this.longPressTimer);
+      }
+      this.longPressTimer = setTimeout(() => {
+        this.longPressHandled = true;
+      }, LONG_PRESS_MS);
+    },
+    cancelHeroLongPress() {
+      if (this.longPressHandled || this.logoutInProgress) return;
+      this.logoColorizing = false;
+      if (this.longPressTimer) {
+        clearTimeout(this.longPressTimer);
+        this.longPressTimer = null;
+      }
+    },
     translateCountry(country) {
       return this.countryTranslations[country] || country;
     },
@@ -634,6 +689,30 @@ export default {
   height: 120px;
   border-radius: 50%;
   object-fit: cover;
+  transition: opacity 0.6s ease;
+  -webkit-touch-callout: none;
+  user-select: none;
+  touch-action: manipulation;
+}
+
+.hero-logo-wrapper {
+  position: relative;
+  display: inline-block;
+  cursor: pointer;
+  -webkit-touch-callout: none;
+  user-select: none;
+  touch-action: manipulation;
+}
+
+.hero-logo-colored {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.logo-colored-visible {
+  opacity: 1;
 }
 
 .hero-logo-hidden {
