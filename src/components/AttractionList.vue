@@ -1408,6 +1408,55 @@
         this.resetFiltersAndPagination(true);
         this.clearResetFiltersRouteFlag();
       },
+      extractImportedCustomImages(entry) {
+        const out = {};
+        try {
+          const legacy = entry && entry.images && typeof entry.images === 'object' ? entry.images : null;
+          if (legacy) {
+            if (typeof legacy.main === 'string' && legacy.main.startsWith('data:')) out.main = legacy.main;
+            if (typeof legacy.sec0 === 'string' && legacy.sec0.startsWith('data:')) out.sec0 = legacy.sec0;
+            if (typeof legacy.sec1 === 'string' && legacy.sec1.startsWith('data:')) out.sec1 = legacy.sec1;
+            return out;
+          }
+
+          const images = entry && entry.data && entry.data.images && typeof entry.data.images === 'object'
+            ? entry.data.images
+            : null;
+
+          if (images) {
+            if (typeof images.main === 'string' && images.main.startsWith('data:')) out.main = images.main;
+            if (typeof images.sec0 === 'string' && images.sec0.startsWith('data:')) out.sec0 = images.sec0;
+            if (typeof images.sec1 === 'string' && images.sec1.startsWith('data:')) out.sec1 = images.sec1;
+            const secondary = Array.isArray(images.secondary) ? images.secondary : [];
+            if (!out.sec0 && typeof secondary[0] === 'string' && secondary[0].startsWith('data:')) out.sec0 = secondary[0];
+            if (!out.sec1 && typeof secondary[1] === 'string' && secondary[1].startsWith('data:')) out.sec1 = secondary[1];
+          }
+        } catch (e) {}
+        return out;
+      },
+      stripInlineImageData(custom) {
+        try {
+          if (!custom || typeof custom !== 'object') return custom;
+          const images = custom.images;
+          if (!images || typeof images !== 'object') return custom;
+
+          const nextImages = { ...(images || {}) };
+          if (typeof nextImages.main !== 'string') nextImages.main = '';
+          if (typeof nextImages.main === 'string' && nextImages.main.startsWith('data:')) nextImages.main = '';
+
+          const secondary = Array.isArray(nextImages.secondary) ? [...nextImages.secondary] : [];
+          while (secondary.length < 2) secondary.push('');
+          nextImages.secondary = secondary.slice(0, 2).map((val) => {
+            if (typeof val !== 'string') return '';
+            if (val.startsWith('data:')) return '';
+            return val;
+          });
+
+          return { ...custom, images: nextImages };
+        } catch (e) {
+          return custom;
+        }
+      },
       async getCustomImageData(id) {
         const toDataUrl = async (blob) => {
           if (!blob) return '';
@@ -1473,26 +1522,37 @@
         };
         while (refs.secondary.length < 2) refs.secondary.push('');
 
-        const uploadAndCache = async (slot, dataUrl) => {
-          if (!dataUrl) return;
+        const cacheSlot = async (slotKey, dataUrl) => {
+          if (!dataUrl) return false;
+          try {
+            return await setCustomImage(`${id}:${slotKey}`, dataUrl);
+          } catch (e) {
+            return false;
+          }
+        };
+
+        const uploadSlot = async (slot, dataUrl) => {
+          if (!dataUrl) return '';
           try {
             const key = await uploadCustomImage(id, slot, dataUrl);
-            if (key) {
-              if (slot === 'main') refs.main = key;
-              if (slot === 'sec0') refs.secondary[0] = key;
-              if (slot === 'sec1') refs.secondary[1] = key;
-            }
-            // 缓存本地缩略图
-            const map = { main: 'main', sec0: 'sec0', sec1: 'sec1' };
-            const suffix = map[slot] || slot;
-            await setCustomImage(`${id}:${suffix}`, dataUrl);
-          } catch (e) {}
+            return key || '';
+          } catch (e) {
+            return '';
+          }
+        };
+
+        const uploadAndCache = async (slot, slotKey, dataUrl, existingRef) => {
+          const cachedOk = await cacheSlot(slotKey, dataUrl);
+          const key = await uploadSlot(slot, dataUrl);
+          if (key) return key;
+          if (cachedOk && !existingRef) return `${id}:${slotKey}`;
+          return existingRef || '';
         };
 
         const imgs = images && typeof images === 'object' ? images : {};
-        if (imgs.main) await uploadAndCache('main', imgs.main);
-        if (imgs.sec0) await uploadAndCache('sec0', imgs.sec0);
-        if (imgs.sec1) await uploadAndCache('sec1', imgs.sec1);
+        if (imgs.main) refs.main = await uploadAndCache('main', 'main', imgs.main, refs.main);
+        if (imgs.sec0) refs.secondary[0] = await uploadAndCache('sec0', 'sec0', imgs.sec0, refs.secondary[0]);
+        if (imgs.sec1) refs.secondary[1] = await uploadAndCache('sec1', 'sec1', imgs.sec1, refs.secondary[1]);
 
         const payload = {
           ...base,
@@ -1602,8 +1662,23 @@
               const pending = !!it.pending;
               if (String(it.country) === 'custom') {
                 const full = findCustomAttractionById(it.id) || null;
-                const images = await this.getCustomImageData(it.id);
-                return { kind: 'custom', pending, data: full, images };
+                const imageData = await this.getCustomImageData(it.id);
+                const embedded = full ? {
+                  ...full,
+                  images: {
+                    main: (imageData && imageData.main) ? imageData.main : '',
+                    secondary: [
+                      (imageData && imageData.sec0) ? imageData.sec0 : '',
+                      (imageData && imageData.sec1) ? imageData.sec1 : ''
+                    ]
+                  }
+                } : null;
+                if (embedded && embedded.images) {
+                  embedded.hasImage1 = !!embedded.images.main;
+                  embedded.hasImage2 = Array.isArray(embedded.images.secondary) ? !!embedded.images.secondary[0] : false;
+                  embedded.hasImage3 = Array.isArray(embedded.images.secondary) ? !!embedded.images.secondary[1] : false;
+                }
+                return { kind: 'custom', pending, data: embedded };
               }
               return { kind: 'ref', pending, data: {
                 id: it.id,
@@ -1689,8 +1764,23 @@
                 const pending = !!it.pending;
                 if (String(it.country) === 'custom') {
                   const full = findCustomAttractionById(it.id) || null;
-                  const images = await this.getCustomImageData(it.id);
-                  return { kind: 'custom', pending, data: full, images };
+                  const imageData = await this.getCustomImageData(it.id);
+                  const embedded = full ? {
+                    ...full,
+                    images: {
+                      main: (imageData && imageData.main) ? imageData.main : '',
+                      secondary: [
+                        (imageData && imageData.sec0) ? imageData.sec0 : '',
+                        (imageData && imageData.sec1) ? imageData.sec1 : ''
+                      ]
+                    }
+                  } : null;
+                  if (embedded && embedded.images) {
+                    embedded.hasImage1 = !!embedded.images.main;
+                    embedded.hasImage2 = Array.isArray(embedded.images.secondary) ? !!embedded.images.secondary[0] : false;
+                    embedded.hasImage3 = Array.isArray(embedded.images.secondary) ? !!embedded.images.secondary[1] : false;
+                  }
+                  return { kind: 'custom', pending, data: embedded };
                 }
                 return { kind: 'ref', pending, data: {
                   id: it.id,
@@ -1835,7 +1925,9 @@
 
                   }
 
-                  const savedCustom = await this.upsertCustomFromImport(custom, entry.images || {});
+                  const importImages = this.extractImportedCustomImages(entry);
+                  const cleanedCustom = this.stripInlineImageData(custom);
+                  const savedCustom = await this.upsertCustomFromImport(cleanedCustom, importImages);
 
                   const targetCustom = savedCustom || custom;
 
@@ -1892,7 +1984,9 @@
 
               }
 
-              const savedCustom = await this.upsertCustomFromImport(custom, entry.images || {});
+              const importImages = this.extractImportedCustomImages(entry);
+              const cleanedCustom = this.stripInlineImageData(custom);
+              const savedCustom = await this.upsertCustomFromImport(cleanedCustom, importImages);
 
               const targetCustom = savedCustom || custom;
 
@@ -1968,7 +2062,9 @@
 
                 }
 
-                const savedCustom = await this.upsertCustomFromImport(custom, entry.images || {});
+                const importImages = this.extractImportedCustomImages(entry);
+                const cleanedCustom = this.stripInlineImageData(custom);
+                const savedCustom = await this.upsertCustomFromImport(cleanedCustom, importImages);
 
                 const targetCustom = savedCustom || custom;
 
@@ -2024,7 +2120,9 @@
 
             }
 
-            const savedCustom = await this.upsertCustomFromImport(custom, entry.images || {});
+            const importImages = this.extractImportedCustomImages(entry);
+            const cleanedCustom = this.stripInlineImageData(custom);
+            const savedCustom = await this.upsertCustomFromImport(cleanedCustom, importImages);
 
             const targetCustom = savedCustom || custom;
 
