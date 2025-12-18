@@ -65,57 +65,8 @@
         <div
           v-for="country in matchedCountries"
           :key="country"
-          class="country-card card"
         >
           <div
-            class="country-link"
-            @click="handleCountryClick(country)"
-          >
-            <div class="country-flag-name">
-              <div class="country-flag-mobile">
-                {{ getCountryEmoji(country) }}
-              </div>
-              
-              <div class="country-text-group-mobile">
-                <h3 class="country-name-mobile">{{ translateCountry(country) }}</h3>
-                <h3 class="country-name-mobile-english" style="text-transform: uppercase;">
-                  {{ country }}
-                </h3>
-              </div>
-            </div>
-
-            
-
-            <div class="country-flag-desktop">
-              {{ getCountryEmoji(country) }}
-            </div>
-
-            <div class="country-text-group-desktop">
-              <h3 class="country-name-desktop">{{ translateCountry(country) }}</h3>
-              <h3 class="country-name-desktop-english" style="text-transform: uppercase;">
-                {{ country }}
-              </h3>
-            </div>
-            
-
-            <p class="country-description">
-              {{ getCountryDescription(country) }}
-            </p>
-          </div>
-        </div>
-      </div>
-    </div>
-    <div v-else class="all-continents">
-      <div
-        v-for="(countries, continent) in continents"
-        :key="continent"
-        class="continent-section"
-      >
-        <h2 class="continent-title">{{ translateContinent(continent) }}</h2>
-        <div class="countries-grid" v-fly-in>
-          <div
-            v-for="country in countries"
-            :key="country"
             :class="['country-card', 'card', { jiggle: isJiggling }]"
             :style="isJiggling ? jiggleStyle : null"
           >
@@ -158,6 +109,62 @@
         </div>
       </div>
     </div>
+    <div v-else class="all-continents">
+      <div
+        v-for="(countries, continent) in continents"
+        :key="continent"
+        class="continent-section"
+      >
+        <h2 class="continent-title">{{ translateContinent(continent) }}</h2>
+        <div class="countries-grid" v-fly-in="!hasEverSearched">
+          <div
+            v-for="country in countries"
+            :key="country"
+          >
+            <div
+              :class="['country-card', 'card', { jiggle: isJiggling }]"
+              :style="isJiggling ? jiggleStyle : null"
+            >
+              <div
+                class="country-link"
+                @click="handleCountryClick(country)"
+              >
+                <div class="country-flag-name">
+                  <div class="country-flag-mobile">
+                    {{ getCountryEmoji(country) }}
+                  </div>
+                  
+                  <div class="country-text-group-mobile">
+                    <h3 class="country-name-mobile">{{ translateCountry(country) }}</h3>
+                    <h3 class="country-name-mobile-english" style="text-transform: uppercase;">
+                      {{ country }}
+                    </h3>
+                  </div>
+                </div>
+
+                
+
+                <div class="country-flag-desktop">
+                  {{ getCountryEmoji(country) }}
+                </div>
+
+                <div class="country-text-group-desktop">
+                  <h3 class="country-name-desktop">{{ translateCountry(country) }}</h3>
+                  <h3 class="country-name-desktop-english" style="text-transform: uppercase;">
+                    {{ country }}
+                  </h3>
+                </div>
+                
+
+                <p class="country-description">
+                  {{ getCountryDescription(country) }}
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -187,7 +194,8 @@ export default {
           'turkey',
           'saudiarabia',
           'uae',
-          'qatar'
+          'qatar',
+          'brunei'
         ],
         oceania: ['australia', 'newzealand'],
         europe: [
@@ -214,7 +222,14 @@ export default {
           'croatia',
           'lithuania',
           'latvia',
-          'estonia'
+          'estonia',
+          'poland',
+          'andorra',
+          'liechtenstein',
+          'malta',
+          'monaco',
+          'sanmarino',
+          'slovenia'
         ],
         america: [
           'america',
@@ -235,9 +250,17 @@ export default {
         china: '中国',
         singapore: '新加坡',
         malaysia: '马来西亚',
+        brunei: '文莱',
         thailand: '泰国',
         vietnam: '越南',
         switzerland: '瑞士',
+        andorra: '安道尔',
+        liechtenstein: '列支敦士登',
+        malta: '马耳他',
+        monaco: '摩纳哥',
+        poland: '波兰',
+        sanmarino: '圣马力诺',
+        slovenia: '斯洛文尼亚',
         france: '法国',
         germany: '德国',
         uk: '英国',
@@ -290,6 +313,7 @@ export default {
       placeholderText: '搜寻国家，发现美和新奇',
       searchQuery: '',
       searchFocused: false,
+      hasEverSearched: false,
       showHeroLogo: false,
       showLogoutTooltip: false,
       tooltipTimer: null,
@@ -368,10 +392,7 @@ export default {
       });
     },
     isJiggling() {
-      return (
-        (this.searchFocused && !this.hasSearchQuery) ||
-        (this.hasSearchQuery && this.matchedCountries.length === 0)
-      );
+      return !!this.searchFocused;
     },
     jiggleStyle() {
       return {
@@ -381,6 +402,11 @@ export default {
         opacity: '1',
         transform: 'translateY(0)'
       };
+    }
+  },
+  watch: {
+    hasSearchQuery(val) {
+      if (val) this.hasEverSearched = true;
     }
   },
   methods: {
@@ -479,9 +505,17 @@ export default {
         china: '🇨🇳',
         singapore: '🇸🇬',
         malaysia: '🇲🇾',
+        brunei: '🇧🇳',
         thailand: '🇹🇭',
         vietnam: '🇻🇳',
         switzerland: '🇨🇭',
+        andorra: '🇦🇩',
+        liechtenstein: '🇱🇮',
+        malta: '🇲🇹',
+        monaco: '🇲🇨',
+        poland: '🇵🇱',
+        sanmarino: '🇸🇲',
+        slovenia: '🇸🇮',
         france: '🇫🇷',
         germany: '🇩🇪',
         uk: '🇬🇧',
@@ -539,9 +573,17 @@ export default {
         china: '发现千年古国的壮丽山河与深厚文化底蕴。',
         singapore: '感受花园城市的多元文化与现代都市气息。',
         malaysia: '在热带雨林与多元文化中开启味蕾与自然之旅。',
+        brunei: '雨林与清真寺交织的婆罗洲秘境，静谧而富有灵性。',
         thailand: '微笑之国，古寺海滩与夜市交织的缤纷体验。',
         vietnam: '从河内旧街到下龙湾，感受古老与新生的碰撞。',
         switzerland: '在阿尔卑斯山间邂逅钟表工艺与巧克力的精致世界。',
+        andorra: '比利牛斯山脉间的袖珍国度，山谷古镇与雪峰小径相映成趣。',
+        liechtenstein: '阿尔卑斯山脚的迷你公国，城堡与山地风光相伴。',
+        malta: '地中海岛国，蓝色海湾与骑士历史在阳光下闪耀。',
+        monaco: '蔚蓝海岸的微型国度，海港、赛道与浪漫夜色交织。',
+        poland: '从华沙到克拉科夫，历史与文化在中欧大地流淌。',
+        sanmarino: '山顶共和国，古堡城墙与远眺意大利的辽阔风景。',
+        slovenia: '阿尔卑斯与湖泊交汇的绿色国度，布莱德湖如画般宁静。',
         france: '在浪漫之都与南法海岸之间，品味艺术、美酒与生活情调。',
         germany: '走入黑森林与童话小镇，感受严谨与浪漫并存的德意志。',
         uk: '从伦敦到苏格兰高地，在雾都与古堡间邂逅英伦气质。',
@@ -913,32 +955,32 @@ export default {
 
 @keyframes jiggle {
   0% {
-    transform: translate(0, 0) rotate(-0.44deg) scale(1.0009);
+    transform: translate(0, 0) rotate(-0.54deg) scale(1.0009);
   }
   25% {
-    transform: translate(0.27px, -0.17px) rotate(0.44deg);
+    transform: translate(0.32px, -0.2px) rotate(0.54deg);
   }
   50% {
-    transform: translate(-0.27px, 0.17px) rotate(-0.36deg);
+    transform: translate(-0.32px, 0.2px) rotate(-0.44deg);
   }
   75% {
-    transform: translate(0.17px, 0.17px) rotate(0.36deg);
+    transform: translate(0.2px, 0.2px) rotate(0.44deg);
   }
   100% {
-    transform: translate(0, 0) rotate(-0.44deg) scale(1.0009);
+    transform: translate(0, 0) rotate(-0.54deg) scale(1.0009);
   }
 }
 
 .jiggle,
 .country-card.jiggle {
-  animation: jiggle 0.3s ease-in-out infinite !important;
+  animation: jiggle 0.4s ease-in-out infinite !important;
   transform-origin: center !important;
   will-change: transform;
   opacity: 1 !important;
 }
 
 :deep(.country-card.jiggle) {
-  animation: jiggle 0.3s ease-in-out infinite !important;
+  animation: jiggle 0.4s ease-in-out infinite !important;
   transform-origin: center !important;
   will-change: transform;
   opacity: 1 !important;
