@@ -2,7 +2,7 @@
   <div v-if="modelValue" class="modal-mask">
     <div class="modal" @click.stop>
       <div class="modal-header">
-        <h3>{{ mode === 'edit' ? '修改景点' : '创建景点' }}</h3>
+        <h3>{{ mode === 'edit' ? '编辑景点' : '创建景点' }}</h3>
         <button class="close" @click="close">×</button>
       </div>
 
@@ -78,7 +78,14 @@
 
       <div class="modal-footer">
         <button class="ghost" @click="close">取消</button>
-        <button class="primary" :disabled="!canSubmit" @click="submit">{{ mode === 'edit' ? '修改' : '创建' }}</button>
+        <button class="primary" :disabled="!canSubmit || loading" @click="submit">
+          <span v-if="!loading">{{ mode === 'edit' ? '修改' : '创建' }}</span>
+          <span v-else>正在更新...</span>
+        </button>
+      </div>
+
+      <div v-if="loading" class="modal-loading-overlay">
+        <div class="modal-loading-spinner"></div>
       </div>
     </div>
   </div>
@@ -87,7 +94,12 @@
 
 <script>
   import { addCustomAttraction, updateCustomAttraction } from '../utils/customAttractions.js'
-  import { getImageUrl as getCustomImageUrl, setImage as setCustomImage, deleteImage as deleteCustomImage } from '../utils/customImageStore.js'
+  import { getImageUrl as getCustomImageUrl, setImage as setCustomImage, deleteImage as deleteCustomImage, deleteImagesForId as deleteCustomImagesForId } from '../utils/customImageStore.js'
+  import { getGeoKeys } from '../utils/geoKeys.js'
+  import { uploadCustomImage, deleteCustomImages } from '../stores/userDataSync.js'
+
+  const CUSTOM_IMAGE_UPLOAD_MAX_BYTES = 900 * 1024
+  const CUSTOM_IMAGE_UPLOAD_MAX_SIDE = 1600
 
 export default {
   name: 'CreateAttractionModal',
@@ -100,6 +112,8 @@ export default {
   emits: ['update:modelValue', 'created', 'updated'],
   data() {
     return {
+      geoKeys: null,
+      loading: false,
       form: {
         name: '',
         region: '',
@@ -109,7 +123,9 @@ export default {
         details: '',
         overview: '',
         images: { main: '', secondary: ['', ''] }
-      }
+      },
+      mainCleared: false,
+      secondaryCleared: [false, false]
     }
   },
   computed: {
@@ -119,17 +135,62 @@ export default {
     }
   },
   mounted() {
-    try { if (this.mode === 'edit' && this.initial && this.modelValue) { this.loadFromInitial() } } catch(e) {}
+    try { if (this.mode === 'edit' && this.initial && this.modelValue) { this.loadFromInitialWithSpinner() } } catch(e) {}
   },
   watch: {
     modelValue(val){
-      if (val && this.mode==='edit' && this.initial) { this.loadFromInitial() }
+      if (val && this.mode==='edit' && this.initial) { this.loadFromInitialWithSpinner() }
     }
   },
   methods: {
     close() { this.$emit('update:modelValue', false) },
+    async loadFromInitialWithSpinner() {
+      this.mainCleared = false
+      this.secondaryCleared = [false, false]
+      this.form.name = this.initial.name || ''
+      this.form.region = this.initial.region || ''
+      this.form.county = this.initial.county || ''
+      this.form.position = this.initial.position || ''
+      this.form.duration = this.initial.duration || ''
+      this.form.details = this.initial.details || ''
+      this.form.overview = this.initial.overview || ''
+      const id = this.initial.id
+      const tasks = []
+      if (this.initial.hasImage1 && !this.form.images.main) {
+        tasks.push((async () => {
+          const u = await getCustomImageUrl(`${id}:main`)
+          if (u) this.form.images.main = u
+        })())
+      }
+      if (this.initial.hasImage2 && !this.form.images.secondary[0]) {
+        tasks.push((async () => {
+          const u = await getCustomImageUrl(`${id}:sec0`)
+          if (u) {
+            this.$set ? this.$set(this.form.images.secondary, 0, u) : (this.form.images.secondary[0] = u)
+          }
+        })())
+      }
+      if (this.initial.hasImage3 && !this.form.images.secondary[1]) {
+        tasks.push((async () => {
+          const u = await getCustomImageUrl(`${id}:sec1`)
+          if (u) {
+            this.$set ? this.$set(this.form.images.secondary, 1, u) : (this.form.images.secondary[1] = u)
+          }
+        })())
+      }
+      if (tasks.length) {
+        this.loading = true
+        try {
+          await Promise.all(tasks)
+        } finally {
+          this.loading = false
+        }
+      }
+    },
     loadFromInitial() {
       try {
+        this.mainCleared = false
+        this.secondaryCleared = [false, false]
         // 文本类字段
         this.form.name = this.initial.name || ''
         this.form.region = this.initial.region || ''
@@ -159,16 +220,119 @@ export default {
         reader.readAsDataURL(file)
       })
     },
+    async blobToDataURL(blob) {
+      return new Promise((resolve) => {
+        try {
+          const fr = new FileReader()
+          fr.onload = () => resolve(fr.result || '')
+          fr.onerror = () => resolve('')
+          fr.readAsDataURL(blob)
+        } catch (e) { resolve('') }
+      })
+    },
+    byteSize(val) {
+      try { return new Blob([String(val || '')]).size } catch (e) { return String(val || '').length }
+    },
+    async compressImageDataUrl(dataUrl, options = {}) {
+      try {
+        if (!dataUrl || typeof dataUrl !== 'string' || !dataUrl.startsWith('data:image/')) return dataUrl || ''
+        const maxBytes = Number.isFinite(options.maxBytes) ? options.maxBytes : CUSTOM_IMAGE_UPLOAD_MAX_BYTES
+        const maxSide = Number.isFinite(options.maxSide) ? options.maxSide : CUSTOM_IMAGE_UPLOAD_MAX_SIDE
+        if (maxBytes && this.byteSize(dataUrl) <= maxBytes) return dataUrl
+
+        let blob = null
+        try {
+          const resp = await fetch(dataUrl)
+          blob = await resp.blob()
+        } catch (e) {
+          blob = null
+        }
+        if (!blob) return dataUrl
+
+        const img = await new Promise((resolve) => {
+          let url = ''
+          try { url = URL.createObjectURL(blob) } catch (e) { url = '' }
+          if (!url) return resolve(null)
+          try {
+            const el = new Image()
+            el.onload = () => {
+              try { URL.revokeObjectURL(url) } catch (e) {}
+              resolve(el)
+            }
+            el.onerror = () => {
+              try { URL.revokeObjectURL(url) } catch (e) {}
+              resolve(null)
+            }
+            el.src = url
+          } catch (e) {
+            try { URL.revokeObjectURL(url) } catch (err) {}
+            resolve(null)
+          }
+        })
+        if (!img) return dataUrl
+
+        const srcW = img.naturalWidth || img.width || 0
+        const srcH = img.naturalHeight || img.height || 0
+        if (!srcW || !srcH) return dataUrl
+
+        const canvas = document.createElement('canvas')
+        const ctx = canvas.getContext('2d')
+        if (!ctx) return dataUrl
+
+        const maxSide0 = Math.max(1, maxSide || CUSTOM_IMAGE_UPLOAD_MAX_SIDE)
+        const scale0 = Math.min(1, maxSide0 / Math.max(srcW, srcH))
+        let w = Math.max(1, Math.round(srcW * scale0))
+        let h = Math.max(1, Math.round(srcH * scale0))
+
+        const qualities = [0.85, 0.78, 0.72, 0.66, 0.6, 0.55, 0.5, 0.45]
+        let best = ''
+        let bestBytes = Infinity
+
+        for (let pass = 0; pass < 4; pass++) {
+          canvas.width = w
+          canvas.height = h
+          try {
+            ctx.fillStyle = '#fff'
+            ctx.fillRect(0, 0, w, h)
+            ctx.drawImage(img, 0, 0, w, h)
+          } catch (e) {}
+          for (const q of qualities) {
+            let out = ''
+            try { out = canvas.toDataURL('image/jpeg', q) || '' } catch (e) { out = '' }
+            if (!out) continue
+            const outBytes = this.byteSize(out)
+            if (outBytes < bestBytes) {
+              best = out
+              bestBytes = outBytes
+            }
+            if (maxBytes && outBytes <= maxBytes) return out
+          }
+          w = Math.max(1, Math.round(w * 0.85))
+          h = Math.max(1, Math.round(h * 0.85))
+          if (w < 320 || h < 320) break
+        }
+
+        return best || dataUrl
+      } catch (e) {
+        return dataUrl || ''
+      }
+    },
     async onMainImage(e) {
       const file = e.target.files && e.target.files[0]
       if (!file) return
-      this.form.images.main = await this.readFileAsDataURL(file)
+      const raw = await this.readFileAsDataURL(file)
+      this.form.images.main = await this.compressImageDataUrl(raw)
+      this.mainCleared = false
     },
     async onSecondaryImage(e, idx) {
       const file = e.target.files && e.target.files[0]
       if (!file) return
-      const url = await this.readFileAsDataURL(file)
+      const raw = await this.readFileAsDataURL(file)
+      const url = await this.compressImageDataUrl(raw)
       this.$set ? this.$set(this.form.images.secondary, idx, url) : (this.form.images.secondary[idx] = url)
+      if (idx === 0 || idx === 1) {
+        this.$set ? this.$set(this.secondaryCleared, idx, false) : (this.secondaryCleared[idx] = false)
+      }
     },
     onMainButtonClick(e){
       if (this.form.images.main) {
@@ -186,19 +350,30 @@ export default {
     },
     clearMainImage() {
       this.form.images.main = ''
+      this.mainCleared = true
     },
     clearSecondaryImage(idx) {
       if (idx === 0 || idx === 1) {
         this.$set ? this.$set(this.form.images.secondary, idx, '') : (this.form.images.secondary[idx] = '')
+        this.$set ? this.$set(this.secondaryCleared, idx, true) : (this.secondaryCleared[idx] = true)
       }
     },
     async submit() {
-      if (!this.canSubmit) return
-      const id = (this.mode === 'edit' && this.initial && this.initial.id)
+      if (!this.canSubmit || this.loading) return
+      this.loading = true
+      try {
+        const id = (this.mode === 'edit' && this.initial && this.initial.id)
         ? String(this.initial.id)
         : ('custom_' + Date.now())
+      const existingImages = (this.initial && this.initial.images) || {}
+      const imageRefs = {
+        main: (existingImages && existingImages.main) || '',
+        secondary: Array.isArray(existingImages && existingImages.secondary) ? [...existingImages.secondary] : []
+      }
+      while (imageRefs.secondary.length < 2) imageRefs.secondary.push('')
+      const toDeleteRemote = []
 
-      // 先把图片写入 IndexedDB，避免 localStorage 超限失败；编辑模式下，未重新上传则保留原图
+      // 先把图片写入 IndexedDB，避免localStorage 超限失败；编辑模式下，未重新上传则保留原图
       try {
         if (this.form.images.main) {
           await setCustomImage(`${id}:main`, this.form.images.main)
@@ -209,7 +384,6 @@ export default {
         if (this.form.images.secondary[1]) {
           await setCustomImage(`${id}:sec1`, this.form.images.secondary[1])
         }
-        // 编辑模式下，清理不再使用的图片缓存
         if (this.mode === 'edit' && this.initial) {
           if (this.initial.hasImage1 && !this.form.images.main) {
             await deleteCustomImage(`${id}:main`)
@@ -222,6 +396,84 @@ export default {
           }
         }
       } catch (e) {}
+
+      const initialImages = (this.initial && this.initial.images) || {}
+      const normalizeForUpload = async (val) => {
+        if (!val) return { shouldUpload: false, dataUrl: '' }
+        if (typeof val === 'string' && val.startsWith('data:')) {
+          const dataUrl = await this.compressImageDataUrl(val)
+          return dataUrl ? { shouldUpload: true, dataUrl } : { shouldUpload: false, dataUrl: '' }
+        }
+        if (typeof val === 'string' && (val.startsWith('blob:') || val.startsWith('http'))) {
+          try {
+            const resp = await fetch(val)
+            const blob = await resp.blob()
+            const raw = await this.blobToDataURL(blob)
+            const dataUrl = await this.compressImageDataUrl(raw)
+            return dataUrl ? { shouldUpload: true, dataUrl } : { shouldUpload: false, dataUrl: '' }
+          } catch (e) { return { shouldUpload: false, dataUrl: '' } }
+        }
+        return { shouldUpload: false, dataUrl: '' }
+      }
+      const uploadSlot = async (slot, dataUrl) => {
+        if (!dataUrl) return null
+        const attempts = [
+          { maxBytes: CUSTOM_IMAGE_UPLOAD_MAX_BYTES, maxSide: CUSTOM_IMAGE_UPLOAD_MAX_SIDE },
+          { maxBytes: 450 * 1024, maxSide: 1280 },
+          { maxBytes: 250 * 1024, maxSide: 960 }
+        ]
+        let lastErr = null
+        let cur = dataUrl
+        for (const cfg of attempts) {
+          cur = await this.compressImageDataUrl(cur, cfg)
+          try {
+            const key = await uploadCustomImage(id, slot, cur)
+            if (key) return key
+          } catch (e) {
+            lastErr = e
+          }
+        }
+        const msg = '图片上传失败：请换小一点的图片，或稍后重试（后端可能限制了上传大小）。'
+        const err = new Error(msg)
+        err.cause = lastErr
+        throw err
+      }
+
+      // main
+      const normMain = await normalizeForUpload(this.form.images.main)
+      const mainChanged = normMain.shouldUpload && this.form.images.main !== (initialImages.main || '')
+      if (mainChanged) {
+        const uploadedMain = await uploadSlot('main', normMain.dataUrl)
+        if (imageRefs.main && imageRefs.main !== uploadedMain) toDeleteRemote.push(imageRefs.main)
+        imageRefs.main = uploadedMain
+      } else if (this.mainCleared) {
+        if (imageRefs.main) toDeleteRemote.push(imageRefs.main)
+        imageRefs.main = ''
+      }
+
+      // sec0
+      const normSec0 = await normalizeForUpload(this.form.images.secondary[0])
+      const sec0Changed = normSec0.shouldUpload && this.form.images.secondary[0] !== (initialImages.secondary && initialImages.secondary[0] || '')
+      if (sec0Changed) {
+        const uploadedSec0 = await uploadSlot('sec0', normSec0.dataUrl)
+        if (imageRefs.secondary[0] && imageRefs.secondary[0] !== uploadedSec0) toDeleteRemote.push(imageRefs.secondary[0])
+        imageRefs.secondary[0] = uploadedSec0
+      } else if (this.secondaryCleared[0]) {
+        if (imageRefs.secondary[0]) toDeleteRemote.push(imageRefs.secondary[0])
+        imageRefs.secondary[0] = ''
+      }
+
+      // sec1
+      const normSec1 = await normalizeForUpload(this.form.images.secondary[1])
+      const sec1Changed = normSec1.shouldUpload && this.form.images.secondary[1] !== (initialImages.secondary && initialImages.secondary[1] || '')
+      if (sec1Changed) {
+        const uploadedSec1 = await uploadSlot('sec1', normSec1.dataUrl)
+        if (imageRefs.secondary[1] && imageRefs.secondary[1] !== uploadedSec1) toDeleteRemote.push(imageRefs.secondary[1])
+        imageRefs.secondary[1] = uploadedSec1
+      } else if (this.secondaryCleared[1]) {
+        if (imageRefs.secondary[1]) toDeleteRemote.push(imageRefs.secondary[1])
+        imageRefs.secondary[1] = ''
+      }
 
       // 若为编辑模式，清理该自创景点的地理编码浏览器缓存（视为全新景点）
       try {
@@ -240,6 +492,21 @@ export default {
         }
       } catch (e) {}
 
+      // 清理本地缓存的旧图，确保下次读取不会返回旧版本
+      try { await deleteCustomImagesForId(id); } catch (e) {}
+      // 可选：将最新 dataURL 写回缓存以便立即展示
+      try {
+        if (this.form.images.main && this.form.images.main.startsWith('data:') && imageRefs.main) {
+          await setCustomImage(`${id}:main`, this.form.images.main)
+        }
+        if (this.form.images.secondary[0] && this.form.images.secondary[0].startsWith('data:') && imageRefs.secondary[0]) {
+          await setCustomImage(`${id}:sec0`, this.form.images.secondary[0])
+        }
+        if (this.form.images.secondary[1] && this.form.images.secondary[1].startsWith('data:') && imageRefs.secondary[1]) {
+          await setCustomImage(`${id}:sec1`, this.form.images.secondary[1])
+        }
+      } catch (e) {}
+
       const attraction = {
         id,
         country: 'custom',
@@ -250,24 +517,33 @@ export default {
         duration: this.form.duration,
         details: this.form.details,
         overview: this.form.overview,
-        // 是否存在图片：以当前表单为准，用户删除后为 false，避免详情页显示 skeleton
-        hasImage1: !!this.form.images.main,
-        hasImage2: !!this.form.images.secondary[0],
-        hasImage3: !!this.form.images.secondary[1],
+        hasImage1: !!imageRefs.main,
+        hasImage2: !!imageRefs.secondary[0],
+        hasImage3: !!imageRefs.secondary[1],
         images: {
-          main: '',
-          secondary: []
+          main: imageRefs.main || '',
+          secondary: [imageRefs.secondary[0] || '', imageRefs.secondary[1] || '']
         },
         createdAt: new Date().toISOString()
       }
+      // 删除被替换或清除的远端图片
+      try {
+        if (toDeleteRemote.length) {
+          await deleteCustomImages(toDeleteRemote)
+        }
+      } catch (e) {}
       const saved = addCustomAttraction(attraction)
       // 异步预先建立地理编码缓存（自创景点统一异步），两端页面共用
       try { this.prefetchCustomGeocode(saved); } catch (e) {}
       if (this.mode === 'edit') this.$emit('updated', saved); else this.$emit('created', saved)
       this.$emit('update:modelValue', false)
+      } catch (e) {
+        try { alert((e && e.message) ? e.message : '保存失败，请稍后重试') } catch (_) {}
+      } finally {
+        this.loading = false
+      }
     },
 
-    // —— 自创景点保存后：异步预先进行地理编码并写入共享缓存 ——
     async prefetchCustomGeocode(attraction) {
       try {
         if (!attraction || !attraction.id) return;
@@ -280,10 +556,12 @@ export default {
         // 选择性国家偏置（仅当 position 含中文 → 中国）
         const isChinesePosition = /[\u4e00-\u9fa5]/.test(String(attraction.position || ''));
         const iso2 = isChinesePosition ? 'cn' : '';
-        // 若 position 含中文则优先使用高德地理编码（需 VITE_AMAP_KEY）
+        // 若 position 含中文则优先使用高德地理编码（需服务端提供的 amapKey）
         try {
-          const env = (import.meta && import.meta.env) ? import.meta.env : {};
-          const amapKey = env.VITE_AMAP_KEY;
+          if (!this.geoKeys) {
+            this.geoKeys = await getGeoKeys();
+          }
+          const amapKey = this.geoKeys && this.geoKeys.amapKey;
           let didTryAmap = false;
           if (isChinesePosition && amapKey) {
             didTryAmap = true;
@@ -353,8 +631,7 @@ export default {
 
         // 轻量地理编码：Photon → Open-Meteo → Nominatim
         // 若前面已针对中文地址优先尝试过高德且未命中，则后续服务统一使用英文并不再附加中国相关提示
-        const env2 = (import.meta && import.meta.env) ? import.meta.env : {};
-        const hasAmapKey = !!env2.VITE_AMAP_KEY;
+        const hasAmapKey = !!(this.geoKeys && this.geoKeys.amapKey);
         const useEnglish = !!(isChinesePosition && hasAmapKey);
         const headers = { 'accept-language': useEnglish ? 'en-US,en;q=0.9' : 'zh-CN,zh;q=0.9,en;q=0.8' };
         const getJson = async (url) => {
@@ -407,7 +684,7 @@ export default {
 
 <style scoped>
 .modal-mask { position: fixed; inset: 0; background: rgba(0,0,0,.35); display: flex; align-items: center; justify-content: center; z-index: 2000; overflow: hidden; }
-.modal { width: min(680px, 94vw); max-width: 94vw; max-height: 80vh; overflow: hidden; background: #fff; border-radius: 12px; box-shadow: 0 12px 32px rgba(0,0,0,.18); display: flex; flex-direction: column; }
+.modal { position: relative; width: min(680px, 94vw); max-width: 94vw; max-height: 80vh; overflow: hidden; background: #fff; border-radius: 12px; box-shadow: 0 12px 32px rgba(0,0,0,.18); display: flex; flex-direction: column; }
 .modal-header { display: flex; align-items: center; justify-content: space-between; padding: 14px 16px; border-bottom: 1px solid #eef0f3; }
 .modal-body { padding: 16px; overflow: auto; overflow-x: hidden; }
 .modal-body { -webkit-overflow-scrolling: touch; }
@@ -418,6 +695,27 @@ export default {
 .primary:disabled { opacity: .5; cursor: not-allowed; }
 .ghost { background: #fff; border: 1px solid #cfd6e4; color: #334155; padding: 8px 14px; border-radius: 8px; cursor: pointer; }
 .ghost:hover { background: #f6f8fa; }
+
+.modal-loading-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(255,255,255,0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10;
+}
+.modal-loading-spinner {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: 3px solid #d1d5db;
+  border-top-color: #3b82f6;
+  animation: modal-spin 0.8s linear infinite;
+}
+@keyframes modal-spin {
+  to { transform: rotate(360deg); }
+}
 
 .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px 16px; max-width: 100%; }
 label { display: flex; flex-direction: column; gap: 6px; font-size: 13px; color: #334155; }

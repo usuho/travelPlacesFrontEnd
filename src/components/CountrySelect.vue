@@ -1,8 +1,9 @@
 <template>
   <div class="container">
     <div class="hero-section">
-     <div
+      <div
         class="hero-logo-wrapper"
+        @click="handleHeroLogoClick"
         @mousedown="startHeroLongPress"
         @mouseup="cancelHeroLongPress"
         @mouseleave="cancelHeroLongPress"
@@ -30,6 +31,9 @@
           draggable="false"
           aria-hidden="true"
         />
+        <transition name="logo-tooltip-fade">
+          <div v-if="showLogoutTooltip" class="logo-tooltip">长按登出</div>
+        </transition>
       </div>
       <div class="title-text-group">
         <h1 class="hero-title title-hero">星垠海角</h1>
@@ -49,8 +53,8 @@
         </div>
         <span class="search-icon" aria-hidden="true">
           <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <circle cx="9" cy="9" r="6" stroke="#8b8fa3" stroke-width="2" />
-            <path d="M13 13L17 17" stroke="#8b8fa3" stroke-width="2" stroke-linecap="round" />
+            <circle cx="9" cy="9" r="6" stroke="currentColor" stroke-width="2" />
+            <path d="M13 13L17 17" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
           </svg>
         </span>
       </div>
@@ -101,7 +105,6 @@
         </div>
       </div>
     </div>
-
     <div v-else class="all-continents">
       <div
         v-for="(countries, continent) in continents"
@@ -159,6 +162,9 @@
 </template>
 
 <script>
+import { clearAuthSession, clearLocalStoragePreservingRememberPassword } from '../stores/auth.js';
+import { resetUserDataSync } from '../stores/userDataSync.js';
+import { clearAllImages } from '../utils/customImageStore.js';
 
 const LONG_PRESS_MS = 800;
 
@@ -166,7 +172,7 @@ export default {
   data() {
     return {
       continents: {
-         asia: [
+        asia: [
           'japan',
           'china',
           'singapore',
@@ -285,6 +291,8 @@ export default {
       searchQuery: '',
       searchFocused: false,
       showHeroLogo: false,
+      showLogoutTooltip: false,
+      tooltipTimer: null,
       longPressTimer: null,
       logoColorizing: false,
       longPressHandled: false,
@@ -336,6 +344,10 @@ export default {
       clearTimeout(this.longPressTimer);
       this.longPressTimer = null;
     }
+    if (this.tooltipTimer) {
+      clearTimeout(this.tooltipTimer);
+      this.tooltipTimer = null;
+    }
   },
   computed: {
     hasSearchQuery() {
@@ -372,6 +384,20 @@ export default {
     }
   },
   methods: {
+    handleHeroLogoClick() {
+      if (this.logoutInProgress || this.longPressHandled) {
+        this.longPressHandled = false;
+        return;
+      }
+      this.showLogoutTooltip = true;
+      if (this.tooltipTimer) {
+        clearTimeout(this.tooltipTimer);
+      }
+      this.tooltipTimer = setTimeout(() => {
+        this.showLogoutTooltip = false;
+        this.tooltipTimer = null;
+      }, 1200);
+    },
     startHeroLongPress() {
       if (this.logoutInProgress) return;
       this.longPressHandled = false;
@@ -381,6 +407,7 @@ export default {
       }
       this.longPressTimer = setTimeout(() => {
         this.longPressHandled = true;
+        this.triggerLogout();
       }, LONG_PRESS_MS);
     },
     cancelHeroLongPress() {
@@ -390,6 +417,48 @@ export default {
         clearTimeout(this.longPressTimer);
         this.longPressTimer = null;
       }
+    },
+    async triggerLogout() {
+      if (this.logoutInProgress) return;
+      this.logoutInProgress = true;
+      this.logoColorizing = true;
+      this.showLogoutTooltip = false;
+      if (this.longPressTimer) {
+        clearTimeout(this.longPressTimer);
+        this.longPressTimer = null;
+      }
+      if (this.tooltipTimer) {
+        clearTimeout(this.tooltipTimer);
+        this.tooltipTimer = null;
+      }
+      this.performClientCleanup();
+      try {
+        await this.$router.replace('/login');
+      } catch (e) {
+        try {
+          this.$router.push('/login');
+        } catch (_) {}
+      }
+    },
+    performClientCleanup() {
+      try {
+        resetUserDataSync();
+      } catch (e) {}
+      try {
+        clearAuthSession();
+      } catch (e) {}
+      try {
+        clearLocalStoragePreservingRememberPassword();
+      } catch (e) {}
+      try {
+        sessionStorage.clear();
+      } catch (e) {}
+      try { clearAllImages(); } catch (e) {}
+      try {
+        if (typeof caches !== 'undefined' && caches.keys) {
+          caches.keys().then((keys) => keys.forEach((k) => caches.delete(k)));
+        }
+      } catch (e) {}
     },
     translateCountry(country) {
       return this.countryTranslations[country] || country;
@@ -413,7 +482,7 @@ export default {
         thailand: '🇹🇭',
         vietnam: '🇻🇳',
         switzerland: '🇨🇭',
-         france: '🇫🇷',
+        france: '🇫🇷',
         germany: '🇩🇪',
         uk: '🇬🇧',
         spain: '🇪🇸',
@@ -473,7 +542,7 @@ export default {
         thailand: '微笑之国，古寺海滩与夜市交织的缤纷体验。',
         vietnam: '从河内旧街到下龙湾，感受古老与新生的碰撞。',
         switzerland: '在阿尔卑斯山间邂逅钟表工艺与巧克力的精致世界。',
-         france: '在浪漫之都与南法海岸之间，品味艺术、美酒与生活情调。',
+        france: '在浪漫之都与南法海岸之间，品味艺术、美酒与生活情调。',
         germany: '走入黑森林与童话小镇，感受严谨与浪漫并存的德意志。',
         uk: '从伦敦到苏格兰高地，在雾都与古堡间邂逅英伦气质。',
         spain: '弗拉门戈、阳光海岸与百年古城交织出的热情西班牙。',
@@ -661,6 +730,13 @@ export default {
 </script>
 
 <style scoped>
+@import url('https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@400;600;700&family=ZCOOL+XiaoWei&display=swap');
+
+.title-hero {
+  font-family: 'ZCOOL XiaoWei', 'Noto Serif SC', 'Songti SC', 'STSong', 'Source Han Serif SC', 'SimSun', serif;
+  font-weight: 800;
+}
+
 .country-text-group-mobile {
   display: none;
 }
@@ -715,6 +791,31 @@ export default {
   opacity: 1;
 }
 
+.logo-tooltip {
+  position: absolute;
+  bottom: -34px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(0, 0, 0, 0.65);
+  color: #fff;
+  padding: 4px 6px;
+  border-radius: 10px;
+  font-size: 1rem;
+  white-space: nowrap;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.2);
+  opacity: 0.5;
+}
+
+.logo-tooltip-fade-enter-active,
+.logo-tooltip-fade-leave-active {
+  transition: opacity 0.2s ease;
+}
+
+.logo-tooltip-fade-enter-from,
+.logo-tooltip-fade-leave-to {
+  opacity: 0;
+}
+
 .hero-logo-hidden {
   visibility: hidden;
 }
@@ -737,15 +838,6 @@ export default {
 .title-english {
   font-size: 1.8rem;
   padding: 0;
-}
-
-.hero-title.title-hero,
-.title-english.title-hero {
-  font-family: 'ZCOOL XiaoWei', 'Noto Serif SC', 'Songti SC', 'STSong', 'Source Han Serif SC', 'SimSun', serif;
-}
-
-.title-english.title-hero {
-  font-weight: 800;
 }
 
 .hero-subtitle {
@@ -797,14 +889,6 @@ export default {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  z-index: 6;
-}
-.search-icon svg {
-  width: 22px;
-  height: 22px;
-  stroke: #8b8fa3;
-  fill: none;
-  display: block;
 }
 
 .search-results {
@@ -822,10 +906,9 @@ export default {
   color: #8b8fa3;
   font-size: 1rem;
   user-select: none;
-  padding: 0 70px;
+  padding: 0 60px;
   box-sizing: border-box;
   text-align: center;
-  z-index: 2;
 }
 
 @keyframes jiggle {
@@ -860,6 +943,7 @@ export default {
   will-change: transform;
   opacity: 1 !important;
 }
+
 
 .continent-section {
   margin-bottom: 100px;
@@ -914,6 +998,13 @@ export default {
   margin-bottom: 24px;
 }
 
+.country-name {
+  font-size: 1.75rem;
+  font-weight: 600;
+  margin-bottom: 16px;
+  color: #1d1d1f;
+}
+
 .country-name-desktop-english {
   font-size: 0.7rem;
 }
@@ -948,6 +1039,11 @@ export default {
 
 /* 移动端优化：保持两列，但卡片缩小 */
 @media (max-width: 768px) {
+
+  .logo-tooltip {
+    font-size: 0.85rem;
+    bottom: -27px;
+  }
 
   .container {
     padding-bottom: 0.01px;
@@ -1030,6 +1126,11 @@ export default {
     align-items: center;
     font-size: 2.5rem;
     width: 100%;
+  }
+
+  .country-name {
+    font-size: 1rem;
+    margin-bottom: 8px;
   }
 
   .country-description {

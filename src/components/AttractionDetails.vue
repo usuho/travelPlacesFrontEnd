@@ -5,25 +5,8 @@
     <div class="fixed-header">
       <!-- 页面头部 -->
       <header class="page-header">
-        <div class="header-left-group">
-          <button @click="goBack" class="back-button top-back-button">
-            返回
-          </button>
-          <button
-            v-if="String(country)==='custom'"
-            class="edit-button edit-button-desktop"
-            @click="showEditModal = true"
-            title="编辑自创景点"
-          >编辑</button>
-        </div>
         <div class="header-content">
           <div class="title-row">
-            <button
-              v-if="String(country)==='custom'"
-              class="edit-button edit-button-mobile"
-              @click="showEditModal = true"
-              title="编辑自创景点"
-            >编辑</button>
             <h1 :key="titleAnimKey" class="attraction-title title-with-star title-hero">
               <button
                 class="star-btn"
@@ -40,14 +23,26 @@
               <span class="title-text">{{ attraction ? attraction.name : '' }}</span>
             </h1>
           </div>
-          <div v-if="attraction && showStats" class="rating-section">
-            <div class="rating-badge" :style="{ background: ratingBackgroundColor }">
+          <div v-if="attraction" class="rating-section">
+            <div
+              v-if="!isCustomAttraction"
+              class="rating-badge"
+              :style="{ background: ratingBackgroundColor }"
+            >
               <span class="rating-label">好评率</span>
               <span class="rating-text">{{ attraction.rating }}</span>
             </div>
+             <button
+              v-else
+              class="edit-button rating-edit-button"
+              @click="showEditModal = true"
+              title="编辑自创景点"
+            >
+              编辑
+            </button>
             <div class="reviews-summary">
-              <span class="total-reviews">{{ attraction.total_reviews }} 条评论</span>
-              <span class="positive-reviews">{{ attraction.positive_reviews }} 条好评</span>
+              <span class="total-reviews">{{ totalReviewsText }}</span>
+              <span class="positive-reviews">{{ positiveReviewsText }}</span>
             </div>
           </div>
         </div>
@@ -224,6 +219,7 @@
    import { fetchAttractionsPositions, getLastApiBase, withBackendApiKey } from '../utils/geoApi.js';
   import { findCustomAttractionById, deleteCustomAttraction } from '../utils/customAttractions.js'
   import { getImageUrl as getCustomImageUrl, deleteImagesForId as deleteCustomImagesForId } from '../utils/customImageStore.js'
+  import { ensureUserDataHydrated, queueUserDataSync, deleteCustomImages } from '../stores/userDataSync.js'
   import CreateAttractionModal from './CreateAttractionModal.vue'
 
   export default {
@@ -288,6 +284,7 @@
       };
     },
     async created() {
+      try { await ensureUserDataHydrated(); } catch (e) {}
       // 初始化收藏导航（若来自收藏）
       this.reloadFavState();
       this.updateIsFavorited();
@@ -350,22 +347,36 @@
       },
       ratingBackgroundColor() {
       const rating = this.attraction && this.attraction.rating;
-      if (rating !== undefined && rating !== null && String(rating).trim() !== '') {
+        if (rating !== undefined && rating !== null && String(rating).trim() !== '') {
+          return this.getRatingColor(rating);
+        }
+        const stored = localStorage.getItem('selectedAttractionRatingColor');
+        if (stored) return stored;
         return this.getRatingColor(rating);
-      }
-      const stored = localStorage.getItem('selectedAttractionRatingColor');
-      if (stored) return stored;
-      return this.getRatingColor(rating);
-    },
-    showStats() {
-      return String(this.country) !== 'custom';
-    },
-    detailSwipeStyle() {
-      return {
-        opacity: this.detailSwipeOpacity,
-        transition: this.detailSwipeResetting ? 'opacity 0.2s ease' : 'none',
-      };
-    },
+      },
+      isCustomAttraction() {
+        return String(this.country) === 'custom';
+      },
+      totalReviewsText() {
+        if (!this.attraction) return '';
+        if (this.isCustomAttraction) return '-- 条评论';
+        const total = this.attraction.total_reviews;
+        const display = (total === undefined || total === null || total === '') ? '-' : total;
+        return `${display} 条评论`;
+      },
+      positiveReviewsText() {
+        if (!this.attraction) return '';
+        if (this.isCustomAttraction) return '-- 条好评';
+        const positive = this.attraction.positive_reviews;
+        const display = (positive === undefined || positive === null || positive === '') ? '-' : positive;
+        return `${display} 条好评`;
+      },
+      detailSwipeStyle() {
+        return {
+          opacity: this.detailSwipeOpacity,
+          transition: this.detailSwipeResetting ? 'opacity 0.2s ease' : 'none',
+        };
+      },
     nextDisabled() {
         if (this.isFavoritesMode) return this.favIndex >= this.favNav.length - 1;
         if (this.fromSearch) return true;
@@ -541,6 +552,7 @@
       },
       saveFavoriteTabs(tabs) {
         try { localStorage.setItem('favoriteTabs_all', JSON.stringify(tabs || [])); } catch(e) {}
+        try { queueUserDataSync(); } catch (e) {}
       },
       // 将所有 tabs 的 items 合并为去重列表并写回旧的 favorites_all（仅用于兼容展示，不影响每个 tab 独立状态）
       recomputeAndSaveFavoritesAllFromTabs() {
@@ -636,8 +648,18 @@
       performDeleteCustom() {
         const id = this.attraction?.id || this.id;
         // 从自创景点存储中删除
+        let keysToDelete = [];
+        try {
+          const custom = this.attraction || findCustomAttractionById(id);
+          const imgs = custom && custom.images ? custom.images : {};
+          const sec = Array.isArray(imgs.secondary) ? imgs.secondary : [];
+          if (imgs.main) keysToDelete.push(imgs.main);
+          if (sec[0]) keysToDelete.push(sec[0]);
+          if (sec[1]) keysToDelete.push(sec[1]);
+        } catch (e) {}
         try { deleteCustomAttraction(id); } catch(e) {}
         try { deleteCustomImagesForId(id); } catch(e) {}
+        try { if (keysToDelete.length) deleteCustomImages(keysToDelete); } catch (e) {}
         // 同步清除浏览器地理编码缓存
         try {
           const storeKey = 'geoCache_v1';
@@ -663,6 +685,7 @@
               }
             });
             localStorage.setItem('favoriteTabs_all', JSON.stringify(tabs));
+            try { queueUserDataSync(); } catch (e) {}
           }
         } catch(e) {}
         this.customDeleteConfirmVisible = false;
@@ -779,6 +802,12 @@
       translateCounty(country) {
         return this.countyTranslations[country] || '省份';
       },
+
+      isRenderableImage(val) {
+        if (!val) return false
+        if (typeof val !== 'string') return false
+        return val.startsWith('data:') || val.startsWith('blob:') || val.startsWith('http')
+      },
       async fetchAttractionDetails() {
         const cacheKey = `attractionCache_${this.country}_${this.id}`;
         const readCachedDetail = () => { try { const raw = localStorage.getItem(cacheKey); return raw ? JSON.parse(raw) : null; } catch (e) { return null; } };
@@ -790,19 +819,31 @@
           if (a) {
             this.attraction = a
             this.loading = false
-            this.image1 = a?.images?.main || null
-            this.image2 = (a?.images?.secondary && a.images.secondary[0]) ? a.images.secondary[0] : null
-            this.image3 = (a?.images?.secondary && a.images.secondary[1]) ? a.images.secondary[1] : null
+            const mainRef = a?.images?.main || ''
+            const secRefs = Array.isArray(a?.images?.secondary) ? a.images.secondary : []
+            // 仅在可直接渲染时先行展示，否则保持 null 以显示 skeleton
+            this.image1 = this.isRenderableImage(mainRef) ? mainRef : null
+            this.image2 = this.isRenderableImage(secRefs[0]) ? secRefs[0] : null
+            this.image3 = this.isRenderableImage(secRefs[1]) ? secRefs[1] : null
             try {
-              if (!this.image1 && a.hasImage1) {
+              if (mainRef) {
+                const u1 = await getCustomImageUrl(mainRef)
+                if (u1) this.image1 = u1
+              } else if (!this.image1 && a.hasImage1) {
                 const u1 = await getCustomImageUrl(`${this.id}:main`)
                 if (u1) this.image1 = u1
               }
-              if (!this.image2 && a.hasImage2) {
+              if (secRefs[0]) {
+                const u2 = await getCustomImageUrl(secRefs[0])
+                if (u2) this.image2 = u2
+              } else if (!this.image2 && a.hasImage2) {
                 const u2 = await getCustomImageUrl(`${this.id}:sec0`)
                 if (u2) this.image2 = u2
               }
-              if (!this.image3 && a.hasImage3) {
+              if (secRefs[1]) {
+                const u3 = await getCustomImageUrl(secRefs[1])
+                if (u3) this.image3 = u3
+              } else if (!this.image3 && a.hasImage3) {
                 const u3 = await getCustomImageUrl(`${this.id}:sec1`)
                 if (u3) this.image3 = u3
               }
@@ -1262,11 +1303,13 @@
         // 退出详情页或关闭全屏后，不再持有列表传来的颜色，避免污染下次进入
         try { localStorage.removeItem('selectedAttractionRatingColor'); } catch(e) {}
       },
-      onCustomUpdated(saved) {
+      async onCustomUpdated(saved) {
         try {
           // 刷新当前详情对象
           const a = findCustomAttractionById(saved && saved.id ? saved.id : this.id);
           if (a) {
+            // 先清除旧的本地图片缓存并强制重新取最新
+            try { await deleteCustomImagesForId(a.id); } catch (e) {}
             this.attraction = a;
             // 刷新图片（从 IndexedDB 取最新）
             this.image1 = null; this.image2 = null; this.image3 = null;
@@ -1594,10 +1637,6 @@
   box-shadow: 0 4px 15px rgba(0, 122, 255, 0.3);
 }
 
-.top-back-button {
-  margin: 8px;
-}
-
 .bottom-back-button {
   margin-bottom: 0;
   align-self: center;
@@ -1605,27 +1644,22 @@
 
 /* 编辑按钮（自创景点） */
 .edit-button {
-  padding: 6px 12px;
-  border-radius: 10px;
-  background: #e5e7eb;
+  padding: 4px 12px;
+  border-radius: 20px;
+  background: linear-gradient(135deg, #f8f9fa 0%, #e5e7eb 100%);
   color: #111827;
-  border: none;
+  border: 1px solid rgba(0, 0, 0, 0.05);
   cursor: pointer;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+  transition: filter 0.2s ease, transform 0.2s ease;
 }
 
-.edit-button-mobile {
-  position: absolute;
-  left: 0;
-  top: 50%;
-  transform: translateY(-50%);
+.rating-edit-button {
+  align-items: center;
+  justify-content: center;
 }
 
-.edit-button-desktop {
-  display: none;
-}
-
-.edit-button:hover { filter: brightness(0.95); }
+.edit-button:hover { filter: brightness(0.97); transform: translateY(-1px); }
 
 .back-icon {
   font-size: 18px;
@@ -1659,6 +1693,7 @@
   align-items: center;
   justify-content: center;
   flex-wrap: wrap;
+  gap: 12px;
 }
 
 .rating-badge {
@@ -1917,12 +1952,6 @@
     gap: 0;
     z-index: 2;
   }
-  .edit-button-desktop {
-    display: inline-flex;
-  }
-  .edit-button-mobile {
-    display: none;
-  }
 }
 
 .info-header {
@@ -2145,10 +2174,6 @@
     line-height: 13px;
   }
 
-  .edit-button {
-    margin-left: 10px;
-  }
-
   .info-section {
     padding: 0px 10px;
     padding-top: 15px;
@@ -2157,10 +2182,6 @@
 
   .fixed-header {
     padding:0;
-  }
-
-  .top-back-button {
-    display:none;
   }
 
   .page-header {
@@ -2398,5 +2419,3 @@
 }
 
 </style>
-
-

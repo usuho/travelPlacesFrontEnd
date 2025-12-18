@@ -23,6 +23,7 @@ import { findCustomAttractionById, getAllCustomAttractions } from '../utils/cust
 import { getImageUrl as getCustomImageUrl } from '../utils/customImageStore.js';
 import { fetchAttractionsGeo, fetchAttractionsGeoByIds, fetchAttractionsPositions, fetchAttractionsPositionsByIds, getLastApiBase, withBackendApiKey } from '../utils/geoApi.js';
 import { getCountrySlugByIso, isSupportedCountrySlug } from '../utils/countryCatalog.js';
+import { ensureUserDataHydrated } from '../stores/userDataSync.js';
 
 export default {
   name: 'AttractionMap',
@@ -104,6 +105,7 @@ export default {
     }
   },
     async mounted() {
+      try { await ensureUserDataHydrated(); } catch (e) {}
       this.loadFavoritesState();
       this.initMap();
       // 安卓实体返回键：行为与页面“返回”按钮保持一致
@@ -3073,8 +3075,7 @@ export default {
   /* 名称：中文优先造字工房创基黑体，英文保持系统默认字体 */
   font-family:
     'ZaoZiGongFangChuangJiHei',
-    -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif,
-    '造字工房创际黑', 'ZCOOL XiaoWei', 'Noto Serif SC', 'Songti SC', 'STSong', 'Source Han Serif SC', 'SimSun', serif;
+    -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, "Microsoft YaHei", 'Helvetica Neue', Arial, sans-serif;
   font-weight: 500;
   max-width: 220px;
   white-space: nowrap;
@@ -3140,7 +3141,6 @@ export default {
   overscroll-behavior: contain;
 }
 </style>
-
 
 
 

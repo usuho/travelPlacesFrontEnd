@@ -126,6 +126,8 @@ export function installFetchCache(options = {}) {
   const shouldCacheRequest = (req) => {
     try {
       const url = new URL(req.url, window.location.origin);
+      // Never cache user-specific endpoints (auth-bound).
+      if (url.pathname && url.pathname.startsWith('/api/user/')) return false;
       if (url.pathname.startsWith('/api/')) return true;
       return backendHosts.some(h => h && url.hostname === h);
     } catch (e) {
@@ -143,7 +145,7 @@ export function installFetchCache(options = {}) {
         if (body && body.byteLength <= maxEntryBytes) {
           const headers = {};
           clone.headers.forEach((v, k) => { headers[k] = v; });
-          if (shouldCacheJsonPayload(body, headers)) {
+          if (shouldCachePayload(body, headers)) {
             await saveEntry(key, { ts: Date.now(), status: clone.status, headers, body });
           }
         }

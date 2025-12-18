@@ -1,5 +1,28 @@
 <template>
   <div id="app">
+    <div
+      v-if="showSyncIndicator"
+      class="sync-indicator"
+      :class="[syncIndicatorClass, { 'sync-active': indicatorActive }]"
+      @click="onIndicatorClick"
+      @mousedown="startIndicatorLongPress"
+      @mouseup="cancelIndicatorLongPress"
+      @mouseleave="cancelIndicatorLongPress"
+      @touchstart="startIndicatorLongPress"
+      @touchend="cancelIndicatorLongPress"
+      @touchcancel="cancelIndicatorLongPress"
+      @contextmenu.prevent
+    >
+      <span class="sync-icon">
+        <span v-if="syncStatus === 'syncing'" class="sync-spinner"></span>
+        <span v-else-if="syncStatus === 'ok'">√</span>
+        <span v-else>×</span>
+      </span>
+      <span class="sync-username">{{ displayUsername }}</span>
+      <transition name="sync-tooltip-fade">
+        <div v-if="showLogoutTooltip" class="sync-tooltip">长按登出</div>
+      </transition>
+    </div>
     <router-view></router-view>
     <!-- Global top-right site icon -->
     <img
@@ -15,20 +38,149 @@
 </template>
 
 <script>
+import { userDataSyncState, resetUserDataSync } from './stores/userDataSync.js'
+import { getAuthUser, clearAuthSession, clearLocalStoragePreservingRememberPassword } from './stores/auth.js'
+import { clearAllImages } from './utils/customImageStore.js'
+
+const LONG_PRESS_MS = 800;
+
 export default {
   name: 'App',
   data() {
     return {
       // Use public asset path; fallback handled on error
-      logoSrc: '/site-icon.png'
+      logoSrc: '/site-icon.png',
+      showLogoutTooltip: false,
+      tooltipTimer: null,
+      indicatorLongPressTimer: null,
+      indicatorLongPressHandled: false,
+      logoutInProgress: false,
+      indicatorActive: false,
+      indicatorFadeTimer: null
     }
   },
   computed: {
     isCountrySelect() {
-      return this.$route && this.$route.path === '/'
+      const path = this.$route && this.$route.path
+      return path === '/' || path === '/login' || path === '/register'
+    },
+    showSyncIndicator() {
+      const path = (this.$route && this.$route.path) || ''
+      const isMap = path.startsWith('/map')
+      const isDetail = path.startsWith('/attraction/')
+      return path !== '/' && path !== '/login' && path !== '/register' && !isMap && !isDetail
+    },
+    syncStatus() {
+      return userDataSyncState.status || 'idle'
+    },
+    syncIndicatorClass() {
+      return {
+        'sync-ok': this.syncStatus === 'ok',
+        'sync-syncing': this.syncStatus === 'syncing',
+        'sync-error': this.syncStatus === 'error'
+      }
+    },
+    displayUsername() {
+      const authUser = getAuthUser && getAuthUser()
+      return userDataSyncState.username || (authUser && authUser.username) || '未登录'
     }
   },
+  beforeUnmount() {
+    this.clearIndicatorTimers()
+  },
   methods: {
+    clearIndicatorTimers(hideTooltip = true) {
+      if (this.indicatorLongPressTimer) {
+        clearTimeout(this.indicatorLongPressTimer)
+        this.indicatorLongPressTimer = null
+      }
+      if (this.tooltipTimer) {
+        clearTimeout(this.tooltipTimer)
+        this.tooltipTimer = null
+      }
+      if (hideTooltip) this.showLogoutTooltip = false
+      if (this.indicatorFadeTimer) {
+        clearTimeout(this.indicatorFadeTimer)
+        this.indicatorFadeTimer = null
+      }
+    },
+    setIndicatorActive(active, delay = 0) {
+      if (active) {
+        this.indicatorActive = true
+        if (this.indicatorFadeTimer) {
+          clearTimeout(this.indicatorFadeTimer)
+          this.indicatorFadeTimer = null
+        }
+      } else {
+        if (this.indicatorFadeTimer) {
+          clearTimeout(this.indicatorFadeTimer)
+          this.indicatorFadeTimer = null
+        }
+        this.indicatorFadeTimer = setTimeout(() => {
+          this.indicatorActive = false
+          this.indicatorFadeTimer = null
+        }, delay)
+      }
+    },
+    onIndicatorClick() {
+      if (this.logoutInProgress || this.indicatorLongPressHandled) {
+        this.indicatorLongPressHandled = false
+        return
+      }
+      this.setIndicatorActive(true)
+      this.clearIndicatorTimers(false)
+      this.showLogoutTooltip = true
+      this.tooltipTimer = setTimeout(() => {
+        this.showLogoutTooltip = false
+        this.tooltipTimer = null
+      }, 1200)
+      this.setIndicatorActive(false, 1000)
+    },
+    startIndicatorLongPress() {
+      if (this.logoutInProgress) return
+      this.indicatorLongPressHandled = false
+      this.setIndicatorActive(true)
+      if (this.indicatorLongPressTimer) {
+        clearTimeout(this.indicatorLongPressTimer)
+      }
+      this.indicatorLongPressTimer = setTimeout(() => {
+        this.indicatorLongPressHandled = true
+        this.triggerLogout()
+      }, LONG_PRESS_MS)
+    },
+    cancelIndicatorLongPress() {
+      if (this.indicatorLongPressHandled || this.logoutInProgress) return
+      if (this.indicatorLongPressTimer) {
+        clearTimeout(this.indicatorLongPressTimer)
+        this.indicatorLongPressTimer = null
+      }
+      this.setIndicatorActive(false, 1000)
+    },
+    async triggerLogout() {
+      if (this.logoutInProgress) return
+      this.logoutInProgress = true
+      this.clearIndicatorTimers()
+      this.performClientCleanup()
+      try {
+        await this.$router.replace('/login')
+      } catch (e) {
+        try { this.$router.push('/login') } catch (_) {}
+      }
+      this.logoutInProgress = false
+      this.indicatorLongPressHandled = false
+    },
+    performClientCleanup() {
+      try { resetUserDataSync() } catch (e) {}
+      try { clearAuthSession() } catch (e) {}
+      try { clearLocalStoragePreservingRememberPassword() } catch (e) {}
+      try { sessionStorage.clear() } catch (e) {}
+      try { clearAllImages() } catch (e) {}
+      try {
+        if (typeof caches !== 'undefined' && caches.keys) {
+          caches.keys().then(keys => keys.forEach(k => caches.delete(k)))
+        }
+      } catch (e) {}
+    },
     onIconError(e) {
       // Fallback to existing favicon if custom icon missing
       if (e && e.target) e.target.src = '/favicon.svg'
@@ -43,6 +195,7 @@ export default {
 </script>
 
 <style>
+@import url('https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@300;400;600;700&family=ZCOOL+XiaoWei&display=swap');
 /* 全局样式重置 */
 * {
   margin: 0;
@@ -82,6 +235,97 @@ html, body {
   pointer-events: auto;
   opacity: 0.5;
   transition: transform 0.3s ease, opacity 0.3s ease;
+}
+
+.sync-indicator {
+  position: fixed;
+  top: 12px;
+  left: 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px 6px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.9);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
+  z-index: 1100;
+  backdrop-filter: blur(4px);
+  cursor: pointer;
+  user-select: none;
+  touch-action: manipulation;
+  opacity: 0.3;
+  transition: opacity 0.4s ease;
+}
+
+.sync-indicator.sync-active {
+  opacity: 0.9;
+}
+
+.sync-icon {
+  width: 16px;
+  height: 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 20x;
+  font-weight: 1000;
+}
+
+@media (max-width: 768px) {
+  .sync-indicator {
+    transform: scale(0.8);
+    transform-origin: top left;
+    top: 58px;
+    left: 20px;
+  }
+}
+
+.sync-indicator .sync-spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid #cbd5e1;
+  border-top-color: #22c55e;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+.sync-indicator.sync-ok .sync-icon { color: #16a34a; }
+.sync-indicator.sync-error .sync-icon { color: #dc2626; }
+.sync-indicator.sync-syncing .sync-icon { color: #0ea5e9; }
+
+.sync-username {
+  font-size: 14px;
+  color: #0f172a;
+  font-weight: 600;
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sync-tooltip {
+  position: absolute;
+  top: calc(100% + 10px);
+  left: 0;
+  padding: 4px 6px;
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.75);
+  color: #fff;
+  font-size: 11px;
+  white-space: nowrap;
+  box-shadow: 0 6px 12px rgba(0, 0, 0, 0.18);
+  opacity: 0.5;
+  transform: scale(1.5);
+  transform-origin: top left;
+}
+
+.sync-tooltip-fade-enter-active,
+.sync-tooltip-fade-leave-active {
+  transition: opacity 0.2s ease;
+}
+.sync-tooltip-fade-enter-from,
+.sync-tooltip-fade-leave-to {
+  opacity: 0;
 }
 
 /* 全局按钮样式 */

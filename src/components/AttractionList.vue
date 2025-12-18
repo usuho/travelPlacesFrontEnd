@@ -3,9 +3,6 @@
     <!-- 固定顶部区域（标题 + 筛选器） -->
     <div class="fixed-header">
       <header class="page-header">
-        <button @click="goBack" class="back-button top-back-button desktop-back-button">
-          返回
-        </button>
         <div class="header-content">
 
           <div class="title-text-group">
@@ -796,9 +793,10 @@
   <script>
   import { openDB } from 'idb';
   import CreateAttractionModal from './CreateAttractionModal.vue'
-  import { findCustomAttractionById, deleteCustomAttraction } from '../utils/customAttractions.js'
+  import { findCustomAttractionById, deleteCustomAttraction, saveAllCustomAttractions } from '../utils/customAttractions.js'
   import { getImageUrl as getCustomImageUrl, deleteImagesForId as deleteCustomImagesForId, setImage as setCustomImage } from '../utils/customImageStore.js'
   import { withBackendApiKey } from '../utils/geoApi.js';
+  import { ensureUserDataHydrated, queueUserDataSync, deleteCustomImages } from '../stores/userDataSync.js'
   import { Capacitor } from '@capacitor/core';
   import { Filesystem, Directory, Encoding } from '@capacitor/filesystem';
 
@@ -1171,6 +1169,7 @@
       }
     },
     async created() {
+      try { await ensureUserDataHydrated(); } catch (e) {}
       this.ensureCountryState();
       this.isRestoring = true;
       // 进入列表页时再次从 localStorage 读取，避免 0 被默认值覆盖
@@ -2136,7 +2135,7 @@
                     const all = allRaw ? (JSON.parse(allRaw) || []) : [];
                     const idx = all.findIndex(a => String(a.id) === String(custom.id));
                     if (idx >= 0) all[idx] = custom; else all.push(custom);
-                    localStorage.setItem('customAttractions', JSON.stringify(all));
+                    saveAllCustomAttractions(all);
                   } catch (e) {}
                   try {
                     if (entry.images && typeof entry.images === 'object') {
@@ -2184,7 +2183,7 @@
                 const all = allRaw ? (JSON.parse(allRaw) || []) : [];
                 const idx = all.findIndex(a => String(a.id) === String(custom.id));
                 if (idx >= 0) all[idx] = custom; else all.push(custom);
-                localStorage.setItem('customAttractions', JSON.stringify(all));
+                saveAllCustomAttractions(all);
               } catch (e) {}
                             // 还原图片（如导出包含）
               try {
@@ -2257,7 +2256,7 @@
                   const all = allRaw ? (JSON.parse(allRaw) || []) : [];
                   const idx = all.findIndex(a => String(a.id) === String(custom.id));
                   if (idx >= 0) all[idx] = custom; else all.push(custom);
-                  localStorage.setItem('customAttractions', JSON.stringify(all));
+                  saveAllCustomAttractions(all);
                 } catch (e) {}
                 try {
                   if (entry.images && typeof entry.images === 'object') {
@@ -2301,7 +2300,7 @@
               const all = allRaw ? (JSON.parse(allRaw) || []) : [];
               const idx = all.findIndex(a => String(a.id) === String(custom.id));
               if (idx >= 0) all[idx] = custom; else all.push(custom);
-              localStorage.setItem('customAttractions', JSON.stringify(all));
+              saveAllCustomAttractions(all);
             } catch (e) {}
             try {
               if (entry.images && typeof entry.images === 'object') {
@@ -2435,6 +2434,7 @@
         try {
           localStorage.setItem(key, JSON.stringify(this.favoriteTabs));
         } catch(e) {}
+        try { queueUserDataSync(); } catch (e) {}
       },
       getFavoritesStorageKey() {
         // 跨国家共用收藏（多选项卡）
@@ -2504,6 +2504,7 @@
         this.activeTabId = id;
         // 记忆选中的tab
         try { localStorage.setItem('favoriteTabs_activeId', id); } catch(e) {}
+        try { queueUserDataSync(); } catch (e) {}
 
         const at = this.favoriteTabs.find(t => t.id === id);
         this.favorites = at ? at.items : [];
@@ -2951,8 +2952,18 @@
           const items = tab && Array.isArray(tab.items) ? tab.items : [];
           items.forEach(it => {
             if (String(it.country) === 'custom') {
+              let keysToDelete = [];
+              try {
+                const custom = findCustomAttractionById(it.id);
+                const imgs = custom && custom.images ? custom.images : {};
+                const sec = Array.isArray(imgs.secondary) ? imgs.secondary : [];
+                if (imgs.main) keysToDelete.push(imgs.main);
+                if (sec[0]) keysToDelete.push(sec[0]);
+                if (sec[1]) keysToDelete.push(sec[1]);
+              } catch (e) {}
               try { deleteCustomAttraction(it.id); } catch(e) {}
               try { deleteCustomImagesForId(it.id); } catch(e) {}
+              try { if (keysToDelete.length) deleteCustomImages(keysToDelete); } catch (e) {}
               try { this.removeGeoCacheForCustom(it.id); } catch(e) {}
             }
             const key = this.thumbKey ? this.thumbKey(it) : (it.country + '-' + it.id);
@@ -3284,7 +3295,16 @@ const all = this.sortedFavorites || [];
         } catch (e) {}
       },
       thumbKey(f) {
-        return `${f.country}-${f.id}`;
+        const base = `${f.country}-${f.id}`;
+        if (String(f.country) !== 'custom') return base;
+        // 对自创景点：将当前主图引用一起纳入 key，避免更换主图后仍复用旧缩略图缓存
+        try {
+          const a = findCustomAttractionById(f.id);
+          const mainRef = a && a.images && a.images.main;
+          return `${base}-${mainRef || 'none'}`;
+        } catch (e) {
+          return base;
+        }
       },
       favoritesListEl() {
         const ref = this.$refs.favoritesList;
@@ -3297,9 +3317,11 @@ const all = this.sortedFavorites || [];
         try {
           if (String(f.country) === 'custom') {
             const a = findCustomAttractionById(f.id);
-            let url = a && a.images && a.images.main ? a.images.main : '';
+            let url = '';
+            if (a && a.images && a.images.main) {
+              url = await getCustomImageUrl(a.images.main);
+            }
             if (!url && a && a.hasImage1) {
-              // 从 IndexedDB 读取主图
               url = await getCustomImageUrl(`${f.id}:main`);
             }
             if (url) {
@@ -3307,7 +3329,9 @@ const all = this.sortedFavorites || [];
             }
             return;
           }
-          const res = await fetch(`https://juseaxerf.com/api/attraction-image/${f.country}/${f.id}/1`, withBackendApiKey());
+          const ts = Date.now();
+          const imageUrl = `https://juseaxerf.com/api/attraction-image/${f.country}/${f.id}/1?ts=${ts}`;
+          const res = await fetch(imageUrl, withBackendApiKey({ cache: 'no-store' }));
           if (!res.ok) return;
           const blob = await res.blob();
           const url = URL.createObjectURL(blob);
@@ -3560,8 +3584,18 @@ const all = this.sortedFavorites || [];
         } catch (e) {}
         // 清除自创景点缓存（若为自创）
         if (String(t.country) === 'custom') {
+          let keysToDelete = [];
+          try {
+            const custom = findCustomAttractionById(t.id);
+            const imgs = custom && custom.images ? custom.images : {};
+            const sec = Array.isArray(imgs.secondary) ? imgs.secondary : [];
+            if (imgs.main) keysToDelete.push(imgs.main);
+            if (sec[0]) keysToDelete.push(sec[0]);
+            if (sec[1]) keysToDelete.push(sec[1]);
+          } catch (e) {}
           try { deleteCustomAttraction(t.id); } catch (e) {}
           try { deleteCustomImagesForId(t.id); } catch (e) {}
+          try { if (keysToDelete.length) deleteCustomImages(keysToDelete); } catch (e) {}
           try { this.removeGeoCacheForCustom(t.id); } catch (e) {}
         }
         // 清理缩略图缓存（统一处理）
@@ -5338,10 +5372,6 @@ const all = this.sortedFavorites || [];
   box-shadow: 0 4px 15px rgba(0, 122, 255, 0.3);
 }
 
-.top-back-button {
-  margin-bottom: 0;
-}
-
 .bottom-back-button {
   margin-bottom: 0;
 }
@@ -6003,10 +6033,6 @@ const all = this.sortedFavorites || [];
 
   .back-button > * + * {
     margin-left: 10px;
-  }
-
-  .desktop-back-button {
-    display: none;
   }
 
   .attraction-content-mobile {

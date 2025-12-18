@@ -9,6 +9,8 @@ import CountrySelect from './components/CountrySelect.vue'
 import AttractionList from './components/AttractionList.vue'
 import AttractionDetails from './components/AttractionDetails.vue'
 import AttractionMap from './components/AttractionMap.vue'
+import { getAuthUser, isAuthenticated, getAuthToken, hasPersistedSessionToken, clearAuthSession } from './stores/auth.js'
+import { ensureUserDataHydrated, setSyncUsername } from './stores/userDataSync.js'
 
 import flyIn from './directives/flyIn.js';
 import fadeIn from './directives/fadeIn.js';
@@ -18,12 +20,14 @@ installFetchCache();
 
 
 const routes = [
-  { path: '/userlogin', component: userLogin },
-  { path: '/userRegister', component: userRegister },
-  { path: '/', component: CountrySelect },
-  { path: '/attractions/:country', component: AttractionList },
-  { path: '/attraction/:country/:id', component: AttractionDetails },
-  { path: '/map/:country', component: AttractionMap }
+  { path: '/login', component: userLogin, meta: { public: true } },
+  { path: '/register', component: userRegister, meta: { public: true } },
+  { path: '/userlogin', redirect: '/login' },
+  { path: '/userRegister', redirect: '/register' },
+  { path: '/', component: CountrySelect, meta: { requiresAuth: true } },
+  { path: '/attractions/:country', component: AttractionList, meta: { requiresAuth: true } },
+  { path: '/attraction/:country/:id', component: AttractionDetails, meta: { requiresAuth: true } },
+  { path: '/map/:country', component: AttractionMap, meta: { requiresAuth: true } }
 ]
 
 const router = createRouter({
@@ -66,6 +70,20 @@ try {
 // 全局路由守卫：从任意非首页页面返回到国家选择页时，
 // 在当前右上角 logo 位置创建一个过渡用 overlay
 router.beforeEach((to, from, next) => {
+  const isPublic = !!(to.meta && to.meta.public)
+  const authed = isAuthenticated()
+
+  if (!authed && !isPublic) {
+    next({ path: '/login', query: { redirect: to.fullPath } })
+    return
+  }
+
+  if (authed && isPublic && (to.path === '/login' || to.path === '/register')) {
+    const target = to.query && to.query.redirect ? to.query.redirect : (from && from.fullPath ? from.fullPath : '/')
+    next(target === to.fullPath ? '/' : target)
+    return
+  }
+
   try {
     // 仅在移动端从非首页返回首页时创建 overlay
     const isMobile = window.innerWidth <= 768;
@@ -100,4 +118,15 @@ const app = createApp(App)
 app.use(router)
 app.directive('fly-in', flyIn);
 app.directive('fade-in', fadeIn);
+setSyncUsername((getAuthUser() && getAuthUser().username) || '')
+try { ensureUserDataHydrated() } catch (e) {}
 app.mount('#app')
+
+setInterval(() => {
+  try {
+    if (getAuthToken() && !hasPersistedSessionToken()) {
+      clearAuthSession();
+      router.replace('/login').catch(() => {});
+    }
+  } catch (e) {}
+}, 2000);
