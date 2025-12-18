@@ -12,8 +12,8 @@
       </div>
 
       <form class="auth-form" @submit.prevent="handleSubmit">
-        <label class="field">
-          <span>用户名</span>
+        <label class="field" style="margin-bottom: 16px;">
+          <span class="item">用户名</span>
           <input
             type="text"
             v-model.trim="username"
@@ -25,8 +25,8 @@
         </label>
 
         <div class="field-group">
-          <label class="field">
-            <span>密码</span>
+          <label class="field" style="margin-bottom: 8px;">
+            <span class="item" >密码</span>
             <input
               type="password"
               v-model.trim="password"
@@ -43,7 +43,7 @@
                 v-model="rememberPassword"
               />
               <span class="remember-box" aria-hidden="true"></span>
-              <span class="remember-text">记住密码</span>
+              <span class="remember-text" style="margin-bottom: 16px;">记住密码</span>
             </label>
           </div>
         </div>
@@ -250,7 +250,8 @@ export default {
 }
 
 .auth-card {
-  width: min(440px, 100%);
+  width: 100%;
+  max-width: 520px;
   padding: 32px;
   background: #fff;
 }
@@ -302,15 +303,17 @@ export default {
 .auth-form {
   display: flex;
   flex-direction: column;
-  gap: 16px;
 }
 
 .field {
   display: flex;
   flex-direction: column;
-  gap: 8px;
   font-weight: 600;
   color: #1d1d1f;
+}
+
+.item {
+  margin-bottom: 8px;
 }
 
 .field input {
@@ -320,7 +323,6 @@ export default {
 .field-group {
   display: flex;
   flex-direction: column;
-  gap: 8px;
 }
 
 .remember-row {
@@ -332,7 +334,6 @@ export default {
   position: relative;
   display: inline-flex;
   align-items: center;
-  gap: 8px;
   font-size: 14px;
   font-weight: 500;
   color: #1d1d1f;
@@ -361,6 +362,8 @@ export default {
   align-items: center;
   justify-content: center;
   transition: background-color 0.15s ease, border-color 0.15s ease;
+  margin-right: 8px;
+  margin-bottom: 16px;
 }
 
 .remember-box::after {
@@ -418,7 +421,7 @@ button {
   animation: spin 0.8s linear infinite;
 }
 
-@media (max-width: 520px) {
+@media (max-width: 768px) {
   .auth-card {
     padding: 24px;
   }

@@ -688,12 +688,12 @@ export default {
 .modal-header { display: flex; align-items: center; justify-content: space-between; padding: 14px 16px; border-bottom: 1px solid #eef0f3; }
 .modal-body { padding: 16px; overflow: auto; overflow-x: hidden; }
 .modal-body { -webkit-overflow-scrolling: touch; }
-.modal-footer { padding: 12px 16px; border-top: 1px solid #eef0f3; display: flex; justify-content: flex-end; gap: 8px; }
+.modal-footer { padding: 12px 16px; border-top: 1px solid #eef0f3; display: flex; justify-content: flex-end;}
 .close { font-size: 18px; background: none; border: none; cursor: pointer; }
 .primary { background: #3b82f6; color: #fff; border: none; padding: 8px 14px; border-radius: 8px; cursor: pointer; }
 .primary:hover { filter: brightness(0.95); }
 .primary:disabled { opacity: .5; cursor: not-allowed; }
-.ghost { background: #fff; border: 1px solid #cfd6e4; color: #334155; padding: 8px 14px; border-radius: 8px; cursor: pointer; }
+.ghost { background: #fff; border: 1px solid #cfd6e4; color: #334155; padding: 8px 14px; border-radius: 8px; cursor: pointer; margin-right: 8px;}
 .ghost:hover { background: #f6f8fa; }
 
 .modal-loading-overlay {

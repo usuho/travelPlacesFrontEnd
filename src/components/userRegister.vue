@@ -660,8 +660,11 @@ export default {
   margin-bottom: 24px;
   display: flex;
   justify-content: space-between;
-  gap: 16px;
   align-items: flex-start;
+}
+
+.auth-header > * + * {
+  margin-left: 16px;
 }
 
 .eyebrow {
@@ -686,23 +689,43 @@ export default {
 .auth-form {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+}
+
+.auth-form > * + * {
+  margin-top: 16px;
 }
 
 .grid {
-  display: grid;
-  gap: 16px;
+  display: flex;
+  flex-wrap: wrap;
+  margin-left: -8px;
+  margin-right: -8px;
+  margin-bottom: -16px;
+}
+
+.grid > * {
+  margin-left: 8px;
+  margin-right: 8px;
+  margin-bottom: 16px;
 }
 
 .grid.two {
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  width: 100%;
+}
+
+.grid.two > * {
+  flex: 1 1 200px;
+  min-width: 200px;
 }
 
 .phone-row {
   display: flex;
-  gap: 8px;
   align-items: center;
   width: 100%;
+}
+
+.phone-row > * + * {
+  margin-left: 8px;
 }
 
 .phone-prefix {
@@ -716,9 +739,12 @@ export default {
 .field {
   display: flex;
   flex-direction: column;
-  gap: 8px;
   font-weight: 600;
   color: #1d1d1f;
+}
+
+.field > span {
+  margin-bottom: 8px;
 }
 
 .field input {
@@ -745,16 +771,22 @@ button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
+}
+
+button > * + * {
+  margin-left: 8px;
 }
 
 .auth-footer {
   display: flex;
-  gap: 6px;
   align-items: center;
   justify-content: center;
   margin-top: 16px;
   color: #6e6e73;
+}
+
+.auth-footer > * + * {
+  margin-left: 6px;
 }
 
 .error-message {
