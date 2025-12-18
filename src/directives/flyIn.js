@@ -1,6 +1,7 @@
 // src/directives/flyIn.js
 export default {
-  mounted(el) {
+  mounted(el, binding) {
+    if (binding && binding.value === false) return;
     const items = Array.from(el.children);
     items.forEach((item, index) => {
       // 初始状态

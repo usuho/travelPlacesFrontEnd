@@ -65,57 +65,8 @@
         <div
           v-for="country in matchedCountries"
           :key="country"
-          class="country-card card"
         >
           <div
-            class="country-link"
-            @click="handleCountryClick(country)"
-          >
-            <div class="country-flag-name">
-              <div class="country-flag-mobile">
-                {{ getCountryEmoji(country) }}
-              </div>
-              
-              <div class="country-text-group-mobile">
-                <h3 class="country-name-mobile">{{ translateCountry(country) }}</h3>
-                <h3 class="country-name-mobile-english" style="text-transform: uppercase;">
-                  {{ country }}
-                </h3>
-              </div>
-            </div>
-
-            
-
-            <div class="country-flag-desktop">
-              {{ getCountryEmoji(country) }}
-            </div>
-
-            <div class="country-text-group-desktop">
-              <h3 class="country-name-desktop">{{ translateCountry(country) }}</h3>
-              <h3 class="country-name-desktop-english" style="text-transform: uppercase;">
-                {{ country }}
-              </h3>
-            </div>
-            
-
-            <p class="country-description">
-              {{ getCountryDescription(country) }}
-            </p>
-          </div>
-        </div>
-      </div>
-    </div>
-    <div v-else class="all-continents">
-      <div
-        v-for="(countries, continent) in continents"
-        :key="continent"
-        class="continent-section"
-      >
-        <h2 class="continent-title">{{ translateContinent(continent) }}</h2>
-        <div class="countries-grid" v-fly-in>
-          <div
-            v-for="country in countries"
-            :key="country"
             :class="['country-card', 'card', { jiggle: isJiggling }]"
             :style="isJiggling ? jiggleStyle : null"
           >
@@ -153,6 +104,62 @@
               <p class="country-description">
                 {{ getCountryDescription(country) }}
               </p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div v-else class="all-continents">
+      <div
+        v-for="(countries, continent) in continents"
+        :key="continent"
+        class="continent-section"
+      >
+        <h2 class="continent-title">{{ translateContinent(continent) }}</h2>
+        <div class="countries-grid" v-fly-in="!hasEverSearched">
+          <div
+            v-for="country in countries"
+            :key="country"
+          >
+            <div
+              :class="['country-card', 'card', { jiggle: isJiggling }]"
+              :style="isJiggling ? jiggleStyle : null"
+            >
+              <div
+                class="country-link"
+                @click="handleCountryClick(country)"
+              >
+                <div class="country-flag-name">
+                  <div class="country-flag-mobile">
+                    {{ getCountryEmoji(country) }}
+                  </div>
+                  
+                  <div class="country-text-group-mobile">
+                    <h3 class="country-name-mobile">{{ translateCountry(country) }}</h3>
+                    <h3 class="country-name-mobile-english" style="text-transform: uppercase;">
+                      {{ country }}
+                    </h3>
+                  </div>
+                </div>
+
+                
+
+                <div class="country-flag-desktop">
+                  {{ getCountryEmoji(country) }}
+                </div>
+
+                <div class="country-text-group-desktop">
+                  <h3 class="country-name-desktop">{{ translateCountry(country) }}</h3>
+                  <h3 class="country-name-desktop-english" style="text-transform: uppercase;">
+                    {{ country }}
+                  </h3>
+                </div>
+                
+
+                <p class="country-description">
+                  {{ getCountryDescription(country) }}
+                </p>
+              </div>
             </div>
           </div>
         </div>
@@ -306,6 +313,7 @@ export default {
       placeholderText: '搜寻国家，发现美和新奇',
       searchQuery: '',
       searchFocused: false,
+      hasEverSearched: false,
       showHeroLogo: false,
       showLogoutTooltip: false,
       tooltipTimer: null,
@@ -384,10 +392,7 @@ export default {
       });
     },
     isJiggling() {
-      return (
-        (this.searchFocused && !this.hasSearchQuery) ||
-        (this.hasSearchQuery && this.matchedCountries.length === 0)
-      );
+      return !!this.searchFocused;
     },
     jiggleStyle() {
       return {
@@ -397,6 +402,11 @@ export default {
         opacity: '1',
         transform: 'translateY(0)'
       };
+    }
+  },
+  watch: {
+    hasSearchQuery(val) {
+      if (val) this.hasEverSearched = true;
     }
   },
   methods: {
@@ -945,32 +955,32 @@ export default {
 
 @keyframes jiggle {
   0% {
-    transform: translate(0, 0) rotate(-0.44deg) scale(1.0009);
+    transform: translate(0, 0) rotate(-0.54deg) scale(1.0009);
   }
   25% {
-    transform: translate(0.27px, -0.17px) rotate(0.44deg);
+    transform: translate(0.32px, -0.2px) rotate(0.54deg);
   }
   50% {
-    transform: translate(-0.27px, 0.17px) rotate(-0.36deg);
+    transform: translate(-0.32px, 0.2px) rotate(-0.44deg);
   }
   75% {
-    transform: translate(0.17px, 0.17px) rotate(0.36deg);
+    transform: translate(0.2px, 0.2px) rotate(0.44deg);
   }
   100% {
-    transform: translate(0, 0) rotate(-0.44deg) scale(1.0009);
+    transform: translate(0, 0) rotate(-0.54deg) scale(1.0009);
   }
 }
 
 .jiggle,
 .country-card.jiggle {
-  animation: jiggle 0.3s ease-in-out infinite !important;
+  animation: jiggle 0.4s ease-in-out infinite !important;
   transform-origin: center !important;
   will-change: transform;
   opacity: 1 !important;
 }
 
 :deep(.country-card.jiggle) {
-  animation: jiggle 0.3s ease-in-out infinite !important;
+  animation: jiggle 0.4s ease-in-out infinite !important;
   transform-origin: center !important;
   will-change: transform;
   opacity: 1 !important;
