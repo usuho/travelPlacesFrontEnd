@@ -788,6 +788,57 @@ export default {
       } catch (e) {}
     },
 
+    _getFavoriteKeysWithChangedLabel(beforeMap, afterMap) {
+      const changed = new Set();
+      try {
+        const a = beforeMap instanceof Map ? beforeMap : new Map();
+        const b = afterMap instanceof Map ? afterMap : new Map();
+        const keys = new Set([...a.keys(), ...b.keys()]);
+        for (const key of keys) {
+          const before = a.get(key);
+          const after = b.get(key);
+          if (!before || !after) continue;
+          const beforeText = String(before.text || '');
+          const afterText = String(after.text || '');
+          if (beforeText !== afterText) {
+            if (beforeText || afterText) changed.add(key);
+          }
+        }
+      } catch (e) {}
+      return Array.from(changed);
+    },
+
+    flashFavoriteMarkersByKeys(keys) {
+      try {
+        if (!this.favoritesLayer) return;
+        const list = Array.isArray(keys) ? keys.filter(Boolean) : [];
+        if (!list.length) return;
+        const keySet = new Set(list.map(k => String(k).trim().toLowerCase()));
+
+        const markers = Object.values(this.favoritesLayer._layers || {});
+        for (const m of markers) {
+          try {
+            const key = this._favoriteKeyFromMeta(m && m.options ? m.options._meta : null);
+            if (!key || !keySet.has(key)) continue;
+
+            const iconEl = m && m._icon;
+            const target = iconEl && iconEl.querySelector ? iconEl.querySelector('.fav-marker') : null;
+            if (!target || !target.classList) continue;
+
+            target.classList.remove('fav-flash');
+            try { void target.offsetWidth; } catch (e) {}
+            target.classList.add('fav-flash');
+
+            const cleanup = () => {
+              try { target.classList.remove('fav-flash'); } catch (e) {}
+            };
+            try { target.addEventListener('animationend', cleanup, { once: true }); } catch (e) {}
+            setTimeout(cleanup, 1200);
+          } catch (e) {}
+        }
+      } catch (e) {}
+    },
+
     _persistFavoriteTabs() {
       try { localStorage.setItem('favoriteTabs_all', JSON.stringify(this.favoriteTabs || [])); } catch (e) {}
       try { queueUserDataSync(); } catch (e) {}
@@ -958,8 +1009,22 @@ export default {
           if (touched.length === 1) {
             const otherKey = this._favoriteKeyFromMeta(touched[0] && touched[0].options ? touched[0].options._meta : null);
             if (dragKey && otherKey) {
+              const beforeLabels = this._computeFavoriteLabelMap();
               const swapped = this._swapFavoritesInSameTab(dragKey, otherKey);
-              if (swapped) this.refreshFavoriteMarkerIcons();
+              if (swapped) {
+                const afterLabels = this._computeFavoriteLabelMap();
+                const changedKeys = this._getFavoriteKeysWithChangedLabel(beforeLabels, afterLabels);
+                this.refreshFavoriteMarkerIcons();
+                if (changedKeys.length) {
+                  try {
+                    requestAnimationFrame(() => {
+                      try { this.flashFavoriteMarkersByKeys(changedKeys); } catch (e) {}
+                    });
+                  } catch (_) {
+                    try { this.flashFavoriteMarkersByKeys(changedKeys); } catch (e) {}
+                  }
+                }
+              }
             }
           }
 
@@ -2673,7 +2738,7 @@ export default {
     bindPopupNoAutoPan(marker, meta) {
       try {
         if (!marker) return;
-        marker.bindPopup(this.buildPopup(meta), { autoPan: false });
+        marker.bindPopup(this.buildPopup(meta), { autoPan: false, minWidth: 100});
       } catch (_) {}
     },
     attachPopupHandlers(meta) {
@@ -3314,6 +3379,41 @@ export default {
 }
 
 /* ȫ㣺ɫԲ */
+:deep(.fav-marker.fav-flash) {
+  animation: favMarkerFlash 0.9s ease-out 1;
+}
+
+@keyframes favMarkerFlash {
+  0% {
+    transform: scale(1);
+    filter: brightness(1);
+    box-shadow:
+      0 0 0 2px #fff,
+      0 0 0 0 rgba(255, 255, 255, 0);
+  }
+  30% {
+    transform: scale(1.16);
+    filter: brightness(1.5);
+    box-shadow:
+      0 0 0 2px #fff,
+      0 0 18px 10px rgba(255, 255, 255, 0.95);
+  }
+  60% {
+    transform: scale(1.06);
+    filter: brightness(1.2);
+    box-shadow:
+      0 0 0 2px #fff,
+      0 0 12px 6px rgba(255, 255, 255, 0.55);
+  }
+  100% {
+    transform: scale(1);
+    filter: brightness(1);
+    box-shadow:
+      0 0 0 2px #fff,
+      0 0 0 0 rgba(255, 255, 255, 0);
+  }
+}
+
 :deep(.dot-marker) { width: 16px; height: 16px; border-radius: 50%; background: #3b82f6; border: 2px solid #fff; box-shadow: 0 1px 3px rgba(0,0,0,.2); }
 
 /* ۽ɫԲ */
