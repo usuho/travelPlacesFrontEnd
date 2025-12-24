@@ -544,6 +544,7 @@
           <div
             v-for="node in favoritesMoveNodes"
             :key="node.key"
+            :data-fav-placeholder="node.type === 'placeholder' ? 'active' : null"
             :class="
               node.type === 'placeholder'
                 ? 'favorites-placeholder'
@@ -1077,15 +1078,17 @@
       favoritesMoveNodes() {
         const nodes = [];
         const favs = this.sortedFavorites || [];
+        let insertedPlaceholder = false;
         for (let i = 0; i < favs.length; i++) {
-          if (this.dragging && this.placeholderIndex === i && this.dragIndex !== i) {
-            nodes.push({ type: 'placeholder', key: `fav-ph-${i}` });
+          if (!insertedPlaceholder && this.dragging && this.placeholderIndex === i && this.dragIndex !== i) {
+            insertedPlaceholder = true;
+            nodes.push({ type: 'placeholder', key: 'fav-ph' });
           }
           const f = favs[i];
           nodes.push({ type: 'item', key: `fav-item-${f.country}-${f.id}`, f, index: i });
         }
-        if (this.dragging && this.placeholderIndex === favs.length) {
-          nodes.push({ type: 'placeholder', key: 'fav-ph-end' });
+        if (!insertedPlaceholder && this.dragging && this.placeholderIndex === favs.length) {
+          nodes.push({ type: 'placeholder', key: 'fav-ph' });
         }
         return nodes;
       },
@@ -4206,13 +4209,44 @@ const all = this.sortedFavorites || [];
       computeDomPlaceholderIndex() {
         const list = this.favoritesListEl();
         if (!list) return this.placeholderIndex;
-        const placeholder = list.querySelector('.favorites-placeholder');
+        const placeholder = list.querySelector('[data-fav-placeholder="active"]');
         if (!placeholder || !placeholder.parentNode) return this.placeholderIndex;
+        let placeholderMid = null;
+        try {
+          const r = placeholder.getBoundingClientRect();
+          placeholderMid = (r.top + r.bottom) / 2;
+        } catch (e) {}
+
+        const isLeavingAbsolute = (el) => {
+          if (!el) return false;
+          try {
+            const s = window.getComputedStyle(el);
+            return s && s.position === 'absolute';
+          } catch (e) {
+            return false;
+          }
+        };
+
+        // 优先用“视觉位置”（getBoundingClientRect，包含 transform），并排除 leave 阶段的绝对定位节点
+        if (typeof placeholderMid === 'number') {
+          const itemEls = Array.from(list.querySelectorAll('.favorites-item')).filter(el => !isLeavingAbsolute(el));
+          let count = 0;
+          for (const el of itemEls) {
+            try {
+              const rr = el.getBoundingClientRect();
+              const mid = (rr.top + rr.bottom) / 2;
+              if (mid < placeholderMid) count += 1;
+            } catch (e) {}
+          }
+          return count;
+        }
+
+        // 兜底：按 DOM 顺序计数（同样排除绝对定位 leave 节点）
         const siblings = Array.from(placeholder.parentNode.children || []);
         let count = 0;
         for (const el of siblings) {
           if (el === placeholder) break;
-          if (el.classList && el.classList.contains('favorites-item')) {
+          if (el.classList && el.classList.contains('favorites-item') && !isLeavingAbsolute(el)) {
             count += 1;
           }
         }
@@ -4221,7 +4255,7 @@ const all = this.sortedFavorites || [];
       getPlaceholderContentTop(indexOverride) {
         const list = this.favoritesListEl();
         if (!list) return null;
-        const placeholderEl = list.querySelector('.favorites-placeholder');
+        const placeholderEl = list.querySelector('[data-fav-placeholder="active"]');
         if (placeholderEl && placeholderEl.getBoundingClientRect) {
           try {
             const listRect = list.getBoundingClientRect();
@@ -4247,14 +4281,13 @@ const all = this.sortedFavorites || [];
           const r = menu.getBoundingClientRect();
           return dropX >= r.left && dropX <= r.right && dropY >= r.top && dropY <= r.bottom;
         })();
-        this.updatePlaceholderIndex();
         const domIndex = this.computeDomPlaceholderIndex();
         const finalIndex = (typeof domIndex === 'number' && domIndex >= 0)
           ? domIndex
           : (this.placeholderIndex != null ? this.placeholderIndex : null);
         const list = this.favoritesListEl();
         const listRect = list && list.getBoundingClientRect ? list.getBoundingClientRect() : null;
-        const pointerOffset = listRect ? Math.max(0, Math.min(listRect.height, this.dragY - listRect.top)) : 0;
+        const pointerOffset = listRect ? Math.max(0, Math.min(listRect.height, dropY - listRect.top)) : 0;
         const placeholderTop = this.getPlaceholderContentTop(finalIndex);
         const fallbackScrollTop = list ? list.scrollTop : 0;
         const scrollTarget = (list && placeholderTop != null)
@@ -4318,10 +4351,14 @@ const all = this.sortedFavorites || [];
               if (!moved) {
                 moved = { ...this.dragItem };
               }
-              let insertIndex = finalIndex != null ? finalIndex : targetItems.length;
+              const orderedTarget = [...this.sortedFavorites];
+              let insertIndex = finalIndex != null ? finalIndex : orderedTarget.length;
               if (insertIndex < 0) insertIndex = 0;
-              if (insertIndex > targetItems.length) insertIndex = targetItems.length;
-              targetItems.splice(insertIndex, 0, moved);
+              if (insertIndex > orderedTarget.length) insertIndex = orderedTarget.length;
+              orderedTarget.splice(insertIndex, 0, moved);
+              orderedTarget.forEach((item, i) => { item.order = i + 1; });
+              // 保持 targetItems 引用不变（避免 favorites 指针失效），但顺序严格按占位框插入点更新
+              targetItems.splice(0, targetItems.length, ...orderedTarget);
               movedId = moved && moved.id ? moved.id : draggedId;
               this.normalizeTabItemsOrder(targetTab);
               if (this.activeTabId === targetTab.id) {
@@ -5389,6 +5426,8 @@ const all = this.sortedFavorites || [];
   padding: 8px 10px; /* 与 .favorites-item 一致的内边距，便于匹配视觉高度 */
   border: 2px dashed #ffd700;
   border-radius: 10px;
+  transform: none !important;
+  transition: none !important;
 }
 .fav-left-actions {
   position: absolute;
