@@ -907,6 +907,11 @@ export default {
   box-shadow: 0 12px 30px rgba(0, 0, 0, 0.08);
   transition: box-shadow 0.2s ease, border-color 0.2s ease;
   text-align: left;
+  /* Android WebView: ensure overlay icon can render above native input */
+  -webkit-appearance: none;
+  appearance: none;
+  position: relative;
+  z-index: 1;
 }
 
 .search-input::placeholder {
@@ -931,6 +936,13 @@ export default {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  z-index: 3;
+}
+
+.search-icon svg {
+  width: 100%;
+  height: 100%;
+  display: block;
 }
 
 .search-results {
@@ -951,6 +963,7 @@ export default {
   padding: 0 60px;
   box-sizing: border-box;
   text-align: center;
+  z-index: 2;
 }
 
 @keyframes jiggle {

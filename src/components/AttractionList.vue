@@ -3374,9 +3374,9 @@ const all = this.sortedFavorites || [];
             }
             return;
           }
-          const ts = Date.now();
-          const imageUrl = `https://juseaxerf.com/api/attraction-image/${f.country}/${f.id}/1?ts=${ts}`;
-          const res = await fetch(imageUrl, withBackendApiKey({ cache: 'no-store' }));
+          // 非自创景点：允许走全局 fetchCache（IndexedDB）做离线/加速缓存
+          const imageUrl = `https://juseaxerf.com/api/attraction-image/${f.country}/${f.id}/1`;
+          const res = await fetch(imageUrl, withBackendApiKey());
           if (!res.ok) return;
           const blob = await res.blob();
           const url = URL.createObjectURL(blob);
