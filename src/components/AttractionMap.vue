@@ -570,7 +570,7 @@ export default {
             if (cached && Number.isFinite(cached.lat) && Number.isFinite(cached.lng)) {
               try {
                 const icon = this.createFavoriteIcon('', false);
-                const marker = L.marker([cached.lat, cached.lng], { icon, pane: 'favoritesPane', zIndexOffset: 1000, draggable: true });
+                const marker = L.marker([cached.lat, cached.lng], { icon, pane: 'favoritesPane', zIndexOffset: 1000, draggable: true, autoPan: true, autoPanPadding: [70, 70], autoPanSpeed: 10 });
                 try { marker.dragging && marker.dragging.enable && marker.dragging.enable(); } catch (e) {}
                 try { marker.options._meta = meta; } catch (e) {}
                 try { marker.options._origLatLng = L.latLng(cached.lat, cached.lng); } catch (e) {}
@@ -604,7 +604,7 @@ export default {
                       this._geoPut && this._geoPut(cacheKey, g.lat, g.lng);
                       try {
                         const icon = this.createFavoriteIcon('', false);
-                        const marker = L.marker([g.lat, g.lng], { icon, pane: 'favoritesPane', zIndexOffset: 1000, draggable: true });
+                        const marker = L.marker([g.lat, g.lng], { icon, pane: 'favoritesPane', zIndexOffset: 1000, draggable: true, autoPan: true, autoPanPadding: [70, 70], autoPanSpeed: 10 });
                         try { marker.dragging && marker.dragging.enable && marker.dragging.enable(); } catch (e) {}
                         try { marker.options._meta = meta; } catch (e) {}
                         try { marker.options._origLatLng = L.latLng(g.lat, g.lng); } catch (e) {}
@@ -635,7 +635,7 @@ export default {
           if (cached && Number.isFinite(cached.lat) && Number.isFinite(cached.lng)) {
             try {
               const icon = this.createFavoriteIcon('', false);
-              const marker = L.marker([cached.lat, cached.lng], { icon, pane: 'favoritesPane', zIndexOffset: 1000, draggable: true });
+              const marker = L.marker([cached.lat, cached.lng], { icon, pane: 'favoritesPane', zIndexOffset: 1000, draggable: true, autoPan: true, autoPanPadding: [70, 70], autoPanSpeed: 10 });
               try { marker.dragging && marker.dragging.enable && marker.dragging.enable(); } catch (e) {}
               try { marker.options._meta = meta; } catch (e) {}
               try { marker.options._origLatLng = L.latLng(cached.lat, cached.lng); } catch (e) {}
@@ -659,7 +659,7 @@ export default {
               this._geoPut && this._geoPut(cacheKey, g.lat, g.lng);
               try {
                 const icon = this.createFavoriteIcon('', false);
-                const marker = L.marker([g.lat, g.lng], { icon, pane: 'favoritesPane', zIndexOffset: 1000, draggable: true });
+                const marker = L.marker([g.lat, g.lng], { icon, pane: 'favoritesPane', zIndexOffset: 1000, draggable: true, autoPan: true, autoPanPadding: [70, 70], autoPanSpeed: 10 });
                 try { marker.dragging && marker.dragging.enable && marker.dragging.enable(); } catch (e) {}
                 try { marker.options._meta = meta; } catch (e) {}
                 try { marker.options._origLatLng = L.latLng(g.lat, g.lng); } catch (e) {}
@@ -1029,6 +1029,8 @@ export default {
           }
 
           try { this.scheduleRecomputeOverlapAll(); } catch (e) {}
+          try { this.renderAllInView && this.renderAllInView(true); } catch (e) {}
+          try { this.closeOffscreenFavoritePopups && this.closeOffscreenFavoritePopups(); } catch (e) {}
         });
       } catch (e) {}
     },
@@ -1071,6 +1073,7 @@ export default {
 
       // ȾҰڱǣͨ㣩ղزҰ
       const updateInView = () => {
+        if (this._isDraggingFavMarker) return;
         this.renderAllInView && this.renderAllInView(true);
         this.closeOffscreenFavoritePopups && this.closeOffscreenFavoritePopups();
       };
@@ -1255,7 +1258,7 @@ export default {
         if (!info) return;
 
         const icon = this.createFavoriteIcon(info.text || '', !!info.pending);
-        const marker = L.marker(latlng, { icon, pane: 'favoritesPane', zIndexOffset: 1000, draggable: true });
+        const marker = L.marker(latlng, { icon, pane: 'favoritesPane', zIndexOffset: 1000, draggable: true, autoPan: true, autoPanPadding: [70, 70], autoPanSpeed: 10 });
         try { marker.dragging && marker.dragging.enable && marker.dragging.enable(); } catch (e) {}
         try { marker.options._meta = meta; } catch (e) {}
         try { marker.options._origLatLng = L.latLng(latlng[0], latlng[1]); } catch (e) {}
@@ -1981,7 +1984,7 @@ export default {
                       // 自创景点：不添加普通聚焦标记，只补充收藏标记（若不存在）
                       if (!this._hasFavMarker(id)) {
                         const iconFav = this.createFavoriteIcon('', false);
-                        const markerFav = L.marker(ll, { icon: iconFav, pane: 'favoritesPane', zIndexOffset: 1000, draggable: true });
+                        const markerFav = L.marker(ll, { icon: iconFav, pane: 'favoritesPane', zIndexOffset: 1000, draggable: true, autoPan: true, autoPanPadding: [70, 70], autoPanSpeed: 10 });
                         try { markerFav.dragging && markerFav.dragging.enable && markerFav.dragging.enable(); } catch (e) {}
                         const metaLater = ca ? { id, name: ca.name, region: ca.region, county: ca.county, rating: (Number.isFinite(ca && ca.rating) ? ca.rating : 0), country: 'custom', hasImage: !!(ca.hasImage1 || ca.hasImage2 || ca.hasImage3) } : null;
                         if (metaLater) {
