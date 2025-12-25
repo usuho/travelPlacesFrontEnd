@@ -1298,9 +1298,13 @@
 
       order() {
         if (this.isRestoring) return;
-        localStorage.setItem('attractionsPage', this.page); // 保存当前页数到localStorage
-        localStorage.setItem('attractionsOrder',this.order);
-        this.fetchAttractions(false);}, // **新增的watch**
+        // 更改排序方式后，回到第 1 页
+        this.page = 1;
+        this.gotoPage = 1;
+        localStorage.setItem('attractionsPage', this.page);
+        localStorage.setItem('attractionsOrder', this.order);
+        this.fetchAttractions(false);
+      }, // **新增的watch**
 
 
       selectedRegion() {
