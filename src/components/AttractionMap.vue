@@ -24,7 +24,7 @@ import { getImageUrl as getCustomImageUrl } from '../utils/customImageStore.js';
 import { fetchAttractionsGeo, fetchAttractionsGeoByIds, fetchAttractionsPositions, fetchAttractionsPositionsByIds, getLastApiBase, withBackendApiKey } from '../utils/geoApi.js';
 import { getGeoKeys } from '../utils/geoKeys.js';
 import { getCountrySlugByIso, isSupportedCountrySlug } from '../utils/countryCatalog.js';
-import { ensureUserDataHydrated } from '../stores/userDataSync.js';
+import { ensureUserDataHydrated, queueUserDataSync } from '../stores/userDataSync.js';
 
 export default {
   name: 'AttractionMap',
@@ -78,6 +78,9 @@ export default {
       _disableAutoPopupAfterLocate: false,
       _shouldResetListFilters: false,
       _hasRenderedNormalOnce: false,
+      _isDraggingFavMarker: false,
+      _favDragRestoreMapDragging: null,
+      _favDragRestoreTouchZoom: null,
     };
   },
   computed: {
@@ -553,11 +556,13 @@ export default {
             if (cached && Number.isFinite(cached.lat) && Number.isFinite(cached.lng)) {
               try {
                 const icon = this.createFavoriteIcon('', false);
-                const marker = L.marker([cached.lat, cached.lng], { icon, pane: 'favoritesPane', zIndexOffset: 1000 });
+                const marker = L.marker([cached.lat, cached.lng], { icon, pane: 'favoritesPane', zIndexOffset: 1000, draggable: true });
+                try { marker.dragging && marker.dragging.enable && marker.dragging.enable(); } catch (e) {}
                 try { marker.options._meta = meta; } catch (e) {}
                 try { marker.options._origLatLng = L.latLng(cached.lat, cached.lng); } catch (e) {}
                 this.bindPopupNoAutoPan(marker, meta);
                 marker.on('popupopen', () => this.attachPopupHandlers(meta));
+                this.attachFavoriteMarkerDragHandlers(marker);
                 marker.addTo(this.favoritesLayer);
               } catch (e) {}
             } else {
@@ -585,11 +590,13 @@ export default {
                       this._geoPut && this._geoPut(cacheKey, g.lat, g.lng);
                       try {
                         const icon = this.createFavoriteIcon('', false);
-                        const marker = L.marker([g.lat, g.lng], { icon, pane: 'favoritesPane', zIndexOffset: 1000 });
+                        const marker = L.marker([g.lat, g.lng], { icon, pane: 'favoritesPane', zIndexOffset: 1000, draggable: true });
+                        try { marker.dragging && marker.dragging.enable && marker.dragging.enable(); } catch (e) {}
                         try { marker.options._meta = meta; } catch (e) {}
                         try { marker.options._origLatLng = L.latLng(g.lat, g.lng); } catch (e) {}
                         this.bindPopupNoAutoPan(marker, meta);
                         marker.on('popupopen', () => this.attachPopupHandlers(meta));
+                        this.attachFavoriteMarkerDragHandlers(marker);
                         marker.addTo(this.favoritesLayer);
                       } catch (e) {}
                     }
@@ -614,11 +621,13 @@ export default {
           if (cached && Number.isFinite(cached.lat) && Number.isFinite(cached.lng)) {
             try {
               const icon = this.createFavoriteIcon('', false);
-              const marker = L.marker([cached.lat, cached.lng], { icon, pane: 'favoritesPane', zIndexOffset: 1000 });
+              const marker = L.marker([cached.lat, cached.lng], { icon, pane: 'favoritesPane', zIndexOffset: 1000, draggable: true });
+              try { marker.dragging && marker.dragging.enable && marker.dragging.enable(); } catch (e) {}
               try { marker.options._meta = meta; } catch (e) {}
               try { marker.options._origLatLng = L.latLng(cached.lat, cached.lng); } catch (e) {}
               this.bindPopupNoAutoPan(marker, meta);
               marker.on('popupopen', () => this.attachPopupHandlers(meta));
+              this.attachFavoriteMarkerDragHandlers(marker);
               marker.addTo(this.favoritesLayer);
             } catch (e) {}
             continue;
@@ -636,11 +645,13 @@ export default {
               this._geoPut && this._geoPut(cacheKey, g.lat, g.lng);
               try {
                 const icon = this.createFavoriteIcon('', false);
-                const marker = L.marker([g.lat, g.lng], { icon, pane: 'favoritesPane', zIndexOffset: 1000 });
+                const marker = L.marker([g.lat, g.lng], { icon, pane: 'favoritesPane', zIndexOffset: 1000, draggable: true });
+                try { marker.dragging && marker.dragging.enable && marker.dragging.enable(); } catch (e) {}
                 try { marker.options._meta = meta; } catch (e) {}
                 try { marker.options._origLatLng = L.latLng(g.lat, g.lng); } catch (e) {}
                 this.bindPopupNoAutoPan(marker, meta);
                 marker.on('popupopen', () => this.attachPopupHandlers(meta));
+                this.attachFavoriteMarkerDragHandlers(marker);
                 marker.addTo(this.favoritesLayer);
               } catch (e) {}
             }
@@ -703,7 +714,311 @@ export default {
       } catch (e) {}
       this.favorites.sort((a, b) => (a.order || 0) - (b.order || 0));
     },
+    
+    _favoriteKeyFromMeta(meta) {
+      try {
+        if (!meta) return '';
+        const country = String(meta.country || this.country || '').trim().toLowerCase();
+        const id = String(meta.id || '');
+        if (!country || !id) return '';
+        return `${country}|${id}`;
+      } catch (e) {
+        return '';
+      }
+    },
 
+    _favoriteKeyFromItem(item) {
+      try {
+        if (!item) return '';
+        const country = String(item.country || this.country || '').trim().toLowerCase();
+        const id = String(item.id || '');
+        if (!country || !id) return '';
+        return `${country}|${id}`;
+      } catch (e) {
+        return '';
+      }
+    },
+
+    _computeFavoriteLabelMap() {
+      const map = new Map();
+      try {
+        const ordered = Array.isArray(this.favorites) ? [...this.favorites] : [];
+        ordered.sort((a, b) => (a.order || 0) - (b.order || 0));
+        let nonPendingIndex = 0;
+        for (const fav of ordered) {
+          const key = this._favoriteKeyFromItem(fav);
+          if (!key) continue;
+          const pending = !!fav.pending;
+          if (!pending) nonPendingIndex += 1;
+          map.set(key, { pending, text: pending ? '' : String(nonPendingIndex) });
+        }
+      } catch (e) {}
+      return map;
+    },
+
+    refreshFavoriteMarkerIcons() {
+      try {
+        if (!this.favoritesLayer) return;
+        const labelMap = this._computeFavoriteLabelMap();
+        const markers = Object.values(this.favoritesLayer._layers || {});
+        for (const m of markers) {
+          try {
+            const key = this._favoriteKeyFromMeta(m && m.options ? m.options._meta : null);
+            if (!key) continue;
+            const info = labelMap.get(key);
+            if (!info) continue; // not in current favorites list (e.g. non-fav custom markers)
+            const icon = this.createFavoriteIcon(info.text || '', !!info.pending);
+            m.setIcon && m.setIcon(icon);
+          } catch (e) {}
+        }
+      } catch (e) {}
+    },
+    
+    _getFavoriteKeysWithChangedLabel(beforeMap, afterMap) {
+      const changed = new Set();
+      try {
+        const a = beforeMap instanceof Map ? beforeMap : new Map();
+        const b = afterMap instanceof Map ? afterMap : new Map();
+        const keys = new Set([...a.keys(), ...b.keys()]);
+        for (const key of keys) {
+          const before = a.get(key);
+          const after = b.get(key);
+          if (!before || !after) continue;
+          const beforeText = String(before.text || '');
+          const afterText = String(after.text || '');
+          if (beforeText !== afterText) {
+            if (beforeText || afterText) changed.add(key);
+          }
+        }
+      } catch (e) {}
+      return Array.from(changed);
+    },
+
+    flashFavoriteMarkersByKeys(keys) {
+      try {
+        if (!this.favoritesLayer) return;
+        const list = Array.isArray(keys) ? keys.filter(Boolean) : [];
+        if (!list.length) return;
+        const keySet = new Set(list.map(k => String(k).trim().toLowerCase()));
+
+        const markers = Object.values(this.favoritesLayer._layers || {});
+        for (const m of markers) {
+          try {
+            const key = this._favoriteKeyFromMeta(m && m.options ? m.options._meta : null);
+            if (!key || !keySet.has(key)) continue;
+
+            const iconEl = m && m._icon;
+            const target = iconEl && iconEl.querySelector ? iconEl.querySelector('.fav-marker') : null;
+            if (!target || !target.classList) continue;
+
+            target.classList.remove('fav-flash');
+            try { void target.offsetWidth; } catch (e) {}
+            target.classList.add('fav-flash');
+
+            const cleanup = () => {
+              try { target.classList.remove('fav-flash'); } catch (e) {}
+            };
+            try { target.addEventListener('animationend', cleanup, { once: true }); } catch (e) {}
+            setTimeout(cleanup, 1200);
+          } catch (e) {}
+        }
+      } catch (e) {}
+    },
+
+    _persistFavoriteTabs() {
+      try { localStorage.setItem('favoriteTabs_all', JSON.stringify(this.favoriteTabs || [])); } catch (e) {}
+      try { queueUserDataSync(); } catch (e) {}
+    },
+
+    _normalizeTabItemsOrder(tab) {
+      try {
+        if (!tab || !Array.isArray(tab.items)) return;
+        tab.items
+          .sort((a, b) => (a.order || 0) - (b.order || 0))
+          .forEach((item, idx) => { item.order = idx + 1; });
+      } catch (e) {}
+    },
+
+    _findTabContainingFavoriteKey(key) {
+      try {
+        if (!key || !Array.isArray(this.favoriteTabs)) return null;
+        for (const tab of this.favoriteTabs) {
+          const items = tab && Array.isArray(tab.items) ? tab.items : [];
+          for (const it of items) {
+            if (this._favoriteKeyFromItem(it) === key) return tab;
+          }
+        }
+      } catch (e) {}
+      return null;
+    },
+
+    _swapFavoritesInSameTab(dragKey, targetKey) {
+      try {
+        if (!dragKey || !targetKey || dragKey === targetKey) return false;
+        const tabA = this._findTabContainingFavoriteKey(dragKey);
+        const tabB = this._findTabContainingFavoriteKey(targetKey);
+        if (!tabA || !tabB) return false;
+        if (String(tabA.id) !== String(tabB.id)) return false;
+
+        const tab = tabA;
+        if (!Array.isArray(tab.items)) return false;
+
+        const ordered = [...tab.items].sort((a, b) => (a.order || 0) - (b.order || 0));
+        const from = ordered.findIndex(it => this._favoriteKeyFromItem(it) === dragKey);
+        const to = ordered.findIndex(it => this._favoriteKeyFromItem(it) === targetKey);
+        if (from < 0 || to < 0 || from === to) return false;
+
+        const tmp = ordered[from];
+        ordered[from] = ordered[to];
+        ordered[to] = tmp;
+
+        ordered.forEach((item, idx) => { item.order = idx + 1; });
+        tab.items.splice(0, tab.items.length, ...ordered);
+        this._persistFavoriteTabs();
+
+        if (String(this.activeTabId || '') === String(tab.id || '')) {
+          this.favorites = [...tab.items].sort((a, b) => (a.order || 0) - (b.order || 0));
+        }
+        return true;
+      } catch (e) {
+        return false;
+      }
+    },
+
+    _getTouchedFavoriteMarkers(draggedMarker) {
+      const touched = [];
+      try {
+        if (!this.map || !this.favoritesLayer || !draggedMarker || !draggedMarker.getLatLng) return touched;
+        const labelMap = this._computeFavoriteLabelMap();
+        const validKeys = new Set(labelMap.keys());
+        const draggedKey = this._favoriteKeyFromMeta(draggedMarker && draggedMarker.options ? draggedMarker.options._meta : null);
+        if (!draggedKey || !validKeys.has(draggedKey)) return touched;
+
+        const iconA = draggedMarker && draggedMarker._icon;
+        const rectA = iconA && iconA.getBoundingClientRect ? iconA.getBoundingClientRect() : null;
+        const p0 = !rectA ? this.map.latLngToContainerPoint(draggedMarker.getLatLng()) : null;
+        const fallbackTouchDist = 28; // 24px icon + shadow tolerance
+
+        const markers = Object.values(this.favoritesLayer._layers || {});
+        for (const m of markers) {
+          if (!m || m === draggedMarker || !m.getLatLng) continue;
+          const key = this._favoriteKeyFromMeta(m && m.options ? m.options._meta : null);
+          if (!key || !validKeys.has(key) || key === draggedKey) continue;
+
+          let isTouching = false;
+          try {
+            const iconB = m && m._icon;
+            if (rectA && iconB && iconB.getBoundingClientRect) {
+              const rectB = iconB.getBoundingClientRect();
+              isTouching = !(
+                rectA.right < rectB.left ||
+                rectA.left > rectB.right ||
+                rectA.bottom < rectB.top ||
+                rectA.top > rectB.bottom
+              );
+            } else if (p0) {
+              const p1 = this.map.latLngToContainerPoint(m.getLatLng());
+              const dx = p0.x - p1.x;
+              const dy = p0.y - p1.y;
+              const dist = Math.sqrt(dx * dx + dy * dy);
+              isTouching = dist <= fallbackTouchDist;
+            }
+          } catch (e) {}
+
+          if (isTouching) touched.push(m);
+        }
+      } catch (e) {}
+      return touched;
+    },
+
+    attachFavoriteMarkerDragHandlers(marker) {
+      try {
+        if (!marker || !marker.on) return;
+
+        marker.on('dragstart', () => {
+          try { marker.closePopup && marker.closePopup(); } catch (e) {}
+          try { marker.options._dragStartLatLng = marker.getLatLng && marker.getLatLng(); } catch (e) {}
+
+          this._isDraggingFavMarker = true;
+          try {
+            const mapEl = document.getElementById('map');
+            if (mapEl) {
+              mapEl.classList.add('dragging-fav-marker');
+              mapEl.classList.remove('dragging-map');
+            }
+          } catch (e) {}
+
+          try {
+            if (this.map && this.map.dragging) {
+              this._favDragRestoreMapDragging = this.map.dragging.enabled && this.map.dragging.enabled();
+              this.map.dragging.disable();
+            }
+          } catch (e) {}
+          try {
+            if (this.map && this.map.touchZoom) {
+              this._favDragRestoreTouchZoom = this.map.touchZoom.enabled && this.map.touchZoom.enabled();
+              this.map.touchZoom.disable();
+            }
+          } catch (e) {}
+        });
+
+        marker.on('dragend', () => {
+          const dragKey = this._favoriteKeyFromMeta(marker && marker.options ? marker.options._meta : null);
+          const touched = this._getTouchedFavoriteMarkers(marker);
+
+          // Always snap back to pre-drag position (drag is only used as a gesture)
+          try {
+            const start = marker && marker.options ? marker.options._dragStartLatLng : null;
+            if (start) marker.setLatLng && marker.setLatLng(start);
+          } catch (e) {}
+
+          // Restore map interactions
+          this._isDraggingFavMarker = false;
+          try {
+            const mapEl = document.getElementById('map');
+            if (mapEl) mapEl.classList.remove('dragging-fav-marker');
+          } catch (e) {}
+          try {
+            if (this.map && this.map.dragging && this._favDragRestoreMapDragging) {
+              this.map.dragging.enable();
+            }
+          } catch (e) {}
+          try {
+            if (this.map && this.map.touchZoom && this._favDragRestoreTouchZoom) {
+              this.map.touchZoom.enable();
+            }
+          } catch (e) {}
+          this._favDragRestoreMapDragging = null;
+          this._favDragRestoreTouchZoom = null;
+
+          // Swap only when touching exactly 1 other favorite marker
+          if (touched.length === 1) {
+            const otherKey = this._favoriteKeyFromMeta(touched[0] && touched[0].options ? touched[0].options._meta : null);
+            if (dragKey && otherKey) {
+              const beforeLabels = this._computeFavoriteLabelMap();
+              const swapped = this._swapFavoritesInSameTab(dragKey, otherKey);
+              if (swapped) {
+                const afterLabels = this._computeFavoriteLabelMap();
+                const changedKeys = this._getFavoriteKeysWithChangedLabel(beforeLabels, afterLabels);
+                this.refreshFavoriteMarkerIcons();
+                if (changedKeys.length) {
+                  try {
+                    requestAnimationFrame(() => {
+                      try { this.flashFavoriteMarkersByKeys(changedKeys); } catch (e) {}
+                    });
+                  } catch (_) {
+                    try { this.flashFavoriteMarkersByKeys(changedKeys); } catch (e) {}
+                  }
+                }
+              }
+            }
+          }
+
+          try { this.scheduleRecomputeOverlapAll(); } catch (e) {}
+        });
+      } catch (e) {}
+    },
+    
     initMap() {
       const { center, zoom } = this.getDefaultView();
       this.map = L.map('map', { zoomControl: true, dragging: true, tap: false, touchZoom: true }).setView(center, zoom);
@@ -912,20 +1227,27 @@ export default {
       // ƣ첽ӣȱ룩
       let firstCenter = null;
       const latlngsForFit = [];
-      let nonPendingIndex = 0;
       const pendingTasks = [];
       this._favGeoPending = 0;
 
-      const renderOne = (latlng, meta, orderText, isPendingFlag) => {
+      const renderOne = (latlng, meta) => {
         if (!latlng) return;
         if (!firstCenter) firstCenter = latlng;
         latlngsForFit.push(latlng);
-        const icon = this.createFavoriteIcon(orderText || '', isPendingFlag);
-        const marker = L.marker(latlng, { icon, pane: 'favoritesPane', zIndexOffset: 1000 });
+
+        const key = this._favoriteKeyFromMeta(meta);
+        const labelMap = this._computeFavoriteLabelMap();
+        const info = key ? labelMap.get(key) : null;
+        if (!info) return;
+
+        const icon = this.createFavoriteIcon(info.text || '', !!info.pending);
+        const marker = L.marker(latlng, { icon, pane: 'favoritesPane', zIndexOffset: 1000, draggable: true });
+        try { marker.dragging && marker.dragging.enable && marker.dragging.enable(); } catch (e) {}
         try { marker.options._meta = meta; } catch (e) {}
         try { marker.options._origLatLng = L.latLng(latlng[0], latlng[1]); } catch (e) {}
         this.bindPopupNoAutoPan(marker, meta);
         marker.on('popupopen', () => this.attachPopupHandlers(meta));
+        this.attachFavoriteMarkerDragHandlers(marker);
         marker.addTo(this.favoritesLayer);
         // صղرκŶҪţ
         try { this.scheduleRecomputeOverlapAll(); } catch (e) {}
@@ -934,9 +1256,6 @@ export default {
 
       for (let i = 0; i < this.favorites.length; i++) {
         const fav = this.favorites[i];
-        const isPending = !!fav.pending;
-        if (!isPending) nonPendingIndex++;
-        const orderText = isPending ? '' : String(nonPendingIndex);
 
         // ֻҪԴҵ idղΪ customԴ߼ǰ·ɹң
         const isCustomFav = (String(fav.country) === 'custom') || !!findCustomAttractionById(String(fav.id));
@@ -955,7 +1274,7 @@ export default {
           if (ca && Number.isFinite(ca.lat) && Number.isFinite(ca.lng)) {
             try { console.info('[Geo] use direct custom latlng', { id: String(fav.id), lat: Number(ca.lat), lng: Number(ca.lng) }); } catch(_) {}
             latlng = [Number(ca.lat), Number(ca.lng)];
-            renderOne(latlng, meta, orderText, isPending);
+            renderOne(latlng, meta);
             // 从详情页进入时，直接聚焦到该自创景点
             if (this.fromDetails && String(this.focusId) === String(fav.id)) {
               try { this.map.setView(latlng, 14); } catch (e) {}
@@ -969,7 +1288,7 @@ export default {
             if (cached) {
               try { console.info('[Geo] use cache', { source: 'browser', key: cacheKey, id: String(fav.id), lat: cached.lat, lng: cached.lng }); } catch(_) {}
               latlng = [cached.lat, cached.lng];
-              renderOne(latlng, meta, orderText, isPending);
+              renderOne(latlng, meta);
               // 从详情页进入时，使用缓存也需立即聚焦
               if (this.fromDetails && String(this.focusId) === String(fav.id)) {
                 try { this.map.setView(latlng, 14); } catch (e) {}
@@ -994,7 +1313,7 @@ export default {
                     if (g) {
                       this._geoPut(cacheKey, g.lat, g.lng);
                       const ll = [g.lat, g.lng];
-                      renderOne(ll, meta, orderText, isPending);
+                      renderOne(ll, meta);
                       // 从详情页进入时，首次地理编码完成后立即聚焦
                       try { this.map.setView(ll, 14); } catch (e) {}
                       this._didAutoPanToFirst = true;
@@ -1029,7 +1348,7 @@ export default {
                     const g = await this.geocodeByFreeApi(_addr, hintKey, { amapLast: hintKey !== 'china', fallbackHintCountry: 'custom' });
                     if (g) {
                       this._geoPut(cacheKey, g.lat, g.lng);
-                      renderOne([g.lat, g.lng], meta, orderText, isPending);
+                      renderOne([g.lat, g.lng], meta);
                     }
                   } catch (e) {console.info(e)}
                   finally {
@@ -1056,14 +1375,14 @@ export default {
           if (geo && Number.isFinite(geo.lat) && Number.isFinite(geo.lng)) {
             try { console.info('[Geo] use server geo', { id: String(fav.id), lat: geo.lat, lng: geo.lng, country: ctry }); } catch(_) {}
             try { this._geoPut(`${ctry}|${String(fav.id)}`, Number(geo.lat), Number(geo.lng)); } catch (e) {}
-            renderOne([geo.lat, geo.lng], geo, orderText, isPending);
+            renderOne([geo.lat, geo.lng], geo);
           } else {
             const cacheKey = `${ctry}|${String(fav.id)}`;
             const cached = this._geoGet(cacheKey);
             if (cached) {
               try { console.info('[Geo] use cache', { source: 'browser', key: cacheKey, id: String(fav.id), lat: cached.lat, lng: cached.lng, country: ctry }); } catch(_) {}
               const meta = { id: fav.id, name: fav.name || '', region: fav.region || '', county: fav.county || '', rating: fav.rating, country: ctry, hasImage: false };
-              renderOne([cached.lat, cached.lng], meta, orderText, isPending);
+              renderOne([cached.lat, cached.lng], meta);
             } else {
               // ڴҳ۽ʱŽе
               if (this.fromDetails && String(this.focusId) === String(fav.id)) {
@@ -1082,7 +1401,7 @@ export default {
                     if (g) {
                       this._geoPut(cacheKey, g.lat, g.lng);
                       const meta = { id: fav.id, name: fav.name || (p && p.name) || '', region: fav.region || (p && p.region) || '', county: fav.county || (p && p.county) || '', rating: fav.rating, country: ctry, hasImage: !!(p && p.hasImage) };
-                      renderOne([g.lat, g.lng], meta, orderText, isPending);
+                      renderOne([g.lat, g.lng], meta);
                     }
                   } catch (e) {}
                   finally {
@@ -1119,7 +1438,7 @@ export default {
                           // 浽Դռ
                           this._geoPut(`custom|${String(fav.id)}`, g2.lat, g2.lng);
                           const meta2 = { id: String(fav.id), name: caMaybe.name || '', region: caMaybe.region || '', county: caMaybe.county || '', rating: Number.isFinite(fav.rating) ? fav.rating : 0, country: 'custom', hasImage: !!(caMaybe.hasImage1 || caMaybe.hasImage2 || caMaybe.hasImage3) };
-                          renderOne([g2.lat, g2.lng], meta2, orderText, isPending);
+                          renderOne([g2.lat, g2.lng], meta2);
                         }
                       } catch (e) {}
                       finally {
@@ -1157,7 +1476,7 @@ export default {
                           if (g3) {
                             this._geoPut(cacheKey, g3.lat, g3.lng);
                             const meta3 = { id: fav.id, name: fav.name || (p2 && p2.name) || '', region: fav.region || (p2 && p2.region) || '', county: fav.county || (p2 && p2.county) || '', rating: fav.rating, country: ctry, hasImage: !!(p2 && p2.hasImage) };
-                            renderOne([g3.lat, g3.lng], meta3, orderText, isPending);
+                            renderOne([g3.lat, g3.lng], meta3);
                           }
                         }
                       } catch (e) {}
@@ -1648,7 +1967,8 @@ export default {
                       // 自创景点：不添加普通聚焦标记，只补充收藏标记（若不存在）
                       if (!this._hasFavMarker(id)) {
                         const iconFav = this.createFavoriteIcon('', false);
-                        const markerFav = L.marker(ll, { icon: iconFav, pane: 'favoritesPane', zIndexOffset: 1000 });
+                        const markerFav = L.marker(ll, { icon: iconFav, pane: 'favoritesPane', zIndexOffset: 1000, draggable: true });
+                        try { markerFav.dragging && markerFav.dragging.enable && markerFav.dragging.enable(); } catch (e) {}
                         const metaLater = ca ? { id, name: ca.name, region: ca.region, county: ca.county, rating: (Number.isFinite(ca && ca.rating) ? ca.rating : 0), country: 'custom', hasImage: !!(ca.hasImage1 || ca.hasImage2 || ca.hasImage3) } : null;
                         if (metaLater) {
                           try { markerFav.options._meta = metaLater; } catch (e) {}
@@ -1656,6 +1976,7 @@ export default {
                           this.bindPopupNoAutoPan(markerFav, metaLater);
                           markerFav.on('popupopen', () => this.attachPopupHandlers(metaLater));
                         }
+                        this.attachFavoriteMarkerDragHandlers(markerFav);
                         markerFav.addTo(this.favoritesLayer);
                         focusMarker = markerFav;
                       }
@@ -2406,7 +2727,7 @@ export default {
     bindPopupNoAutoPan(marker, meta) {
       try {
         if (!marker) return;
-        marker.bindPopup(this.buildPopup(meta), { autoPan: false });
+        marker.bindPopup(this.buildPopup(meta), { autoPan: false, minWidth: 100});
       } catch (_) {}
     },
 
@@ -3051,6 +3372,41 @@ export default {
 }
 
 /* ȫ㣺ɫԲ */
+:deep(.fav-marker.fav-flash) {
+  animation: favMarkerFlash 0.9s ease-out 1;
+}
+
+@keyframes favMarkerFlash {
+  0% {
+    transform: scale(1);
+    filter: brightness(1);
+    box-shadow:
+      0 0 0 2px #fff,
+      0 0 0 0 rgba(255, 255, 255, 0);
+  }
+  30% {
+    transform: scale(1.16);
+    filter: brightness(1.5);
+    box-shadow:
+      0 0 0 2px #fff,
+      0 0 18px 10px rgba(255, 255, 255, 0.95);
+  }
+  60% {
+    transform: scale(1.06);
+    filter: brightness(1.2);
+    box-shadow:
+      0 0 0 2px #fff,
+      0 0 12px 6px rgba(255, 255, 255, 0.55);
+  }
+  100% {
+    transform: scale(1);
+    filter: brightness(1);
+    box-shadow:
+      0 0 0 2px #fff,
+      0 0 0 0 rgba(255, 255, 255, 0);
+  }
+}
+
 :deep(.dot-marker) { width: 16px; height: 16px; border-radius: 50%; background: #3b82f6; border: 2px solid #fff; box-shadow: 0 1px 3px rgba(0,0,0,.2); }
 
 /* ۽ɫԲ */

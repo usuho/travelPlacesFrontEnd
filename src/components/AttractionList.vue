@@ -540,63 +540,64 @@
           @touchmove.passive="onFavoritesListTouchMove"
           @touchend.passive="onFavoritesListTouchEnd"
         >
-          <template v-for="(f, i) in sortedFavorites" :key="`fav-frag-${i}-${f.country}-${f.id}`">
-            <div
-              v-if="dragging && placeholderIndex === i && dragIndex !== i"
-              class="favorites-placeholder"
-              :style="placeholderStyle"
-            ></div>
-            <div
-              class="favorites-item"
-              :class="{ 'dragging-shadow': dragging && dragIndex === i, 'pending': !!f.pending }"
-              @mousedown.prevent="startMenuItemPress(i, $event)"
-              @touchstart="startMenuItemPress(i, $event); onFavTouchStart(f, i, $event)"
-              @touchmove="onFavTouchMove($event)"
-              @touchend="onFavTouchEnd(f, i, $event)"
-              @click.stop="handleMenuItemClick(f, i, $event)"
-              @contextmenu.prevent.stop="onFavoriteContextMenu(f, i, $event)"
-            >
-              <div :class="['fav-right-actions', { visible: isFavRightActionsVisible(f) }]">
-                <button class="fav-pending" :class="{ active: !!f.pending }" @click.stop="togglePending(f)">{{ f.pending ? "取消" : "待定" }}</button>
+          <div
+            v-for="node in favoritesMoveNodes"
+            :key="node.key"
+            :data-fav-placeholder="node.type === 'placeholder' ? 'active' : null"
+            :class="
+              node.type === 'placeholder'
+                ? 'favorites-placeholder'
+                : {
+                    'favorites-item': true,
+                    'dragging-shadow': dragging && dragIndex === node.index,
+                    'pending': !!(node.f && node.f.pending),
+                    'just-inserted': !dragging && recentlyMovedId === (node.f && node.f.id)
+                  }
+            "
+            :style="node.type === 'placeholder' ? placeholderStyle : null"
+            @mousedown="onFavoritesNodeMouseDown(node, $event)"
+            @touchstart="onFavoritesNodeTouchStart(node, $event)"
+            @touchmove="onFavoritesNodeTouchMove(node, $event)"
+            @touchend="onFavoritesNodeTouchEnd(node, $event)"
+            @click="onFavoritesNodeClick(node, $event)"
+            @contextmenu="onFavoritesNodeContextMenu(node, $event)"
+          >
+            <template v-if="node.type === 'item'">
+              <div :class="['fav-right-actions', { visible: isFavRightActionsVisible(node.f) }]">
+                <button class="fav-pending" :class="{ active: !!(node.f && node.f.pending) }" @click.stop="togglePending(node.f)">{{ node.f && node.f.pending ? "取消" : "待定" }}</button>
               </div>
-              <div :class="['fav-left-actions', { visible: isFavActionsVisible(f) }]">
-                <button class="fav-delete" @click.stop="removeFavorite(f)">{{ String(f.country) === 'custom' ? '删除' : '移除' }}</button>
+              <div :class="['fav-left-actions', { visible: isFavActionsVisible(node.f) }]">
+                <button class="fav-delete" @click.stop="removeFavorite(node.f)">{{ String(node.f && node.f.country) === 'custom' ? '删除' : '移除' }}</button>
               </div>
-              <div class="fav-content" :style="{ transform: `translateX(${getFavSwipeOffset(f)}px)` }">
-                <span class="fav-index" v-if="!f.pending">{{ getNonPendingIndex(i) }}</span>
+              <div class="fav-content" :style="{ transform: `translateX(${getFavSwipeOffset(node.f)}px)` }">
+                <span class="fav-index" v-if="node.f && !node.f.pending">{{ getNonPendingIndex(node.index) }}</span>
                 <div class="fav-thumb-wrap">
                   <img
-                    v-if="favThumbs[thumbKey(f)]"
-                    :src="favThumbs[thumbKey(f)]"
+                    v-if="node.f && favThumbs[thumbKey(node.f)]"
+                    :src="node.f ? favThumbs[thumbKey(node.f)] : ''"
                     alt="缩略图"
                     class="fav-thumb"
                   />
                   <div v-else class="fav-thumb thumb-placeholder"></div>
                 </div>
                 <div class="fav-main">
-                  <span class="fav-name">{{ f.name }}</span>
-                  <span class="fav-meta">{{ f.region }}</span>
+                  <span class="fav-name">{{ node.f && node.f.name }}</span>
+                  <span class="fav-meta">{{ node.f && node.f.region }}</span>
                 </div>
                 <span
-                  v-if="String(f.country) !== 'custom' && f.rating !== undefined && f.rating !== null && f.rating !== ''"
+                  v-if="node.f && String(node.f.country) !== 'custom' && node.f.rating !== undefined && node.f.rating !== null && node.f.rating !== ''"
                   class="fav-rating"
-                  :style="{ backgroundColor: getRatingColor(f.rating) }"
-                >{{ f.rating }}</span>
+                  :style="{ backgroundColor: getRatingColor(node.f.rating) }"
+                >{{ node.f && node.f.rating }}</span>
               </div>
-            </div>
-          </template>
-          <div
-            class="favorites-placeholder"
-            v-if="dragging && placeholderIndex === sortedFavorites.length"
-            :style="placeholderStyle"
-            :key="'fav-ph-end'"
-          ></div>
+            </template>
+          </div>
           <!-- 新增：创建自创景点的 + 项（位于清空收藏上方） -->
-          <div class="favorites-add" @click.stop="showCreateModal = true" title="创建景点" :key="'fav-add'">
+          <div key="fav-add" class="favorites-add" @click.stop="showCreateModal = true" title="创建景点">
             <div class="plus-circle">+</div>
           </div>
           <!-- 新增：导入/导出按钮行（位于 + 项下方，清空收藏上方）；当列表为空时隐藏 -->
-          <div class="favorites-actions-row" :key="'fav-actions-row'">
+          <div key="fav-actions" class="favorites-actions-row">
             <button class="favorites-action-btn" @click.stop="onImportClick">导入</button>
             <button class="favorites-action-btn primary" @click.stop="promptExportFavorites">导出</button>
             <!-- 隐藏的文件输入用于读取 -->
@@ -609,7 +610,7 @@
             />
           </div>
           <!-- 删除收藏列表操作（与拖出选项卡删除一致）；空白时也显示，且放入可滚动列表中 -->
-          <div class="favorites-clear" @click="promptClearFavorites" :key="'fav-clear'">
+          <div key="fav-clear" class="favorites-clear" @click="promptClearFavorites">
             🗑️ 删除收藏
           </div>
         </transition-group>
@@ -860,6 +861,8 @@
         autoScrollVelocity: 0,
         dragHysteresis: 6,
         dragTouchTolerance: 8,
+        recentlyMovedId: null,
+        recentlyMovedTimer: null,
         // 收藏项右滑删除
         favActionId: null,
         favSwipeItemId: null,
@@ -1036,6 +1039,23 @@
       },
       sortedFavorites() {
         return [...this.favorites].sort((a, b) => (a.order || 0) - (b.order || 0));
+      },
+      favoritesMoveNodes() {
+        const nodes = [];
+        const favs = this.sortedFavorites || [];
+        let insertedPlaceholder = false;
+        for (let i = 0; i < favs.length; i++) {
+          if (!insertedPlaceholder && this.dragging && this.placeholderIndex === i && this.dragIndex !== i) {
+            insertedPlaceholder = true;
+            nodes.push({ type: 'placeholder', key: 'fav-ph' });
+          }
+          const f = favs[i];
+          nodes.push({ type: 'item', key: `fav-item-${f.country}-${f.id}`, f, index: i });
+        }
+        if (!insertedPlaceholder && this.dragging && this.placeholderIndex === favs.length) {
+          nodes.push({ type: 'placeholder', key: 'fav-ph' });
+        }
+        return nodes;
       },
       
       countySuggestions() {
@@ -1235,9 +1255,13 @@
 
       order() {
         if (this.isRestoring) return;
-        localStorage.setItem('attractionsPage', this.page); // 保存当前页数到localStorage
-        localStorage.setItem('attractionsOrder',this.order);
-        this.fetchAttractions(false);}, // **新增的watch**
+        // 更改排序方式后，回到第 1 页
+        this.page = 1;
+        this.gotoPage = 1;
+        localStorage.setItem('attractionsPage', this.page);
+        localStorage.setItem('attractionsOrder', this.order);
+        this.fetchAttractions(false);
+      }, // **新增的watch**
 
 
       selectedRegion() {
@@ -1330,6 +1354,10 @@
       if (this.favoritesContextMenuLockTimer) {
         clearTimeout(this.favoritesContextMenuLockTimer);
         this.favoritesContextMenuLockTimer = null;
+      }
+      if (this.recentlyMovedTimer) {
+        clearTimeout(this.recentlyMovedTimer);
+        this.recentlyMovedTimer = null;
       }
       this.favoritesContextMenuInteractionLock = false;
       try {
@@ -3637,7 +3665,7 @@ const all = this.sortedFavorites || [];
             list.scrollTop = nextScroll;
             const itemEls = Array.from(list.querySelectorAll('.favorites-item'));
             this.captureDragMetrics(itemEls, list);
-            this.updatePlaceholderIndex(true);
+            this.updatePlaceholderIndex();
             this.maybeAutoScroll();
             if (Math.abs(this.autoScrollVelocity) < 0.5) {
               this.stopAutoScroll();
@@ -3797,6 +3825,36 @@ const all = this.sortedFavorites || [];
         if (!this.swipeTracking || !this.swipeEnabled) return;
         this.resetSwipeState(false);
       },
+      onFavoritesNodeMouseDown(node, evt) {
+        if (!node || node.type !== 'item') return;
+        if (evt && typeof evt.button === 'number' && evt.button !== 0) return;
+        if (evt && evt.preventDefault) evt.preventDefault();
+        this.startMenuItemPress(node.index, evt);
+      },
+      onFavoritesNodeTouchStart(node, evt) {
+        if (!node || node.type !== 'item') return;
+        this.startMenuItemPress(node.index, evt);
+        this.onFavTouchStart(node.f, node.index, evt);
+      },
+      onFavoritesNodeTouchMove(node, evt) {
+        if (!node || node.type !== 'item') return;
+        this.onFavTouchMove(evt);
+      },
+      onFavoritesNodeTouchEnd(node, evt) {
+        if (!node || node.type !== 'item') return;
+        this.onFavTouchEnd(node.f, node.index, evt);
+      },
+      onFavoritesNodeClick(node, evt) {
+        if (!node || node.type !== 'item') return;
+        if (evt && evt.stopPropagation) evt.stopPropagation();
+        this.handleMenuItemClick(node.f, node.index, evt);
+      },
+      onFavoritesNodeContextMenu(node, evt) {
+        if (!node || node.type !== 'item') return;
+        if (evt && evt.preventDefault) evt.preventDefault();
+        if (evt && evt.stopPropagation) evt.stopPropagation();
+        this.onFavoriteContextMenu(node.f, node.index, evt);
+      },
       // 菜单内长按拖拽
       startMenuItemPress(index, evt) {
         if (evt && typeof evt.button === 'number' && evt.button !== 0) return;
@@ -3922,33 +3980,117 @@ const all = this.sortedFavorites || [];
         if (!this.dragListRect) return;
         const list = this.favoritesListEl();
         if (!list) return;
-        if (!this.dragBoundaries.length) {
-          const itemEls = Array.from(list.querySelectorAll('.favorites-item'));
-          this.captureDragMetrics(itemEls, list);
-        }
-        if (!this.dragBoundaries.length) return;
+        const listRect = this.dragListRect || list.getBoundingClientRect();
         const scrollTop = list.scrollTop;
-        const relativeY = this.dragY - this.dragListRect.top + scrollTop;
-        let target = this.dragBoundaries.length;
-        for (let i = 0; i < this.dragBoundaries.length; i++) {
-          if (relativeY < this.dragBoundaries[i].mid) {
-            target = i;
+        const relativeY = this.dragY - listRect.top + scrollTop;
+        const children = Array.from(list.children || [])
+          .filter(el => el.classList && (el.classList.contains('favorites-item') || el.classList.contains('favorites-placeholder')));
+        if (!children.length) return;
+        let target = this.sortedFavorites.length;
+        let passedItems = 0;
+        const localBoundaries = [];
+        for (let i = 0; i < children.length; i++) {
+          const el = children[i];
+          const rect = el.getBoundingClientRect ? el.getBoundingClientRect() : null;
+          if (!rect) continue;
+          const start = rect.top - listRect.top + scrollTop;
+          const end = rect.bottom - listRect.top + scrollTop;
+          const mid = (start + end) / 2;
+          const isItem = el.classList.contains('favorites-item');
+          if (isItem) {
+            localBoundaries.push({ start, end, mid });
+          }
+          if (relativeY < mid) {
+            target = passedItems;
             break;
+          }
+          if (isItem) passedItems += 1;
+        }
+        const lastChild = children[children.length - 1];
+        const lastRect = lastChild && lastChild.getBoundingClientRect ? lastChild.getBoundingClientRect() : null;
+        if (lastRect) {
+          const lastEnd = lastRect.bottom - listRect.top + scrollTop;
+          if (relativeY >= lastEnd) {
+            target = passedItems;
           }
         }
         const current = this.placeholderIndex != null ? this.placeholderIndex : this.dragIndex;
-        if (current != null && target !== current && this.dragBoundaries.length) {
-          const idx = Math.min(current, this.dragBoundaries.length - 1);
-          const boundary = this.dragBoundaries[idx];
-          if (boundary) {
-            if (target < current && relativeY > boundary.start + this.dragHysteresis) {
-              target = current;
-            } else if (target > current && relativeY < boundary.end - this.dragHysteresis) {
-              target = current;
-            }
+        const bounds = this.dragBoundaries && this.dragBoundaries.length ? this.dragBoundaries : localBoundaries;
+        if (current != null && target !== current) {
+          const refBoundary = bounds[Math.min(current, bounds.length - 1)];
+          if (target < current && refBoundary && relativeY > (refBoundary.start + this.dragHysteresis)) {
+            target = current;
+          } else if (target > current && refBoundary && relativeY < (refBoundary.end - this.dragHysteresis)) {
+            target = current;
           }
         }
         this.placeholderIndex = Math.max(0, Math.min(target, this.sortedFavorites.length));
+      },
+      computeDomPlaceholderIndex() {
+        const list = this.favoritesListEl();
+        if (!list) return this.placeholderIndex;
+        const placeholder = list.querySelector('[data-fav-placeholder="active"]');
+        if (!placeholder || !placeholder.parentNode) return this.placeholderIndex;
+        let placeholderMid = null;
+        try {
+          const r = placeholder.getBoundingClientRect();
+          placeholderMid = (r.top + r.bottom) / 2;
+        } catch (e) {}
+
+        const isLeavingAbsolute = (el) => {
+          if (!el) return false;
+          try {
+            const s = window.getComputedStyle(el);
+            return s && s.position === 'absolute';
+          } catch (e) {
+            return false;
+          }
+        };
+
+        // 优先用“视觉位置”（getBoundingClientRect，包含 transform），并排除 leave 阶段的绝对定位节点
+        if (typeof placeholderMid === 'number') {
+          const itemEls = Array.from(list.querySelectorAll('.favorites-item')).filter(el => !isLeavingAbsolute(el));
+          let count = 0;
+          for (const el of itemEls) {
+            try {
+              const rr = el.getBoundingClientRect();
+              const mid = (rr.top + rr.bottom) / 2;
+              if (mid < placeholderMid) count += 1;
+            } catch (e) {}
+          }
+          return count;
+        }
+
+        // 兜底：按 DOM 顺序计数（同样排除绝对定位 leave 节点）
+        const siblings = Array.from(placeholder.parentNode.children || []);
+        let count = 0;
+        for (const el of siblings) {
+          if (el === placeholder) break;
+          if (el.classList && el.classList.contains('favorites-item') && !isLeavingAbsolute(el)) {
+            count += 1;
+          }
+        }
+        return count;
+      },
+      getPlaceholderContentTop(indexOverride) {
+        const list = this.favoritesListEl();
+        if (!list) return null;
+        const placeholderEl = list.querySelector('[data-fav-placeholder="active"]');
+        if (placeholderEl && placeholderEl.getBoundingClientRect) {
+          try {
+            const listRect = list.getBoundingClientRect();
+            const rect = placeholderEl.getBoundingClientRect();
+            return (rect.top - listRect.top) + list.scrollTop;
+          } catch (e) {}
+        }
+        const bounds = this.dragBoundaries;
+        const idx = typeof indexOverride === 'number' ? indexOverride : this.placeholderIndex;
+        if (!bounds || !bounds.length || idx == null) return null;
+        if (idx <= 0) return bounds[0].start || 0;
+        if (idx >= bounds.length) {
+          return bounds[bounds.length - 1].end || 0;
+        }
+        return bounds[idx].start;
       },
       finishDrag(evt) {
         const e = evt.changedTouches ? evt.changedTouches[0] : evt;
@@ -3959,8 +4101,21 @@ const all = this.sortedFavorites || [];
           const r = menu.getBoundingClientRect();
           return dropX >= r.left && dropX <= r.right && dropY >= r.top && dropY <= r.bottom;
         })();
+        const domIndex = this.computeDomPlaceholderIndex();
+        const finalIndex = (typeof domIndex === 'number' && domIndex >= 0)
+          ? domIndex
+          : (this.placeholderIndex != null ? this.placeholderIndex : null);
+        const list = this.favoritesListEl();
+        const listRect = list && list.getBoundingClientRect ? list.getBoundingClientRect() : null;
+        const pointerOffset = listRect ? Math.max(0, Math.min(listRect.height, dropY - listRect.top)) : 0;
+        const placeholderTop = this.getPlaceholderContentTop(finalIndex);
+        const fallbackScrollTop = list ? list.scrollTop : 0;
+        const scrollTarget = (list && placeholderTop != null)
+          ? Math.min(Math.max(placeholderTop - pointerOffset, 0), Math.max(0, (list.scrollHeight || 0) - (list.clientHeight || 0)))
+          : fallbackScrollTop;
         const draggedId = this.dragItem && this.dragItem.id;
         const sourceTab = this.favoriteTabs.find(t => t.id === this.dragSourceTabId);
+        let movedId = null;
         if (!inside) {
           const sourceItems = sourceTab && Array.isArray(sourceTab.items) ? sourceTab.items : this.favorites;
           const fi = draggedId ? sourceItems.find(f => f.id === draggedId) : null;
@@ -3974,18 +4129,29 @@ const all = this.sortedFavorites || [];
           if (targetTab) {
             if (sourceTab.id === targetTab.id) {
               const ordered = [...this.sortedFavorites];
-              let from = this.dragIndex != null ? this.dragIndex : ordered.findIndex(item => item.id === draggedId);
-              let to = this.placeholderIndex != null ? this.placeholderIndex : ordered.length - 1;
+              let from = ordered.findIndex(item => item.id === draggedId);
+              if (
+                this.dragIndex != null &&
+                this.dragIndex >= 0 &&
+                this.dragIndex < ordered.length &&
+                ordered[this.dragIndex] &&
+                ordered[this.dragIndex].id === draggedId
+              ) {
+                from = this.dragIndex;
+              }
+              let to = finalIndex != null ? finalIndex : from;
               if (to < 0) to = 0;
               if (to > ordered.length) to = ordered.length;
-              if (from < 0 || from >= ordered.length) {
-                from = ordered.findIndex(item => item.id === draggedId);
+              // placeholderIndex 的语义基于“拖拽项仍在列表里”，同 tab 且向下拖时需要 -1 才是最终插入位
+              if (from >= 0 && to > from) {
+                to -= 1;
               }
               if (from >= 0 && from < ordered.length && from !== to) {
                 const [moved] = ordered.splice(from, 1);
                 const insertIndex = Math.max(0, Math.min(to, ordered.length));
                 ordered.splice(insertIndex, 0, moved);
                 ordered.forEach((item, i) => { item.order = i + 1; });
+                movedId = moved && moved.id ? moved.id : draggedId;
                 this.normalizeTabItemsOrder(targetTab);
                 if (this.activeTabId === targetTab.id) {
                   this.normalizeFavoritesOrder();
@@ -4005,10 +4171,15 @@ const all = this.sortedFavorites || [];
               if (!moved) {
                 moved = { ...this.dragItem };
               }
-              let insertIndex = this.placeholderIndex != null ? this.placeholderIndex : targetItems.length;
+              const orderedTarget = [...this.sortedFavorites];
+              let insertIndex = finalIndex != null ? finalIndex : orderedTarget.length;
               if (insertIndex < 0) insertIndex = 0;
-              if (insertIndex > targetItems.length) insertIndex = targetItems.length;
-              targetItems.splice(insertIndex, 0, moved);
+              if (insertIndex > orderedTarget.length) insertIndex = orderedTarget.length;
+              orderedTarget.splice(insertIndex, 0, moved);
+              orderedTarget.forEach((item, i) => { item.order = i + 1; });
+              // 保持 targetItems 引用不变（避免 favorites 指针失效），但顺序严格按占位框插入点更新
+              targetItems.splice(0, targetItems.length, ...orderedTarget);
+              movedId = moved && moved.id ? moved.id : draggedId;
               this.normalizeTabItemsOrder(targetTab);
               if (this.activeTabId === targetTab.id) {
                 this.normalizeFavoritesOrder();
@@ -4031,6 +4202,29 @@ const all = this.sortedFavorites || [];
         this.clearTabHoverTimer();
         this.detachDragListeners();
         this.unlockPageTouchScroll();
+        if (inside && movedId) {
+          this.markRecentlyMoved(movedId);
+          this.$nextTick(() => {
+            const listEl = this.favoritesListEl();
+            if (!listEl) return;
+            const maxScroll = Math.max(0, (listEl.scrollHeight || 0) - (listEl.clientHeight || 0));
+            const next = Math.max(0, Math.min(scrollTarget, maxScroll));
+            if (Number.isFinite(next)) {
+              listEl.scrollTop = next;
+            }
+          });
+        }
+      },
+      markRecentlyMoved(id) {
+        if (!id) return;
+        this.recentlyMovedId = id;
+        if (this.recentlyMovedTimer) {
+          clearTimeout(this.recentlyMovedTimer);
+        }
+        this.recentlyMovedTimer = setTimeout(() => {
+          this.recentlyMovedId = null;
+          this.recentlyMovedTimer = null;
+        }, 900);
       },
       lockPageTouchScroll() {
         if (this.pageScrollLocked) return;
@@ -5012,6 +5206,7 @@ const all = this.sortedFavorites || [];
   display: flex;
   flex-direction: column;
   gap: 8px;
+  position: relative;
   user-select: none;
   -webkit-user-select: none;
   -ms-user-select: none;
@@ -5109,11 +5304,41 @@ const all = this.sortedFavorites || [];
 .favorites-item.dragging-shadow {
   box-shadow: 0 10px 24px rgba(0,0,0,0.2);
 }
+.fav-move-enter-active,
+.fav-move-leave-active,
+.fav-move-move {
+  transition: transform 0.18s ease, opacity 0.18s ease;
+}
+.fav-move-leave-active {
+  position: absolute;
+  left: 0;
+  right: 0;
+}
+.fav-move-enter-from,
+.fav-move-leave-to {
+  opacity: 0;
+  transform: translateY(6px);
+}
+.favorites-item.just-inserted {
+  animation: fav-drop-highlight 0.7s ease;
+}
+@keyframes fav-drop-highlight {
+  0% {
+    background: #fff7d6;
+    box-shadow: 0 6px 16px rgba(255, 215, 0, 0.25);
+  }
+  100% {
+    background: rgba(250,250,250,0.95);
+    box-shadow: 0 0 0 rgba(0,0,0,0);
+  }
+}
 .favorites-placeholder {
   min-height: 56px; /* 与 .favorites-item 行高一致 */
   padding: 8px 10px; /* 与 .favorites-item 一致的内边距，便于匹配视觉高度 */
   border: 2px dashed #ffd700;
   border-radius: 10px;
+  transform: none !important;
+  transition: none !important;
 }
 .fav-left-actions {
   position: absolute;
