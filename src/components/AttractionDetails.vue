@@ -241,6 +241,17 @@
         listPageLimit: 20,
         hasNextPage: true,
         ids: localStorage.getItem('ids') ? localStorage.getItem('ids').split(',').map(Number) : [] || null,
+        // 多请求合并模式：所有景点的ID列表（用于跨页导航）
+        allAttractionIds: (() => {
+          try {
+            const allIdsStr = localStorage.getItem('allAttractionIds');
+            if (allIdsStr) {
+              return JSON.parse(allIdsStr);
+            }
+          } catch (e) {}
+          return null;
+        })(),
+        attractionGlobalIndex: parseInt(localStorage.getItem('attractionGlobalIndex') || '-1', 10),
         favIndex: parseInt(localStorage.getItem('favIndex')) || 0,
         favNav: (() => { try { return JSON.parse(localStorage.getItem('favNav')||'[]'); } catch(e) { return []; } })(),
         isFavorited: false,
@@ -290,7 +301,25 @@
       this.updateIsFavorited();
       this.bumpAnimKeys();
       this.resetDetailSwipeState(true);
+      
+      // 如果使用多请求合并模式，更新全局索引
+      if (Array.isArray(this.allAttractionIds) && this.allAttractionIds.length > 0) {
+        const currentId = parseInt(this.id, 10);
+        const foundIndex = this.allAttractionIds.findIndex(id => id === currentId);
+        if (foundIndex >= 0) {
+          this.attractionGlobalIndex = foundIndex;
+          try {
+            localStorage.setItem('attractionGlobalIndex', String(foundIndex));
+          } catch (e) {}
+        }
+      }
+      
       this.hasNextPage = Array.isArray(this.ids) && this.ids.length >= this.listPageLimit;
+      // 如果使用多请求合并模式，根据全局索引判断是否有下一页
+      if (Array.isArray(this.allAttractionIds) && this.allAttractionIds.length > 0 && this.attractionGlobalIndex >= 0) {
+        this.hasNextPage = this.attractionGlobalIndex < this.allAttractionIds.length - 1;
+      }
+      
       await this.ensureDistanceQueueForMapEntry();
       this.syncIdsWithDistanceQueue();
       await this.fetchAttractionDetails();
@@ -328,6 +357,21 @@
         this.attraction = null;
         for (let i = 1; i <= 3; i++) this[`image${i}`] = null;
         this.bumpAnimKeys();
+        
+        // 如果使用多请求合并模式，更新全局索引
+        if (Array.isArray(this.allAttractionIds) && this.allAttractionIds.length > 0) {
+          const currentId = parseInt(this.id, 10);
+          const foundIndex = this.allAttractionIds.findIndex(id => id === currentId);
+          if (foundIndex >= 0) {
+            this.attractionGlobalIndex = foundIndex;
+            try {
+              localStorage.setItem('attractionGlobalIndex', String(foundIndex));
+            } catch (e) {}
+            // 更新hasNextPage
+            this.hasNextPage = foundIndex < this.allAttractionIds.length - 1;
+          }
+        }
+        
         this.syncIdsWithDistanceQueue();
         this.fetchAttractionDetails();
       }
@@ -727,10 +771,18 @@
           if (direction === 'right') return this.favIndex > 0;
         } else {
           if (direction === 'left') {
+            // 优先使用多请求合并模式
+            if (Array.isArray(this.allAttractionIds) && this.allAttractionIds.length > 0 && this.attractionGlobalIndex >= 0) {
+              return this.attractionGlobalIndex < this.allAttractionIds.length - 1;
+            }
             if (Array.isArray(this.ids) && this.ids.length && this.index < this.ids.length - 1) return true;
             return this.hasNextPage;
           }
           if (direction === 'right') {
+            // 优先使用多请求合并模式
+            if (Array.isArray(this.allAttractionIds) && this.allAttractionIds.length > 0 && this.attractionGlobalIndex >= 0) {
+              return this.attractionGlobalIndex > 0;
+            }
             if (this.index > 0) return true;
             return this.listPage > 1;
           }
@@ -1228,6 +1280,40 @@
           return;
         }
         if (this.fromSearch) return;
+        
+        // 优先使用多请求合并模式的所有ID列表（如果存在）
+        if (Array.isArray(this.allAttractionIds) && this.allAttractionIds.length > 0 && this.attractionGlobalIndex >= 0) {
+          const nextGlobalIndex = this.attractionGlobalIndex + 1;
+          if (nextGlobalIndex < this.allAttractionIds.length) {
+            const nextId = this.allAttractionIds[nextGlobalIndex];
+            // 计算下一个景点应该在列表的哪一页
+            const nextListPage = Math.floor(nextGlobalIndex / this.listPageLimit) + 1;
+            const nextIndexInPage = nextGlobalIndex % this.listPageLimit;
+            
+            // 更新列表页的页码（如果需要）
+            if (nextListPage !== this.listPage) {
+              try {
+                localStorage.setItem('attractionsPage', String(nextListPage));
+              } catch (e) {}
+              this.listPage = nextListPage;
+            }
+            
+            // 更新全局索引
+            this.attractionGlobalIndex = nextGlobalIndex;
+            try {
+              localStorage.setItem('attractionGlobalIndex', String(nextGlobalIndex));
+            } catch (e) {}
+            
+            // 直接跳转到下一个景点
+            this.attraction = null;
+            for (let i = 1; i <= 3; i++) this[`image${i}`] = null;
+            this.loading = true;
+            this.$router.push(`/attraction/${this.country}/${nextId}`);
+            return;
+          }
+        }
+        
+        // 回退到原来的逻辑（单请求模式）
         if (Array.isArray(this.ids) && this.ids.length && this.index < this.ids.length - 1) {
           this.goToListIndex(this.index + 1);
           return;
@@ -1251,6 +1337,39 @@
           return;
         }
         if (this.fromSearch) return;
+        
+        // 优先使用多请求合并模式的所有ID列表（如果存在）
+        if (Array.isArray(this.allAttractionIds) && this.allAttractionIds.length > 0 && this.attractionGlobalIndex >= 0) {
+          const prevGlobalIndex = this.attractionGlobalIndex - 1;
+          if (prevGlobalIndex >= 0) {
+            const prevId = this.allAttractionIds[prevGlobalIndex];
+            // 计算上一个景点应该在列表的哪一页
+            const prevListPage = Math.floor(prevGlobalIndex / this.listPageLimit) + 1;
+            
+            // 更新列表页的页码（如果需要）
+            if (prevListPage !== this.listPage) {
+              try {
+                localStorage.setItem('attractionsPage', String(prevListPage));
+              } catch (e) {}
+              this.listPage = prevListPage;
+            }
+            
+            // 更新全局索引
+            this.attractionGlobalIndex = prevGlobalIndex;
+            try {
+              localStorage.setItem('attractionGlobalIndex', String(prevGlobalIndex));
+            } catch (e) {}
+            
+            // 直接跳转到上一个景点
+            this.attraction = null;
+            for (let i = 1; i <= 3; i++) this[`image${i}`] = null;
+            this.loading = true;
+            this.$router.push(`/attraction/${this.country}/${prevId}`);
+            return;
+          }
+        }
+        
+        // 回退到原来的逻辑（单请求模式）
         if (this.index > 0) {
           this.goToListIndex(this.index - 1);
           return;

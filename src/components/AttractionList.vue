@@ -1,4 +1,4 @@
-﻿<template>
+<template>
   <div class="container fade-in">
     <!-- 固定顶部区域（标题 + 筛选器） -->
     <div class="fixed-header">
@@ -4496,20 +4496,43 @@ const all = this.sortedFavorites || [];
 
       async fetchAllAttractions() {
         try {
-          // 使用原始值进行API调用
-          const originalRegion = this.selectedRegion ? 
-            this.getOriginalValue(this.selectedRegion, this.regionValueMap) : '';
-          const originalCounty = this.selectedCounty ? 
-            this.getOriginalValue(this.selectedCounty, this.countyValueMap) : '';
+          // 获取所有匹配的值（包括简体和繁体）
+          const allRegionValues = this.selectedRegion ? 
+            this.getAllOriginalValues(this.selectedRegion, this.regionValueMap) : [''];
+          const allCountyValues = this.selectedCounty ? 
+            this.getAllOriginalValues(this.selectedCounty, this.countyValueMap) : [''];
 
-          const params = new URLSearchParams({
-            region: originalRegion,
-            county: originalCounty
-          }).toString();
+          // 合并所有请求的结果
+          const allAttractionsSet = new Set();
+          const allAttractionsArray = [];
 
-          const res = await fetch(`https://juseaxerf.com/api/attractions-names-filtered/${this.country}?${params}`, withBackendApiKey());
-          const data = await res.json();
-          this.allAttractions = Array.isArray(data.data) ? data.data : data; // 兼容不同API格式
+          for (const regionValue of allRegionValues) {
+            for (const countyValue of allCountyValues) {
+              const params = new URLSearchParams({
+                region: regionValue || '',
+                county: countyValue || ''
+              }).toString();
+
+              try {
+                const res = await fetch(`https://juseaxerf.com/api/attractions-names-filtered/${this.country}?${params}`, withBackendApiKey());
+                const data = await res.json();
+                const attractions = Array.isArray(data.data) ? data.data : (Array.isArray(data) ? data : []);
+                
+                // 去重并添加到结果中
+                for (const attraction of attractions) {
+                  const key = `${attraction.id || attraction.name}`;
+                  if (!allAttractionsSet.has(key)) {
+                    allAttractionsSet.add(key);
+                    allAttractionsArray.push(attraction);
+                  }
+                }
+              } catch (err) {
+                console.error('拉取部分景点失败:', err);
+              }
+            }
+          }
+
+          this.allAttractions = allAttractionsArray;
           console.log('✅ 已加载景点名称数量:', this.allAttractions.length);
         } catch (err) {
           console.error('拉取所有景点失败:', err);
@@ -4583,6 +4606,8 @@ const all = this.sortedFavorites || [];
           this.suppressNextClick = false;
           return;
         }
+        
+        // 保存当前页的景点ID（用于向后兼容）
         const ids=[];
         localStorage.setItem('attractionIndex',index);
         for (let i = 0; i<this.attractions.length;i++) {
@@ -4590,6 +4615,51 @@ const all = this.sortedFavorites || [];
         };
         console.log(ids);
         localStorage.setItem('ids',ids);
+        
+        // 计算当前景点在所有合并数据中的全局索引
+        // 如果存在所有景点的ID列表（多请求合并的情况），使用它来计算全局索引
+        try {
+          const allIdsStr = localStorage.getItem('allAttractionIds');
+          const allIdsPage = parseInt(localStorage.getItem('allAttractionIdsPage') || '0', 10);
+          if (allIdsStr && allIdsPage === this.page) {
+            // 当前页与保存的ID列表对应，计算全局索引
+            const allIds = JSON.parse(allIdsStr);
+            const globalIndex = allIds.findIndex(id => String(id) === String(attraction.id));
+            if (globalIndex >= 0) {
+              // 保存全局索引和所有ID（详情页面可以使用这些信息进行跨页导航）
+              localStorage.setItem('attractionGlobalIndex', String(globalIndex));
+              localStorage.setItem('allAttractionIds', allIdsStr); // 确保保存
+              const allIdsTotal = localStorage.getItem('allAttractionIdsTotal');
+              if (allIdsTotal) {
+                localStorage.setItem('allAttractionIdsTotal', allIdsTotal);
+              }
+              console.log('Global index:', globalIndex, 'out of', allIds.length, '(multi-request mode)');
+            } else {
+              // 如果找不到，使用当前页索引计算
+              const globalIndex = (this.page - 1) * this.limit + index;
+              localStorage.setItem('attractionGlobalIndex', String(globalIndex));
+              console.log('ID not found in allIds, calculated global index:', globalIndex);
+            }
+          } else {
+            // 如果没有保存的ID列表（单请求情况），计算当前页的全局索引
+            // 注意：这种情况下，详情页面需要通过API获取其他页的数据
+            const globalIndex = (this.page - 1) * this.limit + index;
+            localStorage.setItem('attractionGlobalIndex', String(globalIndex));
+            // 清除之前保存的所有ID列表（如果存在），因为现在是单请求模式
+            try {
+              localStorage.removeItem('allAttractionIds');
+              localStorage.removeItem('allAttractionIdsPage');
+              localStorage.removeItem('allAttractionIdsTotal');
+            } catch (e) {}
+            console.log('Calculated global index:', globalIndex, '(single-request mode)');
+          }
+        } catch (e) {
+          console.error('Failed to calculate global index:', e);
+          // 如果出错，至少保存当前页的索引
+          const globalIndex = (this.page - 1) * this.limit + index;
+          localStorage.setItem('attractionGlobalIndex', String(globalIndex));
+        }
+        
         // 将列表中实际使用的背景色直接传递给详情页，保证一致
         try {
           const color = this.getRatingColor(attraction.rating);
@@ -4698,20 +4768,53 @@ const all = this.sortedFavorites || [];
         }
         return processedValue;
       },
+
+      // 获取所有匹配的原始值（包括简体和繁体），用于同时匹配多个值
+      getAllOriginalValues(processedValue, valueMap) {
+        if (!processedValue || !valueMap) return [processedValue];
+        const originalValues = valueMap.get(processedValue);
+        if (originalValues && originalValues.length > 0) {
+          console.log(`getAllOriginalValues: "${processedValue}" -> [${originalValues.join(', ')}]`);
+          return originalValues;
+        }
+        console.log(`getAllOriginalValues: "${processedValue}" -> not found in map, returning [${processedValue}]`);
+        return [processedValue];
+      },
       
       async fetchRegions() {
-        // 获取原始county值用于API调用
-        const originalCounty = this.getOriginalValue(this.selectedCounty, this.countyValueMap);
+        // 获取所有匹配的county值（包括简体和繁体）
+        const allCountyValues = this.selectedCounty ? 
+          this.getAllOriginalValues(this.selectedCounty, this.countyValueMap) : [null];
         
         try {
-          let response;
-          if (this.selectedCounty) {
-            response = await fetch(`https://juseaxerf.com/api/regions/${this.country}/${encodeURIComponent(originalCounty)}`, withBackendApiKey());
-          } else {
-            response = await fetch(`https://juseaxerf.com/api/regions/${this.country}`, withBackendApiKey());
+          const allRegionsSet = new Set();
+          const allRegionsArray = [];
+
+          // 为每个county值获取regions并合并
+          for (const countyValue of allCountyValues) {
+            let response;
+            if (countyValue) {
+              response = await fetch(`https://juseaxerf.com/api/regions/${this.country}/${encodeURIComponent(countyValue)}`, withBackendApiKey());
+            } else {
+              response = await fetch(`https://juseaxerf.com/api/regions/${this.country}`, withBackendApiKey());
+            }
+            
+            if (response && response.ok) {
+              const data = await response.json();
+              if (Array.isArray(data)) {
+                // 去重并添加到结果中
+                for (const region of data) {
+                  if (region && !allRegionsSet.has(region)) {
+                    allRegionsSet.add(region);
+                    allRegionsArray.push(region);
+                  }
+                }
+              }
+            }
           }
-          const data = await response.json();
-          const result = this.processOptions(data);
+
+          // 处理合并后的regions
+          const result = this.processOptions(allRegionsArray);
           this.regions = result.processed;
           this.filteredRegions = result.processed;
           this.regionValueMap = result.valueMap;
@@ -4725,7 +4828,10 @@ const all = this.sortedFavorites || [];
           const response = await fetch(`https://juseaxerf.com/api/countis/${this.country}`, withBackendApiKey());
           const data = await response.json();
           const filtered = data.filter(county => county && county.trim() !== '');
+          console.log('Raw counties from API:', filtered);
           const result = this.processOptions(filtered);
+          console.log('Processed counties:', result.processed);
+          console.log('County value map:', Array.from(result.valueMap.entries()).map(([k, v]) => [k, v]));
           this.countis = result.processed;
           this.filteredCounties = [...result.processed];
           this.countyValueMap = result.valueMap;
@@ -4866,87 +4972,335 @@ const all = this.sortedFavorites || [];
           }
           return;
         }
-        const params = new URLSearchParams();
-        const minReviews = Number.isFinite(this.minReviews) ? this.minReviews : 0;
-        params.append('minReviews', minReviews);
-        params.append('order', this.order);
-        params.append('page', isregion ? 1 : this.page);
-        params.append('limit', this.limit);
-        // 使用原始值进行API调用
-        if (this.selectedRegion) {
-          const originalRegion = this.getOriginalValue(this.selectedRegion, this.regionValueMap);
-          params.append('region', originalRegion);
-        }
+        
+        // 获取所有匹配的county值（包括简体和繁体）
+        let allCountyValues = this.selectedCounty ? 
+          this.getAllOriginalValues(this.selectedCounty, this.countyValueMap) : [null];
+        let allRegionValues = this.selectedRegion ? 
+          this.getAllOriginalValues(this.selectedRegion, this.regionValueMap) : [null];
+
+        // 调试信息：打印所有匹配的值
         if (this.selectedCounty) {
-          const originalCounty = this.getOriginalValue(this.selectedCounty, this.countyValueMap);
-          params.append('county', originalCounty);
-        }
-        if (this.order === 'rating_desc') params.append('secondary', 'reviews_desc');
-
-        let attempts = 0;
-        while (this.activeFetchToken === fetchToken && attempts < this.maxFetchRetries) {
-          try {
-            const response = await fetch(`https://juseaxerf.com/api/attractions/${this.country}?${params.toString()}`, withBackendApiKey());
-            if (!response.ok) throw new Error(`HTTP ${response.status}`);
-            const data = await response.json();
-            if (this.activeFetchToken !== fetchToken) return;
-
-            if (!data || !Array.isArray(data.data)) {
-              throw new Error('Invalid attractions payload');
+          console.log('Selected county:', this.selectedCounty);
+          console.log('All county values:', allCountyValues);
+          console.log('County value map size:', this.countyValueMap.size);
+          // 检查当前选中的county在valueMap中是否有多个原始值
+          if (this.countyValueMap.has(this.selectedCounty)) {
+            const mappedValues = this.countyValueMap.get(this.selectedCounty);
+            console.log(`County "${this.selectedCounty}" mapped to:`, mappedValues);
+            if (mappedValues && mappedValues.length > 1) {
+              console.log(`Found ${mappedValues.length} original values for "${this.selectedCounty}"`);
+              // 确保 allCountyValues 包含所有原始值
+              allCountyValues = [...mappedValues];
             }
-
-            const parsedTotal = Number.parseInt(data.total, 10);
-            const total = Number.isFinite(parsedTotal) ? parsedTotal : data.data.length;
-            this.total = total;
-            this.attractions = data.data.map(a => ({
-              ...a,
-              image1: '',
-            }));
-            this.loading = false;
-
-            this.attractions.forEach(async (a, i) => {
-              if (a.hasImage) {
-                try {
-                  const res = await fetch(`https://juseaxerf.com/api/attraction-image/${this.country}/${a.id}/1`, withBackendApiKey());
-                  if (res && res.ok) {
-                    const blob = await res.blob();
-                    const url = URL.createObjectURL(blob);
-                    this.attractions[i].image1 = url;
-                  }
-                } catch (e) {}
-              }
-            });
-
-            if (this.order === 'rating_desc') {
-              const parsePercent = (v) => {
-                if (v == null) return 0;
-                const s = String(v).replace('%', '');
-                const n = parseFloat(s);
-                return Number.isFinite(n) ? n : 0;
-              };
-              this.attractions = [...this.attractions].sort((a, b) => {
-                const ra = parsePercent(a.rating);
-                const rb = parsePercent(b.rating);
-                if (rb !== ra) return rb - ra;
-                const ta = Number(a.total_reviews) || 0;
-                const tb = Number(b.total_reviews) || 0;
-                return tb - ta;
-              });
-            }
-            this.bumpListRenderTick();
-            return;
-          } catch (error) {
-            console.error('????????:', error);
-            if (this.activeFetchToken !== fetchToken) return;
-            attempts += 1;
-            if (attempts >= this.maxFetchRetries) {
-              this.loading = false;
-              break;
-            }
-            await this.waitForRetry(this.fetchRetryDelay);
           }
         }
-        this.loading = false;
+        if (this.selectedRegion) {
+          console.log('Selected region:', this.selectedRegion);
+          console.log('All region values:', allRegionValues);
+          // 检查当前选中的region在valueMap中是否有多个原始值
+          if (this.regionValueMap.has(this.selectedRegion)) {
+            const mappedValues = this.regionValueMap.get(this.selectedRegion);
+            console.log(`Region "${this.selectedRegion}" mapped to:`, mappedValues);
+            if (mappedValues && mappedValues.length > 1) {
+              console.log(`Found ${mappedValues.length} original values for "${this.selectedRegion}"`);
+              // 确保 allRegionValues 包含所有原始值
+              allRegionValues = [...mappedValues];
+            }
+          }
+        }
+
+        // 如果只有一个值，使用原来的逻辑；如果有多个值，需要合并多个请求的结果
+        const needMultipleRequests = allCountyValues.length > 1 || allRegionValues.length > 1;
+        
+        if (needMultipleRequests) {
+          console.log('Using multi-request mode. County values:', allCountyValues, 'Region values:', allRegionValues);
+        }
+        
+        if (!needMultipleRequests) {
+          // 单个请求的情况（保持原有逻辑）
+          const params = new URLSearchParams();
+          const minReviews = Number.isFinite(this.minReviews) ? this.minReviews : 0;
+          params.append('minReviews', minReviews);
+          params.append('order', this.order);
+          params.append('page', isregion ? 1 : this.page);
+          params.append('limit', this.limit);
+          if (this.selectedRegion) {
+            const originalRegion = this.getOriginalValue(this.selectedRegion, this.regionValueMap);
+            params.append('region', originalRegion);
+          }
+          if (this.selectedCounty) {
+            const originalCounty = this.getOriginalValue(this.selectedCounty, this.countyValueMap);
+            params.append('county', originalCounty);
+          }
+          if (this.order === 'rating_desc') params.append('secondary', 'reviews_desc');
+
+          let attempts = 0;
+          while (this.activeFetchToken === fetchToken && attempts < this.maxFetchRetries) {
+            try {
+              const response = await fetch(`https://juseaxerf.com/api/attractions/${this.country}?${params.toString()}`, withBackendApiKey());
+              if (!response.ok) throw new Error(`HTTP ${response.status}`);
+              const data = await response.json();
+              if (this.activeFetchToken !== fetchToken) return;
+
+              if (!data || !Array.isArray(data.data)) {
+                throw new Error('Invalid attractions payload');
+              }
+
+              const parsedTotal = Number.parseInt(data.total, 10);
+              const total = Number.isFinite(parsedTotal) ? parsedTotal : data.data.length;
+              this.total = total;
+              
+              // 对于单请求情况，由于API支持分页，我们无法获取所有数据
+              // 所以只保存当前页的ID，详情页面需要通过API获取其他页的数据
+              // 清除之前保存的所有ID列表（如果存在）
+              try {
+                localStorage.removeItem('allAttractionIds');
+                localStorage.removeItem('allAttractionIdsPage');
+                localStorage.removeItem('allAttractionIdsTotal');
+              } catch (e) {}
+              
+              this.attractions = data.data.map(a => ({
+                ...a,
+                image1: '',
+              }));
+              this.loading = false;
+
+              this.attractions.forEach(async (a, i) => {
+                if (a.hasImage) {
+                  try {
+                    const res = await fetch(`https://juseaxerf.com/api/attraction-image/${this.country}/${a.id}/1`, withBackendApiKey());
+                    if (res && res.ok) {
+                      const blob = await res.blob();
+                      const url = URL.createObjectURL(blob);
+                      this.attractions[i].image1 = url;
+                    }
+                  } catch (e) {}
+                }
+              });
+
+              if (this.order === 'rating_desc') {
+                const parsePercent = (v) => {
+                  if (v == null) return 0;
+                  const s = String(v).replace('%', '');
+                  const n = parseFloat(s);
+                  return Number.isFinite(n) ? n : 0;
+                };
+                this.attractions = [...this.attractions].sort((a, b) => {
+                  const ra = parsePercent(a.rating);
+                  const rb = parsePercent(b.rating);
+                  if (rb !== ra) return rb - ra;
+                  const ta = Number(a.total_reviews) || 0;
+                  const tb = Number(b.total_reviews) || 0;
+                  return tb - ta;
+                });
+              }
+              this.bumpListRenderTick();
+              return;
+            } catch (error) {
+              attempts++;
+              if (attempts >= this.maxFetchRetries) {
+                console.error('Failed to fetch attractions after retries:', error);
+                this.loading = false;
+                return;
+              }
+              await this.waitForRetry(this.fetchRetryDelay);
+            }
+          }
+        } else {
+          // 多个请求的情况：需要合并简体和繁体的结果
+          const allResults = [];
+          let totalCount = 0;
+          const seenIds = new Set(); // 用于去重
+
+          // 为每个county值发送请求
+          for (const countyValue of allCountyValues) {
+            // 为每个region值发送请求（如果有region筛选）
+            for (const regionValue of allRegionValues) {
+              // 分页获取所有数据
+              let page = 1;
+              let hasMoreData = true;
+              const maxLimit = 10000; // API可能的最大limit
+              let currentCombinationFetched = 0; // 当前county/region组合已获取的数据量（去重前）
+              
+              while (hasMoreData && this.activeFetchToken === fetchToken) {
+                const params = new URLSearchParams();
+                const minReviews = Number.isFinite(this.minReviews) ? this.minReviews : 0;
+                params.append('minReviews', minReviews);
+                params.append('order', this.order);
+                params.append('page', page);
+                params.append('limit', maxLimit);
+                if (regionValue) {
+                  params.append('region', regionValue);
+                }
+                if (countyValue) {
+                  params.append('county', countyValue);
+                }
+                if (this.order === 'rating_desc') params.append('secondary', 'reviews_desc');
+
+                let attempts = 0;
+                let success = false;
+                while (this.activeFetchToken === fetchToken && attempts < this.maxFetchRetries) {
+                  try {
+                    const response = await fetch(`https://juseaxerf.com/api/attractions/${this.country}?${params.toString()}`, withBackendApiKey());
+                    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                    const data = await response.json();
+                    if (this.activeFetchToken !== fetchToken) return;
+
+                    if (data && Array.isArray(data.data)) {
+                      const returnedCount = data.data.length;
+                      const parsedTotal = Number.parseInt(data.total, 10);
+                      
+                      // 去重并添加到结果中
+                      for (const item of data.data) {
+                        if (!seenIds.has(String(item.id))) {
+                          seenIds.add(String(item.id));
+                          allResults.push(item);
+                        }
+                      }
+                      
+                      // 更新当前组合已获取的数据量（使用返回的原始数据量，不去重）
+                      currentCombinationFetched += returnedCount;
+                      
+                      // 检查是否还有更多数据
+                      if (returnedCount < maxLimit) {
+                        // 返回的数据量小于limit，说明已经是最后一页
+                        hasMoreData = false;
+                      } else if (Number.isFinite(parsedTotal)) {
+                        // 如果已获取的数据量达到或超过total，说明已经获取了所有数据
+                        if (currentCombinationFetched >= parsedTotal) {
+                          hasMoreData = false;
+                        } else {
+                          // 继续获取下一页
+                          page++;
+                        }
+                      } else {
+                        // 如果没有total信息，根据返回的数据量判断
+                        // 如果返回的数据量等于limit，可能还有更多页
+                        if (returnedCount >= maxLimit) {
+                          page++;
+                        } else {
+                          hasMoreData = false;
+                        }
+                      }
+                    } else {
+                      hasMoreData = false;
+                    }
+                    success = true;
+                    break; // 成功，跳出重试循环
+                  } catch (error) {
+                    attempts++;
+                    if (attempts >= this.maxFetchRetries) {
+                      console.error(`Failed to fetch attractions for county=${countyValue}, region=${regionValue}, page=${page}:`, error);
+                      hasMoreData = false; // 失败后不再继续
+                      break;
+                    }
+                    await this.waitForRetry(this.fetchRetryDelay);
+                  }
+                }
+                
+                if (!success) {
+                  hasMoreData = false; // 如果请求失败，停止获取
+                }
+              }
+            }
+          }
+
+          // 合并结果并按排序规则排序
+          if (this.order === 'rating_desc') {
+            const parsePercent = (v) => {
+              if (v == null) return 0;
+              const s = String(v).replace('%', '');
+              const n = parseFloat(s);
+              return Number.isFinite(n) ? n : 0;
+            };
+            allResults.sort((a, b) => {
+              const ratingA = parsePercent(a.rating);
+              const ratingB = parsePercent(b.rating);
+              if (ratingA !== ratingB) return ratingB - ratingA;
+              const reviewsA = parseInt(a.total_reviews || 0, 10);
+              const reviewsB = parseInt(b.total_reviews || 0, 10);
+              return reviewsB - reviewsA;
+            });
+          } else if (this.order === 'rating_asc') {
+            const parsePercent = (v) => {
+              if (v == null) return 0;
+              const s = String(v).replace('%', '');
+              const n = parseFloat(s);
+              return Number.isFinite(n) ? n : 0;
+            };
+            allResults.sort((a, b) => {
+              const ratingA = parsePercent(a.rating);
+              const ratingB = parsePercent(b.rating);
+              return ratingA - ratingB;
+            });
+          } else if (this.order === 'reviews_desc') {
+            allResults.sort((a, b) => {
+              const reviewsA = parseInt(a.total_reviews || 0, 10);
+              const reviewsB = parseInt(b.total_reviews || 0, 10);
+              return reviewsB - reviewsA;
+            });
+          } else if (this.order === 'reviews_asc') {
+            allResults.sort((a, b) => {
+              const reviewsA = parseInt(a.total_reviews || 0, 10);
+              const reviewsB = parseInt(b.total_reviews || 0, 10);
+              return reviewsA - reviewsB;
+            });
+          } else if (this.order === 'positive_desc') {
+            allResults.sort((a, b) => {
+              const positiveA = parseInt(a.positive_reviews || 0, 10);
+              const positiveB = parseInt(b.positive_reviews || 0, 10);
+              return positiveB - positiveA;
+            });
+          } else if (this.order === 'positive_asc') {
+            allResults.sort((a, b) => {
+              const positiveA = parseInt(a.positive_reviews || 0, 10);
+              const positiveB = parseInt(b.positive_reviews || 0, 10);
+              return positiveA - positiveB;
+            });
+          }
+
+          // 分页处理
+          const startIndex = (this.page - 1) * this.limit;
+          const endIndex = startIndex + this.limit;
+          const paginatedResults = allResults.slice(startIndex, endIndex);
+
+          // 使用实际合并后的数据长度作为总数（已去重）
+          // 这样可以正确显示合并后的总页数
+          this.total = allResults.length;
+          
+          // 保存所有合并后的景点ID（用于详情页面的跨页导航）
+          // 这样详情页面可以知道所有页面的景点顺序
+          try {
+            const allIds = allResults.map(item => item.id);
+            localStorage.setItem('allAttractionIds', JSON.stringify(allIds));
+            localStorage.setItem('allAttractionIdsPage', String(this.page));
+            localStorage.setItem('allAttractionIdsTotal', String(allResults.length));
+          } catch (e) {
+            console.error('Failed to save all attraction IDs:', e);
+          }
+          
+          this.attractions = paginatedResults.map(a => ({
+            ...a,
+            image1: '',
+          }));
+          this.loading = false;
+
+          this.attractions.forEach(async (a, i) => {
+            if (a.hasImage) {
+              try {
+                const res = await fetch(`https://juseaxerf.com/api/attraction-image/${this.country}/${a.id}/1`, withBackendApiKey());
+                if (res && res.ok) {
+                  const blob = await res.blob();
+                  const url = URL.createObjectURL(blob);
+                  this.attractions[i].image1 = url;
+                }
+              } catch (e) {}
+            }
+          });
+
+          this.bumpListRenderTick();
+        }
       },
 
       goBack() {
