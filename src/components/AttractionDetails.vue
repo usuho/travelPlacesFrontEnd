@@ -1863,7 +1863,7 @@
 }
 .info-card-location { grid-area: loc; }
 .info-card-visit { grid-area: visit; }
-.info-card-website { grid-area: web; }
+.info-card-website { grid-area: web; flex: 1; min-width: 0;}
 
 /* 桌面端：三列平分，让“位置信息 / 游览信息 / 网址”在同一行等宽显示 */
 @media (min-width: 1024px) {
@@ -2015,7 +2015,7 @@
 }
 
 .website-link {
-  display: inline-flex;
+  display: flex;
   align-items: center;
   gap: 8px;
   padding: 8px 0;
@@ -2027,6 +2027,10 @@
   transition: all 0.3s ease;
   font-weight: 500;
   border-radius: 0;
+
+  width:100%;
+  max-width:100%;
+  text-decoration: none;
 }
 
 .website-link:hover {
@@ -2038,6 +2042,9 @@
 
 .website-text {
   flex: 1;
+  min-width: 0;
+
+  white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
