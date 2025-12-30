@@ -768,6 +768,7 @@
   import { getImageUrl as getCustomImageUrl, deleteImagesForId as deleteCustomImagesForId, setImage as setCustomImage } from '../utils/customImageStore.js'
   import { withBackendApiKey } from '../utils/geoApi.js';
   import { ensureUserDataHydrated, queueUserDataSync, uploadCustomImage, deleteCustomImages } from '../stores/userDataSync.js'
+  import { Converter } from 'opencc-js';
 
   export default {
     components: { CreateAttractionModal },
@@ -1002,6 +1003,9 @@
         selectedCounty: localStorage.getItem('attractionsCounty')||'',
         regions: [],
         countis: [],
+        // 映射：处理后的值 -> 原始值数组（用于API调用）
+        countyValueMap: new Map(), // 处理后的值 -> [原始值1, 原始值2, ...]
+        regionValueMap: new Map(), // 处理后的值 -> [原始值1, 原始值2, ...]
         countySearch: '',
         regionSearch: '',
         filteredCounties: [],
@@ -1186,9 +1190,10 @@
         this.resetFiltersAndPagination(false);
         this.clearResetFiltersRouteFlag();
       }
+      // 先获取countis和regions的映射，再调用fetchAttractions
+      await this.fetchCountis();
+      await this.fetchRegions();
       this.fetchAttractions(false);
-      this.fetchRegions();
-      this.fetchCountis();
       this.fetchAllAttractions();
       try { await ensureUserDataHydrated(); } catch (e) {}
       this.loadFavorites();
@@ -1247,10 +1252,13 @@
         }
         this.restoreDistanceQueueState();
         this.isRestoring = false;
-        this.fetchAttractions(false);
-        this.fetchRegions();
-        this.fetchCountis();
-        this.fetchAllAttractions();
+        // 先获取countis和regions的映射，再调用fetchAttractions
+        this.fetchCountis().then(() => {
+          return this.fetchRegions();
+        }).then(() => {
+          this.fetchAttractions(false);
+          this.fetchAllAttractions();
+        });
       },
 
       order() {
@@ -1280,14 +1288,17 @@
         const resetByDistance = this.handleDistanceQueueResetOnFilters();
         this.selectedRegion = ''; // 重置区域
         localStorage.setItem('attractionsRegion', ''); // 保存到 localStorage 
-        this.fetchRegions();
         this.page = 1;
         localStorage.setItem('attractionsPage', this.page); 
-        localStorage.setItem('attractionsCounty',this.selectedCounty)
-        if (!resetByDistance) {
-          this.fetchAttractions(true);
-        }
-        this.fetchAllAttractions();},
+        localStorage.setItem('attractionsCounty',this.selectedCounty);
+        // 先获取regions的映射，再调用fetchAttractions
+        this.fetchRegions().then(() => {
+          if (!resetByDistance) {
+            this.fetchAttractions(true);
+          }
+          this.fetchAllAttractions();
+        });
+      },
 
       '$route.query.resetFilters'(next) {
         if (!next) return;
@@ -3442,17 +3453,19 @@ const all = this.sortedFavorites || [];
       performDeleteItem() {
         const t = this.itemDeleteTarget;
         if (!t) return;
-        // 从所有收藏 tab 中移除该项
+        // 仅从当前激活的收藏 tab 中移除该项
         try {
-          this.favoriteTabs.forEach(tab => {
-            if (Array.isArray(tab.items)) {
-              const idx = tab.items.findIndex(x => String(x.id) === String(t.id) && String(x.country||'') === String(t.country||''));
-              if (idx >= 0) tab.items.splice(idx, 1);
+          const activeTab = this.favoriteTabs.find(tab => tab.id === this.activeTabId);
+          if (activeTab && Array.isArray(activeTab.items)) {
+            const idx = activeTab.items.findIndex(x => String(x.id) === String(t.id) && String(x.country||'') === String(t.country||''));
+            if (idx >= 0) {
+              activeTab.items.splice(idx, 1);
+              this.normalizeFavoritesOrder();
+              this.saveFavorites();
             }
-          });
-          this.normalizeFavoritesOrder();
-          this.saveFavorites();
+          }
         } catch (e) {}
+        // 注意：移除操作只影响当前激活的选项卡，不删除自创景点本身（因为其他选项卡可能还在使用）
         // 清除自创景点缓存（若为自创）
         if (String(t.country) === 'custom') {
           try { deleteCustomAttraction(t.id); } catch (e) {}
@@ -4299,15 +4312,43 @@ const all = this.sortedFavorites || [];
 
       async fetchAllAttractions() {
         try {
+          // 获取所有匹配的值（包括简体和繁体）
+          const allRegionValues = this.selectedRegion ? 
+            this.getAllOriginalValues(this.selectedRegion, this.regionValueMap) : [''];
+          const allCountyValues = this.selectedCounty ? 
+            this.getAllOriginalValues(this.selectedCounty, this.countyValueMap) : [''];
 
-          const params = new URLSearchParams({
-            region: this.selectedRegion || '',
-            county: this.selectedCounty || ''
-          }).toString();
+          // 合并所有请求的结果
+          const allAttractionsSet = new Set();
+          const allAttractionsArray = [];
 
-          const res = await fetch(`https://juseaxerf.com/api/attractions-names-filtered/${this.country}?${params}`, withBackendApiKey());
-          const data = await res.json();
-          this.allAttractions = Array.isArray(data.data) ? data.data : data; // 兼容不同API格式
+          for (const regionValue of allRegionValues) {
+            for (const countyValue of allCountyValues) {
+              const params = new URLSearchParams({
+                region: regionValue || '',
+                county: countyValue || ''
+              }).toString();
+
+              try {
+                const res = await fetch(`https://juseaxerf.com/api/attractions-names-filtered/${this.country}?${params}`, withBackendApiKey());
+                const data = await res.json();
+                const attractions = Array.isArray(data.data) ? data.data : (Array.isArray(data) ? data : []);
+                
+                // 去重并添加到结果中
+                for (const attraction of attractions) {
+                  const key = `${attraction.id || attraction.name}`;
+                  if (!allAttractionsSet.has(key)) {
+                    allAttractionsSet.add(key);
+                    allAttractionsArray.push(attraction);
+                  }
+                }
+              } catch (err) {
+                console.error('拉取部分景点失败:', err);
+              }
+            }
+          }
+
+          this.allAttractions = allAttractionsArray;
           console.log('✅ 已加载景点名称数量:', this.allAttractions.length);
         } catch (err) {
           console.error('拉取所有景点失败:', err);
@@ -4381,6 +4422,8 @@ const all = this.sortedFavorites || [];
           this.suppressNextClick = false;
           return;
         }
+        
+        // 保存当前页的景点ID（用于向后兼容）
         const ids=[];
         localStorage.setItem('attractionIndex',index);
         for (let i = 0; i<this.attractions.length;i++) {
@@ -4388,6 +4431,51 @@ const all = this.sortedFavorites || [];
         };
         console.log(ids);
         localStorage.setItem('ids',ids);
+        
+        // 计算当前景点在所有合并数据中的全局索引
+        // 如果存在所有景点的ID列表（多请求合并的情况），使用它来计算全局索引
+        try {
+          const allIdsStr = localStorage.getItem('allAttractionIds');
+          const allIdsPage = parseInt(localStorage.getItem('allAttractionIdsPage') || '0', 10);
+          if (allIdsStr && allIdsPage === this.page) {
+            // 当前页与保存的ID列表对应，计算全局索引
+            const allIds = JSON.parse(allIdsStr);
+            const globalIndex = allIds.findIndex(id => String(id) === String(attraction.id));
+            if (globalIndex >= 0) {
+              // 保存全局索引和所有ID（详情页面可以使用这些信息进行跨页导航）
+              localStorage.setItem('attractionGlobalIndex', String(globalIndex));
+              localStorage.setItem('allAttractionIds', allIdsStr); // 确保保存
+              const allIdsTotal = localStorage.getItem('allAttractionIdsTotal');
+              if (allIdsTotal) {
+                localStorage.setItem('allAttractionIdsTotal', allIdsTotal);
+              }
+              console.log('Global index:', globalIndex, 'out of', allIds.length, '(multi-request mode)');
+            } else {
+              // 如果找不到，使用当前页索引计算
+              const globalIndex = (this.page - 1) * this.limit + index;
+              localStorage.setItem('attractionGlobalIndex', String(globalIndex));
+              console.log('ID not found in allIds, calculated global index:', globalIndex);
+            }
+          } else {
+            // 如果没有保存的ID列表（单请求情况），计算当前页的全局索引
+            // 注意：这种情况下，详情页面需要通过API获取其他页的数据
+            const globalIndex = (this.page - 1) * this.limit + index;
+            localStorage.setItem('attractionGlobalIndex', String(globalIndex));
+            // 清除之前保存的所有ID列表（如果存在），因为现在是单请求模式
+            try {
+              localStorage.removeItem('allAttractionIds');
+              localStorage.removeItem('allAttractionIdsPage');
+              localStorage.removeItem('allAttractionIdsTotal');
+            } catch (e) {}
+            console.log('Calculated global index:', globalIndex, '(single-request mode)');
+          }
+        } catch (e) {
+          console.error('Failed to calculate global index:', e);
+          // 如果出错，至少保存当前页的索引
+          const globalIndex = (this.page - 1) * this.limit + index;
+          localStorage.setItem('attractionGlobalIndex', String(globalIndex));
+        }
+        
         // 将列表中实际使用的背景色直接传递给详情页，保证一致
         try {
           const color = this.getRatingColor(attraction.rating);
@@ -4405,54 +4493,169 @@ const all = this.sortedFavorites || [];
       translateCounty(country) {
         return this.countyTranslations[country] || '省份';
       },
-      
-      fetchRegions() {
-        const cacheKey = this.buildRegionsCacheKey();
-        const cached = this.loadRegionsCache(cacheKey);
-        if (cached && cached.length) {
-          this.regions = cached;
-          this.filteredRegions = cached;
+
+      // 处理选项：去掉后缀、繁体转简体并合并
+      // 返回：{ processed: 处理后的选项数组, valueMap: 映射Map }
+      processOptions(options) {
+        if (!Array.isArray(options) || options.length === 0) {
+          return { processed: options, valueMap: new Map() };
         }
 
-        const fetchUrl = this.selectedCounty
-          ? `https://juseaxerf.com/api/regions/${this.country}/${this.selectedCounty}`
-          : `https://juseaxerf.com/api/regions/${this.country}`;
-
-        fetch(fetchUrl, withBackendApiKey({ cache: 'no-store' }))
-          .then(response => {
-            if (!response.ok) {
-              const retryUrl = `${fetchUrl}?_ts=${Date.now()}`;
-              return fetch(retryUrl, withBackendApiKey({ cache: 'reload' }));
-            }
-            return response;
-          })
-          .then(response => {
-            if (!response || !response.ok) throw new Error('HTTP error fetching regions');
-            return response.json();
-          })
-          .then(data => {
-            this.regions = data;
-            this.filteredRegions = data;
-            this.saveRegionsCache(cacheKey, data);
-          })
-          .catch(error => {
-            console.error('Error fetching regions:', error);
-          });
+        // 初始化OpenCC转换器（繁体到简体）
+        const converterTW = Converter({ from: 'tw', to: 'cn' });
+        const converterHK = Converter({ from: 'hk', to: 'cn' });
         
+        // 统一的转换函数：尝试多种繁体变体
+        const converter = (text) => {
+          const fromTW = converterTW(text);
+          if (fromTW !== text) return fromTW;
+          const fromHK = converterHK(text);
+          return fromHK !== text ? fromHK : text;
+        };
+
+        // 特殊名称列表（这些名称中的"都"、"州"是名字的一部分，不应该去掉）
+        const specialNames = ['京都', '九州', '贵州', '坡州', '全州', '庆州', '拜县', '荣市'];
+
+        // 映射：标准化名称 -> 原始值数组
+        const valueMap = new Map();
+        const processedSet = new Set();
+
+        options.forEach(option => {
+          if (!option || typeof option !== 'string') return;
+
+          const trimmed = option.trim();
+          if (!trimmed) return;
+
+          // 先转换为简体字
+          const simplified = converter(trimmed);
+          
+          // 检查是否是特殊名称
+          const isSpecial = specialNames.some(special => 
+            simplified.includes(special)
+          );
+
+          // 计算标准化名称（用于合并）
+          let normalized = simplified;
+          if (!isSpecial) {
+            // 匹配后缀：县、省、州、市、郡（包括繁体字：縣、省、州、市、郡）
+            const suffixPattern = /[縣县省州市郡]$/;
+            if (suffixPattern.test(simplified)) {
+              normalized = simplified.replace(suffixPattern, '');
+            }
+          }
+
+          // 将原始值添加到映射中
+          if (!valueMap.has(normalized)) {
+            valueMap.set(normalized, []);
+            processedSet.add(normalized);
+          }
+          // 添加原始值到映射数组（去重）
+          const originalValues = valueMap.get(normalized);
+          if (!originalValues.includes(trimmed)) {
+            originalValues.push(trimmed);
+          }
+        });
+
+        // 返回处理后的选项列表（已排序）和映射
+        return {
+          processed: Array.from(processedSet).sort(),
+          valueMap: valueMap
+        };
       },
 
-      fetchCountis() {
-        fetch(`https://juseaxerf.com/api/countis/${this.country}`, withBackendApiKey())
-          .then(response => response.json())
-          .then(data => {
-            this.countis = data.filter(county => county && county.trim() !== '');
-            this.filteredCounties = [...this.countis];
-            this.countisLoaded = true;
-          })
-          .catch(error => {
-            console.error('Error fetching regions:', error);
-            this.countisLoaded = true;
+      // 将处理后的值转换为原始值（用于API调用）
+      // 如果找不到映射，返回原值
+      // 优先返回繁体的原始值（如果存在），因为API数据可能使用繁体
+      getOriginalValue(processedValue, valueMap) {
+        if (!processedValue || !valueMap) return processedValue;
+        const originalValues = valueMap.get(processedValue);
+        if (originalValues && originalValues.length > 0) {
+          // 优先返回繁体的原始值（如果存在）
+          const traditionalValue = originalValues.find(val => {
+            const converterTW = Converter({ from: 'tw', to: 'cn' });
+            const converterHK = Converter({ from: 'hk', to: 'cn' });
+            return converterTW(val) !== val || converterHK(val) !== val;
           });
+          if (traditionalValue) {
+            return traditionalValue;
+          }
+          // 否则返回第一个原始值
+          return originalValues[0];
+        }
+        return processedValue;
+      },
+
+      // 获取所有匹配的原始值（包括简体和繁体），用于同时匹配多个值
+      getAllOriginalValues(processedValue, valueMap) {
+        if (!processedValue || !valueMap) return [processedValue];
+        const originalValues = valueMap.get(processedValue);
+        if (originalValues && originalValues.length > 0) {
+          console.log(`getAllOriginalValues: "${processedValue}" -> [${originalValues.join(', ')}]`);
+          return originalValues;
+        }
+        console.log(`getAllOriginalValues: "${processedValue}" -> not found in map, returning [${processedValue}]`);
+        return [processedValue];
+      },
+      
+      async fetchRegions() {
+        // 获取所有匹配的county值（包括简体和繁体）
+        const allCountyValues = this.selectedCounty ? 
+          this.getAllOriginalValues(this.selectedCounty, this.countyValueMap) : [null];
+        
+        try {
+          const allRegionsSet = new Set();
+          const allRegionsArray = [];
+
+          // 为每个county值获取regions并合并
+          for (const countyValue of allCountyValues) {
+            let response;
+            if (countyValue) {
+              response = await fetch(`https://juseaxerf.com/api/regions/${this.country}/${encodeURIComponent(countyValue)}`, withBackendApiKey({ cache: 'no-store' }));
+            } else {
+              response = await fetch(`https://juseaxerf.com/api/regions/${this.country}`, withBackendApiKey({ cache: 'no-store' }));
+            }
+            
+            if (response && response.ok) {
+              const data = await response.json();
+              if (Array.isArray(data)) {
+                // 去重并添加到结果中
+                for (const region of data) {
+                  if (region && !allRegionsSet.has(region)) {
+                    allRegionsSet.add(region);
+                    allRegionsArray.push(region);
+                  }
+                }
+              }
+            }
+          }
+
+          // 处理合并后的regions
+          const result = this.processOptions(allRegionsArray);
+          this.regions = result.processed;
+          this.filteredRegions = result.processed;
+          this.regionValueMap = result.valueMap;
+        } catch (error) {
+          console.error('Error fetching regions:', error);
+        }
+      },
+
+       async fetchCountis() {
+        try {
+          const response = await fetch(`https://juseaxerf.com/api/countis/${this.country}`, withBackendApiKey());
+          const data = await response.json();
+          const filtered = data.filter(county => county && county.trim() !== '');
+          console.log('Raw counties from API:', filtered);
+          const result = this.processOptions(filtered);
+          console.log('Processed counties:', result.processed);
+          console.log('County value map:', Array.from(result.valueMap.entries()).map(([k, v]) => [k, v.length > 1 ? `[${v.join(', ')}]` : v[0]]));
+          this.countis = result.processed;
+          this.filteredCounties = [...result.processed];
+          this.countyValueMap = result.valueMap;
+          this.countisLoaded = true;
+        } catch (error) {
+          console.error('Error fetching regions:', error);
+          this.countisLoaded = true;
+        }
       },
 
       restoreDistanceQueueState() {
@@ -4675,15 +4878,69 @@ const all = this.sortedFavorites || [];
           }
           return;
         }
-        const params = new URLSearchParams();
-        const minReviews = Number.isFinite(this.minReviews) ? this.minReviews : 0;
-        params.append('minReviews', minReviews);
-        params.append('order', this.order);
-        params.append('page', isregion ? 1 : this.page);
-        params.append('limit', this.limit);
-        if (this.selectedRegion) params.append('region', this.selectedRegion);
-        if (this.selectedCounty) params.append('county', this.selectedCounty);
-        if (this.order === 'rating_desc') params.append('secondary', 'reviews_desc');
+        
+        // 获取所有匹配的county值（包括简体和繁体）
+        let allCountyValues = this.selectedCounty ? 
+          this.getAllOriginalValues(this.selectedCounty, this.countyValueMap) : [null];
+        let allRegionValues = this.selectedRegion ? 
+          this.getAllOriginalValues(this.selectedRegion, this.regionValueMap) : [null];
+
+        // 调试信息：打印所有匹配的值
+        if (this.selectedCounty) {
+          console.log('Selected county:', this.selectedCounty);
+          console.log('All county values:', allCountyValues);
+          console.log('County value map size:', this.countyValueMap.size);
+          // 检查当前选中的county在valueMap中是否有多个原始值
+          if (this.countyValueMap.has(this.selectedCounty)) {
+            const mappedValues = this.countyValueMap.get(this.selectedCounty);
+            console.log(`County "${this.selectedCounty}" mapped to:`, mappedValues);
+            if (mappedValues && mappedValues.length > 1) {
+              console.log(`Found ${mappedValues.length} original values for "${this.selectedCounty}"`);
+              // 确保 allCountyValues 包含所有原始值
+              allCountyValues = [...mappedValues];
+            }
+          }
+        }
+        if (this.selectedRegion) {
+          console.log('Selected region:', this.selectedRegion);
+          console.log('All region values:', allRegionValues);
+          // 检查当前选中的region在valueMap中是否有多个原始值
+          if (this.regionValueMap.has(this.selectedRegion)) {
+            const mappedValues = this.regionValueMap.get(this.selectedRegion);
+            console.log(`Region "${this.selectedRegion}" mapped to:`, mappedValues);
+            if (mappedValues && mappedValues.length > 1) {
+              console.log(`Found ${mappedValues.length} original values for "${this.selectedRegion}"`);
+              // 确保 allRegionValues 包含所有原始值
+              allRegionValues = [...mappedValues];
+            }
+          }
+        }
+
+        // 如果只有一个值，使用原来的逻辑；如果有多个值，需要合并多个请求的结果
+        const needMultipleRequests = allCountyValues.length > 1 || allRegionValues.length > 1;
+        
+        if (needMultipleRequests) {
+          console.log('Using multi-request mode. County values:', allCountyValues, 'Region values:', allRegionValues);
+        }
+        
+        if (!needMultipleRequests) {
+          // 单个请求的情况（保持原有逻辑）
+          const params = new URLSearchParams();
+          const minReviews = Number.isFinite(this.minReviews) ? this.minReviews : 0;
+          params.append('minReviews', minReviews);
+          params.append('order', this.order);
+          params.append('page', isregion ? 1 : this.page);
+          params.append('limit', this.limit);
+          // 使用原始值进行API调用
+          if (this.selectedRegion) {
+            const originalRegion = this.getOriginalValue(this.selectedRegion, this.regionValueMap);
+            params.append('region', originalRegion);
+          }
+          if (this.selectedCounty) {
+            const originalCounty = this.getOriginalValue(this.selectedCounty, this.countyValueMap);
+            params.append('county', originalCounty);
+          }
+          if (this.order === 'rating_desc') params.append('secondary', 'reviews_desc');
 
         const paramsString = params.toString();
         const cacheKey = this.buildAttractionsCacheKey(paramsString);
@@ -4775,7 +5032,195 @@ const all = this.sortedFavorites || [];
             await this.waitForRetry(this.fetchRetryDelay);
           }
         }
-        this.loading = false;
+        // 清除之前保存的所有ID列表（如果存在），因为现在是单请求模式
+        try {
+          localStorage.removeItem('allAttractionIds');
+          localStorage.removeItem('allAttractionIdsPage');
+          localStorage.removeItem('allAttractionIdsTotal');
+        } catch (e) {}
+        } else {
+          // 多个请求的情况：需要合并简体和繁体的结果
+          const allResults = [];
+          let totalCount = 0;
+          const seenIds = new Set(); // 用于去重
+
+          // 为每个county值发送请求
+          for (const countyValue of allCountyValues) {
+            // 为每个region值发送请求（如果有region筛选）
+            for (const regionValue of allRegionValues) {
+              // 分页获取所有数据
+              let page = 1;
+              let hasMoreData = true;
+              const maxLimit = 10000; // API可能的最大limit
+              let currentCombinationFetched = 0; // 当前county/region组合已获取的数据量（去重前）
+              
+              while (hasMoreData && this.activeFetchToken === fetchToken) {
+                const params = new URLSearchParams();
+                const minReviews = Number.isFinite(this.minReviews) ? this.minReviews : 0;
+                params.append('minReviews', minReviews);
+                params.append('order', this.order);
+                params.append('page', page);
+                params.append('limit', maxLimit);
+                if (regionValue) {
+                  params.append('region', regionValue);
+                }
+                if (countyValue) {
+                  params.append('county', countyValue);
+                }
+                if (this.order === 'rating_desc') params.append('secondary', 'reviews_desc');
+
+                let attempts = 0;
+                let success = false;
+                while (this.activeFetchToken === fetchToken && attempts < this.maxFetchRetries) {
+                  try {
+                    const response = await fetch(`https://juseaxerf.com/api/attractions/${this.country}?${params.toString()}`, withBackendApiKey());
+                    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                    const data = await response.json();
+                    if (this.activeFetchToken !== fetchToken) return;
+
+                    if (data && Array.isArray(data.data)) {
+                      const returnedCount = data.data.length;
+                      const parsedTotal = Number.parseInt(data.total, 10);
+                      
+                      // 去重并添加到结果中
+                      for (const item of data.data) {
+                        if (!seenIds.has(String(item.id))) {
+                          seenIds.add(String(item.id));
+                          allResults.push(item);
+                        }
+                      }
+                      
+                      // 更新当前组合已获取的数据量（使用返回的原始数据量，不去重）
+                      currentCombinationFetched += returnedCount;
+                      
+                      // 检查是否还有更多数据
+                      if (returnedCount < maxLimit) {
+                        // 返回的数据量小于limit，说明已经是最后一页
+                        hasMoreData = false;
+                      } else if (Number.isFinite(parsedTotal)) {
+                        // 如果已获取的数据量达到或超过total，说明已经获取了所有数据
+                        if (currentCombinationFetched >= parsedTotal) {
+                          hasMoreData = false;
+                        } else {
+                          // 继续获取下一页
+                          page++;
+                        }
+                      } else {
+                        // 如果没有total信息，根据返回的数据量判断
+                        // 如果返回的数据量等于limit，可能还有更多页
+                        if (returnedCount >= maxLimit) {
+                          page++;
+                        } else {
+                          hasMoreData = false;
+                        }
+                      }
+                    } else {
+                      hasMoreData = false;
+                    }
+                    success = true;
+                    break; // 成功，跳出重试循环
+                  } catch (error) {
+                    attempts++;
+                    if (attempts >= this.maxFetchRetries) {
+                      console.error(`Failed to fetch attractions for county=${countyValue}, region=${regionValue}, page=${page}:`, error);
+                      hasMoreData = false; // 失败后不再继续
+                      break;
+                    }
+                    await this.waitForRetry(this.fetchRetryDelay);
+                  }
+                }
+                
+                if (!success) {
+                  hasMoreData = false; // 如果请求失败，停止获取
+                }
+              }
+            }
+          }
+
+          // 合并结果并按排序规则排序
+          if (this.order === 'rating_desc') {
+            const parsePercent = (v) => {
+              if (v == null) return 0;
+              const s = String(v).replace('%', '');
+              const n = parseFloat(s);
+              return Number.isFinite(n) ? n : 0;
+            };
+            allResults.sort((a, b) => {
+              const ratingA = parsePercent(a.rating);
+              const ratingB = parsePercent(b.rating);
+              if (ratingA !== ratingB) return ratingB - ratingA;
+              const reviewsA = parseInt(a.total_reviews || 0, 10);
+              const reviewsB = parseInt(b.total_reviews || 0, 10);
+              return reviewsB - reviewsA;
+            });
+          } else if (this.order === 'rating_asc') {
+            const parsePercent = (v) => {
+              if (v == null) return 0;
+              const s = String(v).replace('%', '');
+              const n = parseFloat(s);
+              return Number.isFinite(n) ? n : 0;
+            };
+            allResults.sort((a, b) => {
+              const ratingA = parsePercent(a.rating);
+              const ratingB = parsePercent(b.rating);
+              return ratingA - ratingB;
+            });
+          } else if (this.order === 'reviews_desc') {
+            allResults.sort((a, b) => {
+              const reviewsA = parseInt(a.total_reviews || 0, 10);
+              const reviewsB = parseInt(b.total_reviews || 0, 10);
+              return reviewsB - reviewsA;
+            });
+          } else if (this.order === 'reviews_asc') {
+            allResults.sort((a, b) => {
+              const reviewsA = parseInt(a.total_reviews || 0, 10);
+              const reviewsB = parseInt(b.total_reviews || 0, 10);
+              return reviewsA - reviewsB;
+            });
+          } else if (this.order === 'positive_desc') {
+            allResults.sort((a, b) => {
+              const positiveA = parseInt(a.positive_reviews || 0, 10);
+              const positiveB = parseInt(b.positive_reviews || 0, 10);
+              return positiveB - positiveA;
+            });
+          } else if (this.order === 'positive_asc') {
+            allResults.sort((a, b) => {
+              const positiveA = parseInt(a.positive_reviews || 0, 10);
+              const positiveB = parseInt(b.positive_reviews || 0, 10);
+              return positiveA - positiveB;
+            });
+          }
+
+          // 分页处理
+          const startIndex = (this.page - 1) * this.limit;
+          const endIndex = startIndex + this.limit;
+          const paginatedResults = allResults.slice(startIndex, endIndex);
+
+          // 使用实际合并后的数据长度作为总数（已去重）
+          // 这样可以正确显示合并后的总页数
+          this.total = allResults.length;
+          
+          // 保存所有合并后的景点ID（用于详情页面的跨页导航）
+          // 这样详情页面可以知道所有页面的景点顺序
+          try {
+            const allIds = allResults.map(item => item.id);
+            localStorage.setItem('allAttractionIds', JSON.stringify(allIds));
+            localStorage.setItem('allAttractionIdsPage', String(this.page));
+            localStorage.setItem('allAttractionIdsTotal', String(allResults.length));
+          } catch (e) {
+            console.error('Failed to save all attraction IDs:', e);
+          }
+          
+          this.attractions = paginatedResults.map(a => ({
+            ...a,
+            image1: '',
+          }));
+          this.loading = false;
+
+          this.fetchAttractionImages(this.attractions);
+          this.showListWithTick();
+          this.bumpListRenderTick();
+        }
       },
 
       goBack() {

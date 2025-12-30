@@ -13,6 +13,7 @@
     "express": "^4.19.2",
     "idb": "^8.0.0",
     "leaflet": "^1.9.4",
+    "opencc-js": "^1.0.5",
     "vue": "^3.4.29",
     "vue-lazyload": "^3.0.0",
     "vue-router": "^4.4.0"
