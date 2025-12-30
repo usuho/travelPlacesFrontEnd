@@ -801,6 +801,7 @@
   import { ensureUserDataHydrated, queueUserDataSync, deleteCustomImages } from '../stores/userDataSync.js'
   import { Capacitor } from '@capacitor/core';
   import { Filesystem, Directory, Encoding } from '@capacitor/filesystem';
+  import { Converter } from 'opencc-js';
 
   export default {
     components: { CreateAttractionModal },
@@ -1039,6 +1040,9 @@
         selectedCounty: localStorage.getItem('attractionsCounty')||'',
         regions: [],
         countis: [],
+        // 映射：处理后的值 -> 原始值数组（用于API调用）
+        countyValueMap: new Map(), // 处理后的值 -> [原始值1, 原始值2, ...]
+        regionValueMap: new Map(), // 处理后的值 -> [原始值1, 原始值2, ...]
         countySearch: '',
         regionSearch: '',
         filteredCounties: [],
@@ -4485,10 +4489,15 @@ const all = this.sortedFavorites || [];
 
       async fetchAllAttractions() {
         try {
+          // 使用原始值进行API调用
+          const originalRegion = this.selectedRegion ? 
+            this.getOriginalValue(this.selectedRegion, this.regionValueMap) : '';
+          const originalCounty = this.selectedCounty ? 
+            this.getOriginalValue(this.selectedCounty, this.countyValueMap) : '';
 
           const params = new URLSearchParams({
-            region: this.selectedRegion || '',
-            county: this.selectedCounty || ''
+            region: originalRegion,
+            county: originalCounty
           }).toString();
 
           const res = await fetch(`https://juseaxerf.com/api/attractions-names-filtered/${this.country}?${params}`, withBackendApiKey());
@@ -4591,14 +4600,110 @@ const all = this.sortedFavorites || [];
       translateCounty(country) {
         return this.countyTranslations[country] || '省份';
       },
+
+      // 处理选项：去掉后缀、繁体转简体并合并
+      // 返回：{ processed: 处理后的选项数组, valueMap: 映射Map }
+      processOptions(options) {
+        if (!Array.isArray(options) || options.length === 0) {
+          return { processed: options, valueMap: new Map() };
+        }
+
+        // 初始化OpenCC转换器（繁体到简体）
+        const converterTW = Converter({ from: 'tw', to: 'cn' });
+        const converterHK = Converter({ from: 'hk', to: 'cn' });
+        
+        // 统一的转换函数：尝试多种繁体变体
+        const converter = (text) => {
+          const fromTW = converterTW(text);
+          if (fromTW !== text) return fromTW;
+          const fromHK = converterHK(text);
+          return fromHK !== text ? fromHK : text;
+        };
+
+        // 特殊名称列表（这些名称中的"都"、"州"是名字的一部分，不应该去掉）
+        const specialNames = ['京都', '九州', '贵州', '坡州', '全州', '庆州', '拜县', '荣市'];
+
+        // 映射：标准化名称 -> 原始值数组
+        const valueMap = new Map();
+        const processedSet = new Set();
+
+        options.forEach(option => {
+          if (!option || typeof option !== 'string') return;
+
+          const trimmed = option.trim();
+          if (!trimmed) return;
+
+          // 先转换为简体字
+          const simplified = converter(trimmed);
+          
+          // 检查是否是特殊名称
+          const isSpecial = specialNames.some(special => 
+            simplified.includes(special)
+          );
+
+          // 计算标准化名称（用于合并）
+          let normalized = simplified;
+          if (!isSpecial) {
+            // 匹配后缀：县、省、州、市、郡（包括繁体字：縣、省、州、市、郡）
+            const suffixPattern = /[縣县省州市郡]$/;
+            if (suffixPattern.test(simplified)) {
+              normalized = simplified.replace(suffixPattern, '');
+            }
+          }
+
+          // 将原始值添加到映射中
+          if (!valueMap.has(normalized)) {
+            valueMap.set(normalized, []);
+            processedSet.add(normalized);
+          }
+          // 添加原始值到映射数组（去重）
+          const originalValues = valueMap.get(normalized);
+          if (!originalValues.includes(trimmed)) {
+            originalValues.push(trimmed);
+          }
+        });
+
+        // 返回处理后的选项列表（已排序）和映射
+        return {
+          processed: Array.from(processedSet).sort(),
+          valueMap: valueMap
+        };
+      },
+
+      // 将处理后的值转换为原始值（用于API调用）
+      // 如果找不到映射，返回原值
+      // 优先返回繁体的原始值（如果存在），因为API数据可能使用繁体
+      getOriginalValue(processedValue, valueMap) {
+        if (!processedValue || !valueMap) return processedValue;
+        const originalValues = valueMap.get(processedValue);
+        if (originalValues && originalValues.length > 0) {
+          // 优先返回繁体的原始值（如果存在）
+          const traditionalValue = originalValues.find(val => {
+            const converterTW = Converter({ from: 'tw', to: 'cn' });
+            const converterHK = Converter({ from: 'hk', to: 'cn' });
+            return converterTW(val) !== val || converterHK(val) !== val;
+          });
+          if (traditionalValue) {
+            return traditionalValue;
+          }
+          // 否则返回第一个原始值
+          return originalValues[0];
+        }
+        return processedValue;
+      },
       
       fetchRegions() {
+        // 获取原始county值用于API调用
+        const originalCounty = this.getOriginalValue(this.selectedCounty, this.countyValueMap);
+        
         if (this.selectedCounty) {
-          fetch(`https://juseaxerf.com/api/regions/${this.country}/${this.selectedCounty}`, withBackendApiKey())
+          fetch(`https://juseaxerf.com/api/regions/${this.country}/${encodeURIComponent(originalCounty)}`, withBackendApiKey())
           .then(response => response.json())
           .then(data => {
-            this.regions = data;
-            this.filteredRegions = data;
+            const result = this.processOptions(data);
+            this.regions = result.processed;
+            this.filteredRegions = result.processed;
+            this.regionValueMap = result.valueMap;
           })
           .catch(error => {
             console.error('Error fetching regions:', error);
@@ -4607,8 +4712,10 @@ const all = this.sortedFavorites || [];
           fetch(`https://juseaxerf.com/api/regions/${this.country}`, withBackendApiKey())
           .then(response => response.json())
           .then(data => {
-            this.regions = data;
-            this.filteredRegions = data;
+            const result = this.processOptions(data);
+            this.regions = result.processed;
+            this.filteredRegions = result.processed;
+            this.regionValueMap = result.valueMap;
           })
           .catch(error => {
             console.error('Error fetching regions:', error);
@@ -4621,8 +4728,11 @@ const all = this.sortedFavorites || [];
         fetch(`https://juseaxerf.com/api/countis/${this.country}`, withBackendApiKey())
           .then(response => response.json())
           .then(data => {
-            this.countis = data.filter(county => county && county.trim() !== '');
-            this.filteredCounties = [...this.countis];
+            const filtered = data.filter(county => county && county.trim() !== '');
+            const result = this.processOptions(filtered);
+            this.countis = result.processed;
+            this.filteredCounties = [...result.processed];
+            this.countyValueMap = result.valueMap;
             this.countisLoaded = true;
           })
           .catch(error => {
@@ -4767,8 +4877,15 @@ const all = this.sortedFavorites || [];
         params.append('order', this.order);
         params.append('page', isregion ? 1 : this.page);
         params.append('limit', this.limit);
-        if (this.selectedRegion) params.append('region', this.selectedRegion);
-        if (this.selectedCounty) params.append('county', this.selectedCounty);
+        // 使用原始值进行API调用
+        if (this.selectedRegion) {
+          const originalRegion = this.getOriginalValue(this.selectedRegion, this.regionValueMap);
+          params.append('region', originalRegion);
+        }
+        if (this.selectedCounty) {
+          const originalCounty = this.getOriginalValue(this.selectedCounty, this.countyValueMap);
+          params.append('county', originalCounty);
+        }
         if (this.order === 'rating_desc') params.append('secondary', 'reviews_desc');
 
         let attempts = 0;
