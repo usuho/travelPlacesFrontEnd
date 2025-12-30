@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="container fade-in">
     <!-- 固定顶部区域（标题 + 筛选器） -->
     <div class="fixed-header">
@@ -1226,9 +1226,10 @@
         this.resetFiltersAndPagination(false);
         this.clearResetFiltersRouteFlag();
       }
+      // 先获取countis和regions的映射，再调用fetchAttractions
+      await this.fetchCountis();
+      await this.fetchRegions();
       this.fetchAttractions(false);
-      this.fetchRegions();
-      this.fetchCountis();
       this.fetchAllAttractions();
       this.loadFavorites();
       // 确保自创景点收藏信息为最新
@@ -1294,10 +1295,13 @@
         }
         this.restoreDistanceQueueState();
         this.isRestoring = false;
-        this.fetchAttractions(false);
-        this.fetchRegions();
-        this.fetchCountis();
-        this.fetchAllAttractions();
+        // 先获取countis和regions的映射，再调用fetchAttractions
+        this.fetchCountis().then(() => {
+          return this.fetchRegions();
+        }).then(() => {
+          this.fetchAttractions(false);
+          this.fetchAllAttractions();
+        });
       },
 
       order() {
@@ -1327,14 +1331,17 @@
         const resetByDistance = this.handleDistanceQueueResetOnFilters();
         this.selectedRegion = ''; // 重置区域
         localStorage.setItem('attractionsRegion', ''); // 保存到 localStorage 
-        this.fetchRegions();
         this.page = 1;
         localStorage.setItem('attractionsPage', this.page); 
-        localStorage.setItem('attractionsCounty',this.selectedCounty)
-        if (!resetByDistance) {
-          this.fetchAttractions(true);
-        }
-        this.fetchAllAttractions();},
+        localStorage.setItem('attractionsCounty',this.selectedCounty);
+        // 先获取regions的映射，再调用fetchAttractions
+        this.fetchRegions().then(() => {
+          if (!resetByDistance) {
+            this.fetchAttractions(true);
+          }
+          this.fetchAllAttractions();
+        });
+      },
 
       '$route.query.resetFilters'(next) {
         if (!next) return;
@@ -4692,53 +4699,41 @@ const all = this.sortedFavorites || [];
         return processedValue;
       },
       
-      fetchRegions() {
+      async fetchRegions() {
         // 获取原始county值用于API调用
         const originalCounty = this.getOriginalValue(this.selectedCounty, this.countyValueMap);
         
-        if (this.selectedCounty) {
-          fetch(`https://juseaxerf.com/api/regions/${this.country}/${encodeURIComponent(originalCounty)}`, withBackendApiKey())
-          .then(response => response.json())
-          .then(data => {
-            const result = this.processOptions(data);
-            this.regions = result.processed;
-            this.filteredRegions = result.processed;
-            this.regionValueMap = result.valueMap;
-          })
-          .catch(error => {
-            console.error('Error fetching regions:', error);
-          });
-        }else {
-          fetch(`https://juseaxerf.com/api/regions/${this.country}`, withBackendApiKey())
-          .then(response => response.json())
-          .then(data => {
-            const result = this.processOptions(data);
-            this.regions = result.processed;
-            this.filteredRegions = result.processed;
-            this.regionValueMap = result.valueMap;
-          })
-          .catch(error => {
-            console.error('Error fetching regions:', error);
-          });
+        try {
+          let response;
+          if (this.selectedCounty) {
+            response = await fetch(`https://juseaxerf.com/api/regions/${this.country}/${encodeURIComponent(originalCounty)}`, withBackendApiKey());
+          } else {
+            response = await fetch(`https://juseaxerf.com/api/regions/${this.country}`, withBackendApiKey());
+          }
+          const data = await response.json();
+          const result = this.processOptions(data);
+          this.regions = result.processed;
+          this.filteredRegions = result.processed;
+          this.regionValueMap = result.valueMap;
+        } catch (error) {
+          console.error('Error fetching regions:', error);
         }
-        
       },
 
-      fetchCountis() {
-        fetch(`https://juseaxerf.com/api/countis/${this.country}`, withBackendApiKey())
-          .then(response => response.json())
-          .then(data => {
-            const filtered = data.filter(county => county && county.trim() !== '');
-            const result = this.processOptions(filtered);
-            this.countis = result.processed;
-            this.filteredCounties = [...result.processed];
-            this.countyValueMap = result.valueMap;
-            this.countisLoaded = true;
-          })
-          .catch(error => {
-            console.error('Error fetching regions:', error);
-            this.countisLoaded = true;
-          });
+      async fetchCountis() {
+        try {
+          const response = await fetch(`https://juseaxerf.com/api/countis/${this.country}`, withBackendApiKey());
+          const data = await response.json();
+          const filtered = data.filter(county => county && county.trim() !== '');
+          const result = this.processOptions(filtered);
+          this.countis = result.processed;
+          this.filteredCounties = [...result.processed];
+          this.countyValueMap = result.valueMap;
+          this.countisLoaded = true;
+        } catch (error) {
+          console.error('Error fetching regions:', error);
+          this.countisLoaded = true;
+        }
       },
 
       restoreDistanceQueueState() {
