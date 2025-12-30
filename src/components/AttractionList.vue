@@ -1,4 +1,4 @@
-﻿<template>
+<template>
   <div class="container fade-in">
     <!-- 固定顶部区域（标题 + 筛选器） -->
     <div class="fixed-header">
@@ -3616,17 +3616,19 @@ const all = this.sortedFavorites || [];
       performDeleteItem() {
         const t = this.itemDeleteTarget;
         if (!t) return;
-        // 从所有收藏 tab 中移除该项
+        // 仅从当前激活的收藏 tab 中移除该项
         try {
-          this.favoriteTabs.forEach(tab => {
-            if (Array.isArray(tab.items)) {
-              const idx = tab.items.findIndex(x => String(x.id) === String(t.id) && String(x.country||'') === String(t.country||''));
-              if (idx >= 0) tab.items.splice(idx, 1);
+          const activeTab = this.favoriteTabs.find(tab => tab.id === this.activeTabId);
+          if (activeTab && Array.isArray(activeTab.items)) {
+            const idx = activeTab.items.findIndex(x => String(x.id) === String(t.id) && String(x.country||'') === String(t.country||''));
+            if (idx >= 0) {
+              activeTab.items.splice(idx, 1);
+              this.normalizeFavoritesOrder();
+              this.saveFavorites();
             }
-          });
-          this.normalizeFavoritesOrder();
-          this.saveFavorites();
+          }
         } catch (e) {}
+        // 注意：移除操作只影响当前激活的选项卡，不删除自创景点本身（因为其他选项卡可能还在使用）
         // 清除自创景点缓存（若为自创）
         if (String(t.country) === 'custom') {
           let keysToDelete = [];
