@@ -1551,6 +1551,8 @@ export default {
         try {
           const pos = await fetchAttractionsPositions(this.country);
           if (Array.isArray(pos) && pos.length) {
+            // 优化：在循环前一次性加载缓存到内存，避免每次循环都访问 localStorage
+            const geoCache = this._geoLoad();
             const byId = new Map();
             if (Array.isArray(data)) {
               for (const r of data) byId.set(String(r.id), r);
@@ -1561,8 +1563,9 @@ export default {
               const needGeocode = !existing || !Number.isFinite(existing.lat) || !Number.isFinite(existing.lng);
               if (!needGeocode) continue;
               const cacheKey = `${String(this.country)}|${idStr}`;
-              const cached = this._geoGet(cacheKey);
-              if (cached) {
+              // 优化：直接从内存缓存中读取，而不是每次都访问 localStorage
+              const cached = geoCache && geoCache[cacheKey];
+              if (cached && Number.isFinite(cached.lat) && Number.isFinite(cached.lng)) {
                 const item = {
                   id: p.id,
                   name: p.name,
@@ -1570,8 +1573,8 @@ export default {
                   county: p.county,
                   rating: p.rating,
                   total_reviews: p.total_reviews,
-                  lat: cached.lat,
-                  lng: cached.lng,
+                  lat: Number(cached.lat),
+                  lng: Number(cached.lng),
                   hasImage: !!p.hasImage,
                   country: this.country,
                 };
@@ -1625,6 +1628,8 @@ export default {
         try {
           const pos = await fetchAttractionsPositions(fetchCountry);
           if (Array.isArray(pos) && pos.length) {
+            // 优化：在循环前一次性加载缓存到内存，避免每次循环都访问 localStorage
+            const geoCache = this._geoLoad();
             const byId = new Map();
             if (Array.isArray(data)) {
               for (const r of data) byId.set(String(r.id), r);
@@ -1635,8 +1640,9 @@ export default {
               const needGeocode = !existing || !Number.isFinite(existing.lat) || !Number.isFinite(existing.lng);
               if (!needGeocode) continue;
               const cacheKey = `${String(fetchCountry)}|${idStr}`;
-              const cached = this._geoGet(cacheKey);
-              if (cached) {
+              // 优化：直接从内存缓存中读取，而不是每次都访问 localStorage
+              const cached = geoCache && geoCache[cacheKey];
+              if (cached && Number.isFinite(cached.lat) && Number.isFinite(cached.lng)) {
                 const item = {
                   id: p.id,
                   name: p.name,
@@ -1644,8 +1650,8 @@ export default {
                   county: p.county,
                   rating: p.rating,
                   total_reviews: p.total_reviews,
-                  lat: cached.lat,
-                  lng: cached.lng,
+                  lat: Number(cached.lat),
+                  lng: Number(cached.lng),
                   hasImage: !!p.hasImage,
                   country: fetchCountry,
                 };
