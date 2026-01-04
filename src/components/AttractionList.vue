@@ -1496,14 +1496,22 @@
           if (!images || typeof images !== 'object') return custom;
 
           const nextImages = { ...(images || {}) };
-          if (typeof nextImages.main !== 'string') nextImages.main = '';
-          if (typeof nextImages.main === 'string' && nextImages.main.startsWith('data:')) nextImages.main = '';
+          // 保留S3路径，只清除dataUrl
+          if (typeof nextImages.main === 'string') {
+            if (nextImages.main.startsWith('data:')) {
+              nextImages.main = '';
+            }
+            // 否则保留原值（可能是S3路径）
+          } else {
+            nextImages.main = '';
+          }
 
           const secondary = Array.isArray(nextImages.secondary) ? [...nextImages.secondary] : [];
           while (secondary.length < 2) secondary.push('');
           nextImages.secondary = secondary.slice(0, 2).map((val) => {
             if (typeof val !== 'string') return '';
             if (val.startsWith('data:')) return '';
+            // 保留S3路径
             return val;
           });
 
@@ -1571,12 +1579,38 @@
       async upsertCustomFromImport(custom, images) {
         const id = custom && custom.id ? String(custom.id) : ('custom_' + Date.now());
         const base = { ...(custom || {}), id, country: 'custom' };
+        // stripInlineImageData已经保留了S3路径，清除了dataUrl
+        // 所以base.images中应该只包含S3路径或空字符串
         const refs = {
           main: (base.images && base.images.main) || '',
           secondary: Array.isArray(base.images && base.images.secondary) ? [...base.images.secondary] : []
         };
         while (refs.secondary.length < 2) refs.secondary.push('');
 
+        // 判断是否为S3路径（包含/的路径，不是data:，也不是id:slot格式）
+        const isS3Path = (path) => {
+          if (!path || typeof path !== 'string') return false;
+          if (path.startsWith('data:')) return false;
+          // S3路径通常包含/，而id:slot格式不包含/
+          if (path.includes('/')) return true;
+          return false;
+        };
+
+        // 调试：检查导入的图片路径
+        try {
+          console.log('[Import] Custom attraction images:', {
+            id,
+            main: refs.main,
+            secondary: refs.secondary,
+            isMainS3: isS3Path(refs.main),
+            isSec0S3: isS3Path(refs.secondary[0]),
+            isSec1S3: isS3Path(refs.secondary[1]),
+            baseImages: base.images,
+            customImages: custom.images
+          });
+        } catch (e) {}
+
+        // 上传函数（用于兼容旧格式的dataUrl）
         const cacheSlot = async (slotKey, dataUrl) => {
           if (!dataUrl) return false;
           try {
@@ -1604,10 +1638,23 @@
           return existingRef || '';
         };
 
+        // 兼容旧格式：如果有dataUrl，需要上传
         const imgs = images && typeof images === 'object' ? images : {};
-        if (imgs.main) refs.main = await uploadAndCache('main', 'main', imgs.main, refs.main);
-        if (imgs.sec0) refs.secondary[0] = await uploadAndCache('sec0', 'sec0', imgs.sec0, refs.secondary[0]);
-        if (imgs.sec1) refs.secondary[1] = await uploadAndCache('sec1', 'sec1', imgs.sec1, refs.secondary[1]);
+        
+        // 处理主图：如果已经是S3路径，直接使用；否则如果有dataUrl则上传
+        if (!isS3Path(refs.main) && imgs.main && imgs.main.startsWith('data:')) {
+          refs.main = await uploadAndCache('main', 'main', imgs.main, refs.main);
+        }
+
+        // 处理副图1
+        if (!isS3Path(refs.secondary[0]) && imgs.sec0 && imgs.sec0.startsWith('data:')) {
+          refs.secondary[0] = await uploadAndCache('sec0', 'sec0', imgs.sec0, refs.secondary[0]);
+        }
+
+        // 处理副图2
+        if (!isS3Path(refs.secondary[1]) && imgs.sec1 && imgs.sec1.startsWith('data:')) {
+          refs.secondary[1] = await uploadAndCache('sec1', 'sec1', imgs.sec1, refs.secondary[1]);
+        }
 
         const payload = {
           ...base,
@@ -1619,7 +1666,17 @@
             secondary: [refs.secondary[0] || '', refs.secondary[1] || '']
           }
         };
-        return addCustomAttraction(payload);
+        const saved = addCustomAttraction(payload);
+        // 调试：检查保存后的数据
+        try {
+          console.log('[Import] Saved custom attraction:', {
+            id: saved.id,
+            main: saved.images?.main,
+            secondary: saved.images?.secondary,
+            hasImage1: saved.hasImage1
+          });
+        } catch (e) {}
+        return saved;
       },
 
       // 从浏览器地理编码缓存中移除某个自创景点的经纬度
@@ -1717,15 +1774,15 @@
               const pending = !!it.pending;
               if (String(it.country) === 'custom') {
                 const full = findCustomAttractionById(it.id) || null;
-                const imageData = await this.getCustomImageData(it.id);
+                // 导出时只记录S3路径，不导出dataUrl
                 const embedded = full ? {
                   ...full,
                   images: {
-                    main: (imageData && imageData.main) ? imageData.main : '',
-                    secondary: [
-                      (imageData && imageData.sec0) ? imageData.sec0 : '',
-                      (imageData && imageData.sec1) ? imageData.sec1 : ''
-                    ]
+                    main: (full.images && full.images.main) ? full.images.main : '',
+                    secondary: Array.isArray(full.images && full.images.secondary) ? [
+                      full.images.secondary[0] || '',
+                      full.images.secondary[1] || ''
+                    ] : ['', '']
                   }
                 } : null;
                 if (embedded && embedded.images) {
@@ -1819,15 +1876,15 @@
                 const pending = !!it.pending;
                 if (String(it.country) === 'custom') {
                   const full = findCustomAttractionById(it.id) || null;
-                  const imageData = await this.getCustomImageData(it.id);
+                  // 导出时只记录S3路径，不导出dataUrl
                   const embedded = full ? {
                     ...full,
                     images: {
-                      main: (imageData && imageData.main) ? imageData.main : '',
-                      secondary: [
-                        (imageData && imageData.sec0) ? imageData.sec0 : '',
-                        (imageData && imageData.sec1) ? imageData.sec1 : ''
-                      ]
+                      main: (full.images && full.images.main) ? full.images.main : '',
+                      secondary: Array.isArray(full.images && full.images.secondary) ? [
+                        full.images.secondary[0] || '',
+                        full.images.secondary[1] || ''
+                      ] : ['', '']
                     }
                   } : null;
                   if (embedded && embedded.images) {
@@ -3209,9 +3266,25 @@ const all = this.sortedFavorites || [];
             const a = findCustomAttractionById(f.id);
             let url = '';
             if (a && a.images && a.images.main) {
-              url = await getCustomImageUrl(a.images.main);
-            }
-            if (!url && a && a.hasImage1) {
+              // 如果images.main是S3路径（包含/），直接使用
+              // 否则尝试作为本地key（id:slot格式）
+              const imageKey = a.images.main;
+              url = await getCustomImageUrl(imageKey);
+              // 调试：检查图片加载
+              if (!url) {
+                try {
+                  if (imageKey.includes('/')) {
+                    console.warn('[Thumb] Failed to load S3 image:', imageKey, 'This may be due to permissions or the image not existing on S3');
+                  } else {
+                    // 尝试使用id:slot格式作为fallback
+                    if (a && a.hasImage1) {
+                      url = await getCustomImageUrl(`${f.id}:main`);
+                    }
+                  }
+                } catch (e) {}
+              }
+            } else if (a && a.hasImage1) {
+              // 如果没有images.main但有hasImage1标记，尝试使用id:main格式
               url = await getCustomImageUrl(`${f.id}:main`);
             }
             if (url) {

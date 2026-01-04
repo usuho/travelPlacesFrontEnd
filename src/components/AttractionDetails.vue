@@ -684,11 +684,15 @@
         const id = this.attraction?.id || this.id;
         const keysToDelete = [];
         try {
-          const imgs = this.attraction && this.attraction.images;
-          if (imgs) {
-            if (imgs.main) keysToDelete.push(imgs.main);
-            if (imgs.secondary && Array.isArray(imgs.secondary)) {
-              imgs.secondary.forEach(k => { if (k) keysToDelete.push(k); });
+          // 检查是否来自导入，如果是则不删除S3上的图片
+          const isImported = this.attraction && this.attraction.isImported === true;
+          if (!isImported) {
+            const imgs = this.attraction && this.attraction.images;
+            if (imgs) {
+              if (imgs.main) keysToDelete.push(imgs.main);
+              if (imgs.secondary && Array.isArray(imgs.secondary)) {
+                imgs.secondary.forEach(k => { if (k) keysToDelete.push(k); });
+              }
             }
           }
         } catch (e) {}
