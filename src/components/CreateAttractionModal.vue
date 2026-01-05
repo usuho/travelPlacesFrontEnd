@@ -10,64 +10,64 @@
         <div class="form-grid">
           <label class="required">
             <span class="label-text">名称</span>
-            <input v-model.trim="form.name" />
+            <input v-model.trim="form.name" :disabled="isImported" />
           </label>
 
           <label>
             <span class="label-text">地区</span>
-            <input v-model.trim="form.region" />
+            <input v-model.trim="form.region" :disabled="isImported" />
           </label>
 
           <label>
             <span class="label-text">{{ countyLabel }}</span>
-            <input v-model.trim="form.county" />
+            <input v-model.trim="form.county" :disabled="isImported" />
           </label>
 
           
 
           <label class="full">
             <span class="label-text">具体位置</span>
-            <input v-model.trim="form.position" />
+            <input v-model.trim="form.position" :disabled="isImported" />
           </label>
 
           <label>
             <span class="label-text">建议游览时间</span>
-            <input v-model.trim="form.duration" />
+            <input v-model.trim="form.duration" :disabled="isImported" />
           </label>
 
           
 
           <label class="full">
             <span class="label-text">概况</span>
-            <textarea v-model.trim="form.details" rows="2"></textarea>
+            <textarea v-model.trim="form.details" rows="2" :disabled="isImported"></textarea>
           </label>
 
           <label class="full">
             <span class="label-text">详细介绍</span>
-            <textarea v-model.trim="form.overview" rows="4"></textarea>
+            <textarea v-model.trim="form.overview" rows="4" :disabled="isImported"></textarea>
           </label>
 
           <div class="full img-block">
             <div class="img-field">
               <span class="label-text">主图</span>
-              <label class="upload-button" :class="{ danger: !!form.images.main }" @click="onMainButtonClick($event)">
-                <input v-if="!form.images.main" type="file" accept="image/*" @change="onMainImage" />
+              <label class="upload-button" :class="{ danger: !!form.images.main, disabled: isImported }" @click="isImported ? null : onMainButtonClick($event)">
+                <input v-if="!form.images.main && !isImported" type="file" accept="image/*" @change="onMainImage" />
                 <span>{{ form.images.main ? '取消选择' : '选择图片' }}</span>
               </label>
               <img v-if="form.images.main" :src="form.images.main" alt="main" />
             </div>
             <div class="img-field">
               <span class="label-text">次图1</span>
-              <label class="upload-button" :class="{ danger: !!form.images.secondary[0] }" @click="onSecondaryButtonClick(0, $event)">
-                <input v-if="!form.images.secondary[0]" type="file" accept="image/*" @change="e => onSecondaryImage(e, 0)" />
+              <label class="upload-button" :class="{ danger: !!form.images.secondary[0], disabled: isImported }" @click="isImported ? null : onSecondaryButtonClick(0, $event)">
+                <input v-if="!form.images.secondary[0] && !isImported" type="file" accept="image/*" @change="e => onSecondaryImage(e, 0)" />
                 <span>{{ form.images.secondary[0] ? '取消选择' : '选择图片' }}</span>
               </label>
               <img v-if="form.images.secondary[0]" :src="form.images.secondary[0]" alt="sec1" />
             </div>
             <div class="img-field">
               <span class="label-text">次图2</span>
-              <label class="upload-button" :class="{ danger: !!form.images.secondary[1] }" @click="onSecondaryButtonClick(1, $event)">
-                <input v-if="!form.images.secondary[1]" type="file" accept="image/*" @change="e => onSecondaryImage(e, 1)" />
+              <label class="upload-button" :class="{ danger: !!form.images.secondary[1], disabled: isImported }" @click="isImported ? null : onSecondaryButtonClick(1, $event)">
+                <input v-if="!form.images.secondary[1] && !isImported" type="file" accept="image/*" @change="e => onSecondaryImage(e, 1)" />
                 <span>{{ form.images.secondary[1] ? '取消选择' : '选择图片' }}</span>
               </label>
               <img v-if="form.images.secondary[1]" :src="form.images.secondary[1]" alt="sec2" />
@@ -78,7 +78,7 @@
 
       <div class="modal-footer">
         <button class="ghost" @click="close">取消</button>
-        <button class="primary" :disabled="!canSubmit || loading" @click="submit">
+        <button class="primary" :disabled="!canSubmit || loading || isImported" @click="submit">
           <span v-if="!loading">{{ mode === 'edit' ? '修改' : '创建' }}</span>
           <span v-else>正在更新...</span>
         </button>
@@ -132,6 +132,10 @@ export default {
     canSubmit() {
       // 仅名称必填，主图可选
       return !!this.form.name
+    },
+    isImported() {
+      // 检查是否为来自导入的自创景点
+      return this.mode === 'edit' && this.initial && this.initial.isImported === true
     }
   },
   mounted() {
@@ -335,6 +339,7 @@ export default {
       }
     },
     onMainButtonClick(e){
+      if (this.isImported) return
       if (this.form.images.main) {
         try { e && e.preventDefault && e.preventDefault() } catch(_) {}
         try { e && e.stopPropagation && e.stopPropagation() } catch(_) {}
@@ -342,6 +347,7 @@ export default {
       }
     },
     onSecondaryButtonClick(idx, e){
+      if (this.isImported) return
       if (this.form.images.secondary[idx]) {
         try { e && e.preventDefault && e.preventDefault() } catch(_) {}
         try { e && e.stopPropagation && e.stopPropagation() } catch(_) {}
@@ -360,6 +366,11 @@ export default {
     },
     async submit() {
       if (!this.canSubmit || this.loading) return
+      // 检查是否为来自导入的自创景点，如果是则阻止编辑
+      if (this.isImported) {
+        try { alert('无法编辑来自导入的自创景点') } catch (_) {}
+        return
+      }
       this.loading = true
       try {
         const id = (this.mode === 'edit' && this.initial && this.initial.id)
@@ -736,6 +747,17 @@ label.full { grid-column: 1 / -1; }
 .upload-button:active { transform: translateY(1px); }
 .upload-button.danger { background: #fee2e2; color: #b91c1c; border-color: #fecaca; }
 .upload-button.danger:hover { background: #fecaca; }
+.upload-button.disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  background: #e5e7eb;
+  color: #6b7280;
+  border-color: #d1d5db;
+}
+.upload-button.disabled:hover {
+  background: #e5e7eb;
+  transform: none;
+}
 .img-field img { width: 100%; height: 140px; object-fit: cover; border-radius: 8px; border: 1px solid #e5e9f2; }
 
 @media (max-width: 768px) {
