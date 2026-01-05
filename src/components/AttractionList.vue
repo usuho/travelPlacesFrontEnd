@@ -1664,7 +1664,8 @@
           images: {
             main: refs.main || '',
             secondary: [refs.secondary[0] || '', refs.secondary[1] || '']
-          }
+          },
+          isImported: true  // 标记为来自导入，删除时不应删除S3资源
         };
         const saved = addCustomAttraction(payload);
         // 调试：检查保存后的数据
@@ -2896,10 +2897,14 @@
             if (String(it.country) === 'custom') {
               try {
                 const custom = findCustomAttractionById(it.id) || {};
-                const imgs = custom.images || {};
-                if (imgs.main) remoteKeys.push(imgs.main);
-                if (Array.isArray(imgs.secondary)) {
-                  imgs.secondary.forEach(k => { if (k) remoteKeys.push(k); });
+                // 检查是否来自导入，如果是则不删除S3上的图片
+                const isImported = custom.isImported === true;
+                if (!isImported) {
+                  const imgs = custom.images || {};
+                  if (imgs.main) remoteKeys.push(imgs.main);
+                  if (Array.isArray(imgs.secondary)) {
+                    imgs.secondary.forEach(k => { if (k) remoteKeys.push(k); });
+                  }
                 }
               } catch (e) {}
               try { deleteCustomAttraction(it.id); } catch(e) {}
@@ -3552,11 +3557,15 @@ const all = this.sortedFavorites || [];
           let keysToDelete = [];
           try {
             const custom = findCustomAttractionById(t.id);
-            const imgs = custom && custom.images ? custom.images : {};
-            const sec = Array.isArray(imgs.secondary) ? imgs.secondary : [];
-            if (imgs.main) keysToDelete.push(imgs.main);
-            if (sec[0]) keysToDelete.push(sec[0]);
-            if (sec[1]) keysToDelete.push(sec[1]);
+            // 检查是否来自导入，如果是则不删除S3上的图片
+            const isImported = custom && custom.isImported === true;
+            if (!isImported) {
+              const imgs = custom && custom.images ? custom.images : {};
+              const sec = Array.isArray(imgs.secondary) ? imgs.secondary : [];
+              if (imgs.main) keysToDelete.push(imgs.main);
+              if (sec[0]) keysToDelete.push(sec[0]);
+              if (sec[1]) keysToDelete.push(sec[1]);
+            }
           } catch (e) {}
           try { deleteCustomAttraction(t.id); } catch (e) {}
           try { deleteCustomImagesForId(t.id); } catch (e) {}
