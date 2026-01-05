@@ -3383,9 +3383,25 @@ const all = this.sortedFavorites || [];
             const a = findCustomAttractionById(f.id);
             let url = '';
             if (a && a.images && a.images.main) {
-              url = await getCustomImageUrl(a.images.main);
-            }
-            if (!url && a && a.hasImage1) {
+              // 如果images.main是S3路径（包含/），直接使用
+              // 否则尝试作为本地key（id:slot格式）
+              const imageKey = a.images.main;
+              url = await getCustomImageUrl(imageKey);
+              // 调试：检查图片加载
+              if (!url) {
+                try {
+                  if (imageKey.includes('/')) {
+                    console.warn('[Thumb] Failed to load S3 image:', imageKey, 'This may be due to permissions or the image not existing on S3');
+                  } else {
+                    // 尝试使用id:slot格式作为fallback
+                    if (a && a.hasImage1) {
+                      url = await getCustomImageUrl(`${f.id}:main`);
+                    }
+                  }
+                } catch (e) {}
+              }
+            } else if (a && a.hasImage1) {
+              // 如果没有images.main但有hasImage1标记，尝试使用id:main格式
               url = await getCustomImageUrl(`${f.id}:main`);
             }
             if (url) {

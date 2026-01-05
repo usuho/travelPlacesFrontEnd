@@ -157,7 +157,18 @@ async function fetchRemoteImage(key) {
       if (resp && resp.ok) {
         return await resp.blob();
       }
-    } catch (e) {}
+      // 如果是400错误，记录日志但不抛出异常（可能是权限问题或路径不存在）
+      if (resp && resp.status === 400) {
+        try {
+          console.warn('[Image] Failed to fetch remote image (400):', key);
+        } catch (e) {}
+      }
+    } catch (e) {
+      // 网络错误，继续尝试下一个base
+      try {
+        console.warn('[Image] Network error fetching remote image:', key, e);
+      } catch (e2) {}
+    }
   }
   return null;
 }

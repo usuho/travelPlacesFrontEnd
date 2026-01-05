@@ -694,12 +694,17 @@
         // 从自创景点存储中删除
         let keysToDelete = [];
         try {
-          const custom = this.attraction || findCustomAttractionById(id);
-          const imgs = custom && custom.images ? custom.images : {};
-          const sec = Array.isArray(imgs.secondary) ? imgs.secondary : [];
-          if (imgs.main) keysToDelete.push(imgs.main);
-          if (sec[0]) keysToDelete.push(sec[0]);
-          if (sec[1]) keysToDelete.push(sec[1]);
+          // 检查是否来自导入，如果是则不删除S3上的图片
+          const isImported = this.attraction && this.attraction.isImported === true;
+          if (!isImported) {
+            const imgs = this.attraction && this.attraction.images;
+            if (imgs) {
+              if (imgs.main) keysToDelete.push(imgs.main);
+              if (imgs.secondary && Array.isArray(imgs.secondary)) {
+                imgs.secondary.forEach(k => { if (k) keysToDelete.push(k); });
+              }
+            }
+          }
         } catch (e) {}
         try { deleteCustomAttraction(id); } catch(e) {}
         try { deleteCustomImagesForId(id); } catch(e) {}
