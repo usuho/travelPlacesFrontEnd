@@ -2233,12 +2233,14 @@
               if (existed && JSON.stringify(existed) !== JSON.stringify(custom)) {
                 custom = { ...custom, id: 'custom_' + Date.now() + '_' + Math.random().toString(36).slice(2, 5) };
               }
-              // 写入/更新本地自创库
+                  // 写入/更新本地自创库
               try {
                 const allRaw = localStorage.getItem('customAttractions');
                 const all = allRaw ? (JSON.parse(allRaw) || []) : [];
                 const idx = all.findIndex(a => String(a.id) === String(custom.id));
-                if (idx >= 0) all[idx] = custom; else all.push(custom);
+                // 标记为来自导入
+                const customWithImport = { ...custom, isImported: true };
+                if (idx >= 0) all[idx] = customWithImport; else all.push(customWithImport);
                 saveAllCustomAttractions(all);
               } catch (e) {}
                             // 还原图片（如导出包含）
@@ -2311,7 +2313,9 @@
                   const allRaw = localStorage.getItem('customAttractions');
                   const all = allRaw ? (JSON.parse(allRaw) || []) : [];
                   const idx = all.findIndex(a => String(a.id) === String(custom.id));
-                  if (idx >= 0) all[idx] = custom; else all.push(custom);
+                  // 标记为来自导入
+                  const customWithImport = { ...custom, isImported: true };
+                  if (idx >= 0) all[idx] = customWithImport; else all.push(customWithImport);
                   saveAllCustomAttractions(all);
                 } catch (e) {}
                 try {
@@ -2355,7 +2359,9 @@
               const allRaw = localStorage.getItem('customAttractions');
               const all = allRaw ? (JSON.parse(allRaw) || []) : [];
               const idx = all.findIndex(a => String(a.id) === String(custom.id));
-              if (idx >= 0) all[idx] = custom; else all.push(custom);
+              // 标记为来自导入
+              const customWithImport = { ...custom, isImported: true };
+              if (idx >= 0) all[idx] = customWithImport; else all.push(customWithImport);
               saveAllCustomAttractions(all);
             } catch (e) {}
             try {
@@ -3015,11 +3021,15 @@
               let keysToDelete = [];
               try {
                 const custom = findCustomAttractionById(it.id);
-                const imgs = custom && custom.images ? custom.images : {};
-                const sec = Array.isArray(imgs.secondary) ? imgs.secondary : [];
-                if (imgs.main) keysToDelete.push(imgs.main);
-                if (sec[0]) keysToDelete.push(sec[0]);
-                if (sec[1]) keysToDelete.push(sec[1]);
+                // 检查是否来自导入，如果是则不删除S3上的图片
+                const isImported = custom && custom.isImported === true;
+                if (!isImported) {
+                  const imgs = custom && custom.images ? custom.images : {};
+                  const sec = Array.isArray(imgs.secondary) ? imgs.secondary : [];
+                  if (imgs.main) keysToDelete.push(imgs.main);
+                  if (sec[0]) keysToDelete.push(sec[0]);
+                  if (sec[1]) keysToDelete.push(sec[1]);
+                }
               } catch (e) {}
               try { deleteCustomAttraction(it.id); } catch(e) {}
               try { deleteCustomImagesForId(it.id); } catch(e) {}
@@ -3669,11 +3679,15 @@ const all = this.sortedFavorites || [];
           let keysToDelete = [];
           try {
             const custom = findCustomAttractionById(t.id);
-            const imgs = custom && custom.images ? custom.images : {};
-            const sec = Array.isArray(imgs.secondary) ? imgs.secondary : [];
-            if (imgs.main) keysToDelete.push(imgs.main);
-            if (sec[0]) keysToDelete.push(sec[0]);
-            if (sec[1]) keysToDelete.push(sec[1]);
+            // 检查是否来自导入，如果是则不删除S3上的图片
+            const isImported = custom && custom.isImported === true;
+            if (!isImported) {
+              const imgs = custom && custom.images ? custom.images : {};
+              const sec = Array.isArray(imgs.secondary) ? imgs.secondary : [];
+              if (imgs.main) keysToDelete.push(imgs.main);
+              if (sec[0]) keysToDelete.push(sec[0]);
+              if (sec[1]) keysToDelete.push(sec[1]);
+            }
           } catch (e) {}
           try { deleteCustomAttraction(t.id); } catch (e) {}
           try { deleteCustomImagesForId(t.id); } catch (e) {}

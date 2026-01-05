@@ -35,8 +35,10 @@
              <button
               v-else
               class="edit-button rating-edit-button"
-              @click="showEditModal = true"
-              title="编辑自创景点"
+              :class="{ disabled: isImportedCustomAttraction }"
+              :disabled="isImportedCustomAttraction"
+              @click="!isImportedCustomAttraction && (showEditModal = true)"
+              :title="isImportedCustomAttraction ? '来自导入的自创景点不能修改' : '编辑自创景点'"
             >
               编辑
             </button>
@@ -400,6 +402,9 @@
       },
       isCustomAttraction() {
         return String(this.country) === 'custom';
+      },
+      isImportedCustomAttraction() {
+        return this.isCustomAttraction && this.attraction && this.attraction.isImported === true;
       },
       totalReviewsText() {
         if (!this.attraction) return '';
@@ -1783,7 +1788,16 @@
   justify-content: center;
 }
 
-.edit-button:hover { filter: brightness(0.97); transform: translateY(-1px); }
+.edit-button:hover:not(.disabled) { filter: brightness(0.97); transform: translateY(-1px); }
+.edit-button.disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  background: linear-gradient(135deg, #e5e7eb 0%, #d1d5db 100%);
+}
+.edit-button.disabled:hover {
+  filter: none;
+  transform: none;
+}
 
 .back-icon {
   font-size: 18px;
