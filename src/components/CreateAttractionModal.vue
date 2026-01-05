@@ -98,6 +98,9 @@
   import { getGeoKeys } from '../utils/geoKeys.js'
   import { uploadCustomImage, deleteCustomImages } from '../stores/userDataSync.js'
 
+  const CUSTOM_IMAGE_UPLOAD_MAX_BYTES = 900 * 1024
+  const CUSTOM_IMAGE_UPLOAD_MAX_SIDE = 1600
+
 export default {
   name: 'CreateAttractionModal',
   props: {
@@ -227,16 +230,105 @@ export default {
         } catch (e) { resolve('') }
       })
     },
+    byteSize(val) {
+      try { return new Blob([String(val || '')]).size } catch (e) { return String(val || '').length }
+    },
+    async compressImageDataUrl(dataUrl, options = {}) {
+      try {
+        if (!dataUrl || typeof dataUrl !== 'string' || !dataUrl.startsWith('data:image/')) return dataUrl || ''
+        const maxBytes = Number.isFinite(options.maxBytes) ? options.maxBytes : CUSTOM_IMAGE_UPLOAD_MAX_BYTES
+        const maxSide = Number.isFinite(options.maxSide) ? options.maxSide : CUSTOM_IMAGE_UPLOAD_MAX_SIDE
+        if (maxBytes && this.byteSize(dataUrl) <= maxBytes) return dataUrl
+
+        let blob = null
+        try {
+          const resp = await fetch(dataUrl)
+          blob = await resp.blob()
+        } catch (e) {
+          blob = null
+        }
+        if (!blob) return dataUrl
+
+        const img = await new Promise((resolve) => {
+          let url = ''
+          try { url = URL.createObjectURL(blob) } catch (e) { url = '' }
+          if (!url) return resolve(null)
+          try {
+            const el = new Image()
+            el.onload = () => {
+              try { URL.revokeObjectURL(url) } catch (e) {}
+              resolve(el)
+            }
+            el.onerror = () => {
+              try { URL.revokeObjectURL(url) } catch (e) {}
+              resolve(null)
+            }
+            el.src = url
+          } catch (e) {
+            try { URL.revokeObjectURL(url) } catch (err) {}
+            resolve(null)
+          }
+        })
+        if (!img) return dataUrl
+
+        const srcW = img.naturalWidth || img.width || 0
+        const srcH = img.naturalHeight || img.height || 0
+        if (!srcW || !srcH) return dataUrl
+
+        const canvas = document.createElement('canvas')
+        const ctx = canvas.getContext('2d')
+        if (!ctx) return dataUrl
+
+        const maxSide0 = Math.max(1, maxSide || CUSTOM_IMAGE_UPLOAD_MAX_SIDE)
+        const scale0 = Math.min(1, maxSide0 / Math.max(srcW, srcH))
+        let w = Math.max(1, Math.round(srcW * scale0))
+        let h = Math.max(1, Math.round(srcH * scale0))
+
+        const qualities = [0.85, 0.78, 0.72, 0.66, 0.6, 0.55, 0.5, 0.45]
+        let best = ''
+        let bestBytes = Infinity
+
+        for (let pass = 0; pass < 4; pass++) {
+          canvas.width = w
+          canvas.height = h
+          try {
+            ctx.fillStyle = '#fff'
+            ctx.fillRect(0, 0, w, h)
+            ctx.drawImage(img, 0, 0, w, h)
+          } catch (e) {}
+          for (const q of qualities) {
+            let out = ''
+            try { out = canvas.toDataURL('image/jpeg', q) || '' } catch (e) { out = '' }
+            if (!out) continue
+            const outBytes = this.byteSize(out)
+            if (outBytes < bestBytes) {
+              best = out
+              bestBytes = outBytes
+            }
+            if (maxBytes && outBytes <= maxBytes) return out
+          }
+          w = Math.max(1, Math.round(w * 0.85))
+          h = Math.max(1, Math.round(h * 0.85))
+          if (w < 320 || h < 320) break
+        }
+
+        return best || dataUrl
+      } catch (e) {
+        return dataUrl || ''
+      }
+    },
     async onMainImage(e) {
       const file = e.target.files && e.target.files[0]
       if (!file) return
-      this.form.images.main = await this.readFileAsDataURL(file)
+      const raw = await this.readFileAsDataURL(file)
+      this.form.images.main = await this.compressImageDataUrl(raw)
       this.mainCleared = false
     },
     async onSecondaryImage(e, idx) {
       const file = e.target.files && e.target.files[0]
       if (!file) return
-      const url = await this.readFileAsDataURL(file)
+      const raw = await this.readFileAsDataURL(file)
+      const url = await this.compressImageDataUrl(raw)
       this.$set ? this.$set(this.form.images.secondary, idx, url) : (this.form.images.secondary[idx] = url)
       if (idx === 0 || idx === 1) {
         this.$set ? this.$set(this.secondaryCleared, idx, false) : (this.secondaryCleared[idx] = false)
@@ -309,13 +401,15 @@ export default {
       const normalizeForUpload = async (val) => {
         if (!val) return { shouldUpload: false, dataUrl: '' }
         if (typeof val === 'string' && val.startsWith('data:')) {
-          return { shouldUpload: true, dataUrl: val }
+          const dataUrl = await this.compressImageDataUrl(val)
+          return dataUrl ? { shouldUpload: true, dataUrl } : { shouldUpload: false, dataUrl: '' }
         }
         if (typeof val === 'string' && (val.startsWith('blob:') || val.startsWith('http'))) {
           try {
             const resp = await fetch(val)
             const blob = await resp.blob()
-            const dataUrl = await this.blobToDataURL(blob)
+            const raw = await this.blobToDataURL(blob)
+            const dataUrl = await this.compressImageDataUrl(raw)
             return dataUrl ? { shouldUpload: true, dataUrl } : { shouldUpload: false, dataUrl: '' }
           } catch (e) { return { shouldUpload: false, dataUrl: '' } }
         }
@@ -323,12 +417,26 @@ export default {
       }
       const uploadSlot = async (slot, dataUrl) => {
         if (!dataUrl) return null
-        try {
-          const key = await uploadCustomImage(id, slot, dataUrl)
-          return key || null
-        } catch (e) {
-          return null
+        const attempts = [
+          { maxBytes: CUSTOM_IMAGE_UPLOAD_MAX_BYTES, maxSide: CUSTOM_IMAGE_UPLOAD_MAX_SIDE },
+          { maxBytes: 450 * 1024, maxSide: 1280 },
+          { maxBytes: 250 * 1024, maxSide: 960 }
+        ]
+        let lastErr = null
+        let cur = dataUrl
+        for (const cfg of attempts) {
+          cur = await this.compressImageDataUrl(cur, cfg)
+          try {
+            const key = await uploadCustomImage(id, slot, cur)
+            if (key) return key
+          } catch (e) {
+            lastErr = e
+          }
         }
+        const msg = '图片上传失败：请换小一点的图片，或稍后重试（后端可能限制了上传大小）。'
+        const err = new Error(msg)
+        err.cause = lastErr
+        throw err
       }
 
       // main
@@ -336,10 +444,8 @@ export default {
       const mainChanged = normMain.shouldUpload && this.form.images.main !== (initialImages.main || '')
       if (mainChanged) {
         const uploadedMain = await uploadSlot('main', normMain.dataUrl)
-        if (uploadedMain) {
-          if (imageRefs.main && imageRefs.main !== uploadedMain) toDeleteRemote.push(imageRefs.main)
-          imageRefs.main = uploadedMain
-        }
+        if (imageRefs.main && imageRefs.main !== uploadedMain) toDeleteRemote.push(imageRefs.main)
+        imageRefs.main = uploadedMain
       } else if (this.mainCleared) {
         if (imageRefs.main) toDeleteRemote.push(imageRefs.main)
         imageRefs.main = ''
@@ -350,10 +456,8 @@ export default {
       const sec0Changed = normSec0.shouldUpload && this.form.images.secondary[0] !== (initialImages.secondary && initialImages.secondary[0] || '')
       if (sec0Changed) {
         const uploadedSec0 = await uploadSlot('sec0', normSec0.dataUrl)
-        if (uploadedSec0) {
-          if (imageRefs.secondary[0] && imageRefs.secondary[0] !== uploadedSec0) toDeleteRemote.push(imageRefs.secondary[0])
-          imageRefs.secondary[0] = uploadedSec0
-        }
+        if (imageRefs.secondary[0] && imageRefs.secondary[0] !== uploadedSec0) toDeleteRemote.push(imageRefs.secondary[0])
+        imageRefs.secondary[0] = uploadedSec0
       } else if (this.secondaryCleared[0]) {
         if (imageRefs.secondary[0]) toDeleteRemote.push(imageRefs.secondary[0])
         imageRefs.secondary[0] = ''
@@ -364,10 +468,8 @@ export default {
       const sec1Changed = normSec1.shouldUpload && this.form.images.secondary[1] !== (initialImages.secondary && initialImages.secondary[1] || '')
       if (sec1Changed) {
         const uploadedSec1 = await uploadSlot('sec1', normSec1.dataUrl)
-        if (uploadedSec1) {
-          if (imageRefs.secondary[1] && imageRefs.secondary[1] !== uploadedSec1) toDeleteRemote.push(imageRefs.secondary[1])
-          imageRefs.secondary[1] = uploadedSec1
-        }
+        if (imageRefs.secondary[1] && imageRefs.secondary[1] !== uploadedSec1) toDeleteRemote.push(imageRefs.secondary[1])
+        imageRefs.secondary[1] = uploadedSec1
       } else if (this.secondaryCleared[1]) {
         if (imageRefs.secondary[1]) toDeleteRemote.push(imageRefs.secondary[1])
         imageRefs.secondary[1] = ''
@@ -435,6 +537,8 @@ export default {
       try { this.prefetchCustomGeocode(saved); } catch (e) {}
       if (this.mode === 'edit') this.$emit('updated', saved); else this.$emit('created', saved)
       this.$emit('update:modelValue', false)
+      } catch (e) {
+        try { alert((e && e.message) ? e.message : '保存失败，请稍后重试') } catch (_) {}
       } finally {
         this.loading = false
       }

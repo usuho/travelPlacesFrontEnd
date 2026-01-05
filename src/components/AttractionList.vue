@@ -3549,8 +3549,18 @@ const all = this.sortedFavorites || [];
         // 注意：移除操作只影响当前激活的选项卡，不删除自创景点本身（因为其他选项卡可能还在使用）
         // 清除自创景点缓存（若为自创）
         if (String(t.country) === 'custom') {
+          let keysToDelete = [];
+          try {
+            const custom = findCustomAttractionById(t.id);
+            const imgs = custom && custom.images ? custom.images : {};
+            const sec = Array.isArray(imgs.secondary) ? imgs.secondary : [];
+            if (imgs.main) keysToDelete.push(imgs.main);
+            if (sec[0]) keysToDelete.push(sec[0]);
+            if (sec[1]) keysToDelete.push(sec[1]);
+          } catch (e) {}
           try { deleteCustomAttraction(t.id); } catch (e) {}
           try { deleteCustomImagesForId(t.id); } catch (e) {}
+          try { if (keysToDelete.length) deleteCustomImages(keysToDelete); } catch (e) {}
           try { this.removeGeoCacheForCustom(t.id); } catch (e) {}
         }
         // 清理缩略图缓存（统一处理）
