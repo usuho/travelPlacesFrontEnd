@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="container fade-in">
     <!-- 固定顶部区域（标题 + 筛选器） -->
     <div class="fixed-header">
@@ -2488,6 +2488,10 @@
         // Persist entire tabs structure
         const key = this.getFavoritesStorageKey();
         try {
+          // 保护：如果 favoriteTabs 为空或未定义，且 localStorage 中已有数据，则不保存，避免清空已有收藏列表
+          if ((!this.favoriteTabs || this.favoriteTabs.length === 0) && localStorage.getItem(key)) {
+            return;
+          }
           localStorage.setItem(key, JSON.stringify(this.favoriteTabs));
         } catch(e) {}
         try { queueUserDataSync(); } catch (e) {}
@@ -3147,6 +3151,10 @@ const all = this.sortedFavorites || [];
         this.showFavorites = !this.showFavorites;
         this.resetSwipeState(true);
         if (this.showFavorites) {
+          // 确保收藏列表已加载，避免在景点卡片加载前点击导致清空收藏列表
+          if (!this.favoriteTabs || this.favoriteTabs.length === 0 || !this.activeTabId) {
+            this.loadFavorites();
+          }
           // 打开时刷新一次自创景点的信息（名称/区域等）
           try { this.refreshCustomFavorites(); this.saveFavorites(); } catch(e) {}
           this.updateFavoritesMenuPosition();
