@@ -762,6 +762,7 @@ label.full { grid-column: 1 / -1; }
   transform: none;
 }
 .img-field img { width: 100%; height: 140px; object-fit: cover; border-radius: 8px; border: 1px solid #e5e9f2; }
+.img-field-last img { width: 100%; height: 140px; object-fit: cover; border-radius: 8px; border: 1px solid #e5e9f2; }
 
 @media (max-width: 768px) {
   .modal { width: 94vw; max-width: 94vw; }
