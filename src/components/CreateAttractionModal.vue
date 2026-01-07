@@ -64,7 +64,7 @@
               </label>
               <img v-if="form.images.secondary[0]" :src="form.images.secondary[0]" alt="sec1" />
             </div>
-            <div class="img-field">
+            <div class="img-field-last">
               <span class="label-text">次图2</span>
               <label class="upload-button" :class="{ danger: !!form.images.secondary[1], disabled: isImported }" @click="isImported ? null : onSecondaryButtonClick(1, $event)">
                 <input v-if="!form.images.secondary[1] && !isImported" type="file" accept="image/*" @change="e => onSecondaryImage(e, 1)" />
@@ -736,10 +736,13 @@ label input, label textarea { width: 100%; max-width: 100%; box-sizing: border-b
 label.full { grid-column: 1 / -1; }
 .form-grid > .full { grid-column: 1 / -1; }
 
-.img-block { display: flex; gap: 12px; align-items: stretch; width: 100%; box-sizing: border-box; }
-.img-field { display: flex; flex-direction: column; gap: 8px; min-width: 0; flex: 1 1 0; }
+.img-block { display: flex; align-items: stretch; width: 100%; box-sizing: border-box; }
+.img-field { margin-right: 12px; display: flex; flex-direction: column; gap: 8px; min-width: 0; flex: 1 1 0; }
 .img-field > span { font-size: 13px; color: #334155; }
 .img-field { overflow: hidden; }
+.img-field-last { display: flex; flex-direction: column; gap: 8px; min-width: 0; flex: 1 1 0; }
+.img-field-last > span { font-size: 13px; color: #334155; }
+.img-field-last { overflow: hidden; }
 .upload-button { position: relative; display: flex; flex-direction: row; align-items: center; justify-content: center; gap: 6px; padding: 12px; border-radius: 8px; background: #d1fae5; color: #065f46; border: 1px solid #86efac; font-weight: 600; cursor: pointer; user-select: none; width: 100%; box-sizing: border-box; }
 .upload-button input { position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; height: 100%; border: 0; padding: 0; margin: 0; }
 .upload-button span { pointer-events: none; }

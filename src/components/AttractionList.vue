@@ -1295,6 +1295,10 @@
         }
         this.restoreDistanceQueueState();
         this.isRestoring = false;
+        // 如果已经是按好评率最高排序，设置gotoPage的初始值为当前页（数据加载完成后会重新计算）
+        if (this.order === 'rating_desc' && (this.gotoPage === null || this.gotoPage === undefined)) {
+          this.gotoPage = this.page;
+        }
         // 先获取countis和regions的映射，再调用fetchAttractions
         this.fetchCountis().then(() => {
           return this.fetchRegions();
@@ -5132,6 +5136,10 @@ const all = this.sortedFavorites || [];
                   const tb = Number(b.total_reviews) || 0;
                   return tb - ta;
                 });
+                
+                // 在单请求模式下，如果是按好评率最高排序，需要获取所有数据来计算第一个不是100%的景点在哪一页
+                // 异步获取所有数据来计算正确的页码
+                this.calculateFirstNon100PageForSingleRequest(fetchToken);
               }
               this.bumpListRenderTick();
               return;
@@ -5260,6 +5268,18 @@ const all = this.sortedFavorites || [];
               const reviewsB = parseInt(b.total_reviews || 0, 10);
               return reviewsB - reviewsA;
             });
+            
+            // 找到第一个好评率不是100%的景点，并计算其所在页码
+            let foundNon100Page = null;
+            for (let i = 0; i < allResults.length; i++) {
+              const rating = parsePercent(allResults[i].rating);
+              if (rating !== 100) {
+                foundNon100Page = Math.floor(i / this.limit) + 1;
+                break;
+              }
+            }
+            // 如果找到第一个不是100%的景点，设置gotoPage为该页码；否则设置为第1页
+            this.gotoPage = foundNon100Page !== null ? foundNon100Page : 1;
           } else if (this.order === 'rating_asc') {
             const parsePercent = (v) => {
               if (v == null) return 0;
@@ -5338,6 +5358,69 @@ const all = this.sortedFavorites || [];
           });
 
           this.bumpListRenderTick();
+        }
+      },
+
+      async calculateFirstNon100PageForSingleRequest(fetchToken) {
+        // 在单请求模式下，获取所有数据来计算第一个不是100%的景点在哪一页
+        try {
+          const params = new URLSearchParams();
+          const minReviews = Number.isFinite(this.minReviews) ? this.minReviews : 0;
+          params.append('minReviews', minReviews);
+          params.append('order', this.order);
+          params.append('page', 1);
+          params.append('limit', 10000); // 使用一个很大的limit来获取所有数据
+          if (this.selectedRegion) {
+            const originalRegion = this.getOriginalValue(this.selectedRegion, this.regionValueMap);
+            params.append('region', originalRegion);
+          }
+          if (this.selectedCounty) {
+            const originalCounty = this.getOriginalValue(this.selectedCounty, this.countyValueMap);
+            params.append('county', originalCounty);
+          }
+          if (this.order === 'rating_desc') params.append('secondary', 'reviews_desc');
+
+          const response = await fetch(`https://juseaxerf.com/api/attractions/${this.country}?${params.toString()}`, withBackendApiKey());
+          if (!response.ok) return;
+          const data = await response.json();
+          if (this.activeFetchToken !== fetchToken) return;
+
+          if (!data || !Array.isArray(data.data)) return;
+
+          const parsePercent = (v) => {
+            if (v == null) return 0;
+            const s = String(v).replace('%', '');
+            const n = parseFloat(s);
+            return Number.isFinite(n) ? n : 0;
+          };
+
+          // 排序数据
+          const sortedData = [...data.data].sort((a, b) => {
+            const ra = parsePercent(a.rating);
+            const rb = parsePercent(b.rating);
+            if (rb !== ra) return rb - ra;
+            const ta = Number(a.total_reviews) || 0;
+            const tb = Number(b.total_reviews) || 0;
+            return tb - ta;
+          });
+
+          // 找到第一个好评率不是100%的景点，并计算其所在页码
+          for (let i = 0; i < sortedData.length; i++) {
+            const rating = parsePercent(sortedData[i].rating);
+            if (rating !== 100) {
+              const targetPage = Math.floor(i / this.limit) + 1;
+              this.gotoPage = targetPage;
+              return;
+            }
+          }
+          // 如果所有景点都是100%好评率，则设置为第1页
+          this.gotoPage = 1;
+        } catch (error) {
+          console.error('Failed to calculate first non-100% page:', error);
+          // 如果出错，设置为当前页作为后备方案
+          if (this.gotoPage === null || this.gotoPage === undefined) {
+            this.gotoPage = this.page;
+          }
         }
       },
 
