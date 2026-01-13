@@ -421,16 +421,32 @@
         if (this.isFavoritesMode) return this.favIndex >= this.favNav.length - 1;
         if (this.fromSearch) return true;
         const distanceMode = this.isDistanceMode();
+        // 距离模式下完全依赖距离队列（ids / listPage / hasNextPage），忽略 allAttractionIds
+        if (distanceMode) {
+          if (Array.isArray(this.ids) && this.ids.length && this.index < this.ids.length - 1) return false;
+          return !this.hasNextPage;
+        }
+        // 非距离模式下才使用多请求合并的全局 ID 列表
+        if (Array.isArray(this.allAttractionIds) && this.allAttractionIds.length > 0 && this.attractionGlobalIndex >= 0) {
+          return this.attractionGlobalIndex >= this.allAttractionIds.length - 1;
+        }
         if (Array.isArray(this.ids) && this.ids.length && this.index < this.ids.length - 1) return false;
-        if (distanceMode) return !this.hasNextPage;
         return !this.hasNextPage;
       },
     prevDisabled() {
         if (this.isFavoritesMode) return this.favIndex === 0;
         if (this.fromSearch) return true;
         const distanceMode = this.isDistanceMode();
+        // 距离模式下完全依赖距离队列（ids / listPage），忽略 allAttractionIds
+        if (distanceMode) {
+          if (this.index > 0) return false;
+          return this.listPage <= 1;
+        }
+        // 非距离模式下才使用多请求合并的全局 ID 列表
+        if (Array.isArray(this.allAttractionIds) && this.allAttractionIds.length > 0 && this.attractionGlobalIndex >= 0) {
+          return this.attractionGlobalIndex <= 0;
+        }
         if (this.index > 0) return false;
-        if (distanceMode) return this.listPage <= 1;
         return this.listPage <= 1;
       }
     },
@@ -1262,8 +1278,8 @@
         }
         if (this.fromSearch) return;
 
-        // 优先使用多请求合并模式的所有ID列表（如果存在）
-        if (Array.isArray(this.allAttractionIds) && this.allAttractionIds.length > 0 && this.attractionGlobalIndex >= 0) {
+        // 优先使用多请求合并模式的所有ID列表（如果存在，且当前不是距离模式）
+        if (!this.isDistanceMode() && Array.isArray(this.allAttractionIds) && this.allAttractionIds.length > 0 && this.attractionGlobalIndex >= 0) {
           const nextGlobalIndex = this.attractionGlobalIndex + 1;
           if (nextGlobalIndex < this.allAttractionIds.length) {
             const nextId = this.allAttractionIds[nextGlobalIndex];
@@ -1319,8 +1335,8 @@
         }
         if (this.fromSearch) return;
         
-        // 优先使用多请求合并模式的所有ID列表（如果存在）
-        if (Array.isArray(this.allAttractionIds) && this.allAttractionIds.length > 0 && this.attractionGlobalIndex >= 0) {
+        // 优先使用多请求合并模式的所有ID列表（如果存在，且当前不是距离模式）
+        if (!this.isDistanceMode() && Array.isArray(this.allAttractionIds) && this.allAttractionIds.length > 0 && this.attractionGlobalIndex >= 0) {
           const prevGlobalIndex = this.attractionGlobalIndex - 1;
           if (prevGlobalIndex >= 0) {
             const prevId = this.allAttractionIds[prevGlobalIndex];
