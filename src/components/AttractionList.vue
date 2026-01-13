@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="container fade-in">
     <!-- 固定顶部区域（标题 + 筛选器） -->
     <div class="fixed-header">
@@ -4884,9 +4884,12 @@ const all = this.sortedFavorites || [];
           const result = this.processOptions(filtered);
           console.log('Processed counties:', result.processed);
           console.log('County value map:', Array.from(result.valueMap.entries()).map(([k, v]) => [k, v]));
+
+          // 基础数据立刻就位，避免阻塞页面加载
+          this.countyValueMap = result.valueMap;
           this.countis = result.processed;
           this.filteredCounties = [...result.processed];
-          this.countyValueMap = result.valueMap;
+
           // 保存 countyValueMap 到 localStorage，供其他组件使用
           try {
             const mapArray = Array.from(result.valueMap.entries());
@@ -4894,10 +4897,74 @@ const all = this.sortedFavorites || [];
           } catch (e) {
             console.error('Failed to save countyValueMap to localStorage:', e);
           }
+
           this.countisLoaded = true;
+
+          // 在后台按「结果数 < 5 隐藏」的规则做二次精简，不阻塞主流程
+          this.refineCountisByResultCount().catch(() => {});
         } catch (error) {
           console.error('Error fetching regions:', error);
           this.countisLoaded = true;
+        }
+      },
+
+      // 根据「筛选后的结果数」异步精简 county 选项：小于 5 个结果的选项不展示
+      async refineCountisByResultCount() {
+        try {
+          const source = Array.isArray(this.countis) ? [...this.countis] : [];
+          const valueMap = this.countyValueMap || new Map();
+          const regionValueMap = this.regionValueMap || new Map();
+          const validCountis = [];
+
+          for (const processedName of source) {
+            if (!processedName) continue;
+            try {
+              const originalCounty = this.getOriginalValue(processedName, valueMap);
+              const params = new URLSearchParams();
+              const minReviews = Number.isFinite(this.minReviews) ? this.minReviews : 0;
+              params.append('minReviews', minReviews);
+              params.append('order', this.order || 'rating_desc');
+              params.append('page', '1');
+              params.append('limit', '16'); // 只取前 16 条，用 total 判断是否 >= 16
+
+              // 同时带上当前区域筛选（考虑 region 合项映射），使判断真正基于「当前筛选后的结果数」
+              if (this.selectedRegion) {
+                const originalRegion = this.getOriginalValue(this.selectedRegion, regionValueMap);
+                if (originalRegion) {
+                  params.append('region', originalRegion);
+                }
+              }
+              if (originalCounty) {
+                params.append('county', originalCounty);
+              }
+              const res = await fetch(`https://juseaxerf.com/api/attractions/${this.country}?${params.toString()}`, withBackendApiKey());
+              if (!res || !res.ok) continue;
+              const data = await res.json();
+              if (!data || !Array.isArray(data.data)) continue;
+              const parsedTotal = Number.parseInt(data.total, 10);
+              const total = Number.isFinite(parsedTotal) ? parsedTotal : data.data.length;
+              if (total >= 16) {
+                validCountis.push(processedName);
+              }
+            } catch (e) {
+              // 单个选项失败时忽略，不影响其它选项
+              continue;
+            }
+          }
+
+          // 如果没有算出任何有效选项，就保持现状，避免把列表清空
+          if (!validCountis.length) return;
+
+          this.countis = validCountis;
+          this.filteredCounties = [...validCountis];
+
+          // 如果当前选中的 county 不在有效列表中，重置为「所有」
+          if (this.selectedCounty && !this.countis.includes(this.selectedCounty)) {
+            this.selectedCounty = '';
+            try { localStorage.setItem('attractionsCounty', ''); } catch (e) {}
+          }
+        } catch (e) {
+          // 整体精简过程失败时静默忽略，不影响基础功能
         }
       },
 
