@@ -1,4 +1,4 @@
-﻿<template>
+<template>
   <div class="map-page">
     <div id="map" class="map-container"></div>
     <div v-if="showLoading" class="map-loading-overlay"><div class="spinner"></div></div>
@@ -2958,13 +2958,48 @@ export default {
       try { const v = localStorage.getItem('attractionsCounty'); if (v!==null) county = v; } catch(e) {}
       return { minReviews, region, county };
     },
+    // 获取 countyValueMap（从 localStorage 读取）
+    getCountyValueMap() {
+      try {
+        const mapStr = localStorage.getItem('attractionsCountyValueMap');
+        if (mapStr) {
+          const mapArray = JSON.parse(mapStr);
+          return new Map(mapArray);
+        }
+      } catch (e) {
+        console.error('Failed to get countyValueMap from localStorage:', e);
+      }
+      return null;
+    },
+    // 获取所有匹配的原始值（用于合项匹配）
+    getAllOriginalValuesForCounty(processedValue, valueMap) {
+      if (!processedValue || !valueMap) return [processedValue];
+      const originalValues = valueMap.get(processedValue);
+      if (originalValues && originalValues.length > 0) {
+        return originalValues;
+      }
+      return [processedValue];
+    },
     passFilters(item, f) {
       if (!item) return false;
       if (typeof item.total_reviews !== 'undefined' && item.total_reviews !== null) {
         const tr = parseInt(item.total_reviews, 10);
         if (Number.isFinite(tr) && tr < (f.minReviews || 0)) return false;
       }
-      if (f.county && String(item.county||'') !== String(f.county)) return false;
+      // 支持合项匹配：如果 county 筛选存在，检查 item.county 是否在合项的所有原始值中
+      if (f.county) {
+        const countyValueMap = this.getCountyValueMap();
+        if (countyValueMap) {
+          const allCountyValues = this.getAllOriginalValuesForCounty(f.county, countyValueMap);
+          const itemCounty = String(item.county || '');
+          if (!allCountyValues.some(val => String(val) === itemCounty)) {
+            return false;
+          }
+        } else {
+          // 如果没有 valueMap，回退到严格匹配
+          if (String(item.county||'') !== String(f.county)) return false;
+        }
+      }
       if (f.region && String(item.region||'') !== String(f.region)) return false;
       return true;
     },

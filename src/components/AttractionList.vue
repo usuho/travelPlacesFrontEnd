@@ -1,4 +1,4 @@
-﻿<template>
+<template>
   <div class="container fade-in">
     <!-- 固定顶部区域（标题 + 筛选器） -->
     <div class="fixed-header">
@@ -1220,6 +1220,16 @@
       try { const vCounty = localStorage.getItem('attractionsCounty'); if (vCounty !== null) this.selectedCounty = vCounty; } catch (e) {}
       try { const vPage = localStorage.getItem('attractionsPage'); const n = parseInt(vPage, 10); if (Number.isFinite(n) && n > 0) this.page = n; } catch (e) {}
       try { const qp = this.$route && this.$route.query && this.$route.query.page; const n2 = parseInt(qp, 10); if (Number.isFinite(n2) && n2 > 0) this.page = n2; } catch (e) {}
+      // 从 localStorage 恢复 countyValueMap
+      try {
+        const mapStr = localStorage.getItem('attractionsCountyValueMap');
+        if (mapStr) {
+          const mapArray = JSON.parse(mapStr);
+          this.countyValueMap = new Map(mapArray);
+        }
+      } catch (e) {
+        console.error('Failed to restore countyValueMap from localStorage:', e);
+      }
       this.restoreDistanceQueueState();
       this.isRestoring = false;
       if (this.shouldResetListFiltersFromRoute()) {
@@ -4877,6 +4887,13 @@ const all = this.sortedFavorites || [];
           this.countis = result.processed;
           this.filteredCounties = [...result.processed];
           this.countyValueMap = result.valueMap;
+          // 保存 countyValueMap 到 localStorage，供其他组件使用
+          try {
+            const mapArray = Array.from(result.valueMap.entries());
+            localStorage.setItem('attractionsCountyValueMap', JSON.stringify(mapArray));
+          } catch (e) {
+            console.error('Failed to save countyValueMap to localStorage:', e);
+          }
           this.countisLoaded = true;
         } catch (error) {
           console.error('Error fetching regions:', error);
