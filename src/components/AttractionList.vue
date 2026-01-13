@@ -4900,7 +4900,7 @@ const all = this.sortedFavorites || [];
 
           this.countisLoaded = true;
 
-          // 在后台按「结果数 < 5 隐藏」的规则做二次精简，不阻塞主流程
+          // 在后台按「结果数 < 20 隐藏」的规则做二次精简，不阻塞主流程
           this.refineCountisByResultCount().catch(() => {});
         } catch (error) {
           console.error('Error fetching regions:', error);
@@ -4908,7 +4908,7 @@ const all = this.sortedFavorites || [];
         }
       },
 
-      // 根据「筛选后的结果数」异步精简 county 选项：小于 5 个结果的选项不展示
+      // 根据「筛选后的结果数」异步精简 county 选项：小于 20 个结果的选项不展示
       async refineCountisByResultCount() {
         try {
           const source = Array.isArray(this.countis) ? [...this.countis] : [];
@@ -4925,7 +4925,7 @@ const all = this.sortedFavorites || [];
               params.append('minReviews', minReviews);
               params.append('order', this.order || 'rating_desc');
               params.append('page', '1');
-              params.append('limit', '16'); // 只取前 16 条，用 total 判断是否 >= 16
+              params.append('limit', '20'); // 只取前 20 条，用 total 判断是否 >= 20
 
               // 同时带上当前区域筛选（考虑 region 合项映射），使判断真正基于「当前筛选后的结果数」
               if (this.selectedRegion) {
@@ -4943,7 +4943,7 @@ const all = this.sortedFavorites || [];
               if (!data || !Array.isArray(data.data)) continue;
               const parsedTotal = Number.parseInt(data.total, 10);
               const total = Number.isFinite(parsedTotal) ? parsedTotal : data.data.length;
-              if (total >= 16) {
+              if (total >= 20) {
                 validCountis.push(processedName);
               }
             } catch (e) {
