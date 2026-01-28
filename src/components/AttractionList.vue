@@ -4740,9 +4740,23 @@ const all = this.sortedFavorites || [];
         // 初始化OpenCC转换器（繁体到简体）
         const converterTW = Converter({ from: 'tw', to: 'cn' });
         const converterHK = Converter({ from: 'hk', to: 'cn' });
+
+        // 尝试加入日本新字体 -> 简体转换，如果 opencc-js 提供（取决于字典支持）
+        let converterJP2S;
+        try {
+          converterJP2S = Converter({ from: 'jp', to: 'cn' }); // 假定存在 “jp2s” 配置
+        } catch (e) {
+          converterJP2S = null;
+        }
         
         // 统一的转换函数：尝试多种繁体变体
         const converter = (text) => {
+          // 先日本汉字
+          if (converterJP2S) {
+            const nj = converterJP2S(text);
+            if (nj !== text) return nj;
+          }
+          // 再繁体转简体
           const fromTW = converterTW(text);
           if (fromTW !== text) return fromTW;
           const fromHK = converterHK(text);
@@ -4900,7 +4914,7 @@ const all = this.sortedFavorites || [];
 
           this.countisLoaded = true;
 
-          // 在后台按「结果数 < 20 隐藏」的规则做二次精简，不阻塞主流程
+          // 在后台按「结果数 < 28 隐藏」的规则做二次精简，不阻塞主流程
           this.refineCountisByResultCount().catch(() => {});
         } catch (error) {
           console.error('Error fetching regions:', error);
@@ -4908,9 +4922,23 @@ const all = this.sortedFavorites || [];
         }
       },
 
-      // 根据「筛选后的结果数」异步精简 county 选项：小于 20 个结果的选项不展示
+      // 根据「筛选后的结果数」异步精简 county 选项：小于 28 个结果的选项不展示
       async refineCountisByResultCount() {
         try {
+          const cacheKey = `validCountiesCache_${this.country}`;
+
+          // 先尝试从缓存读取
+          const cached = localStorage.getItem(cacheKey);
+          if (cached) {
+            const parsed = JSON.parse(cached);
+            if (Array.isArray(parsed) && parsed.length > 0) {
+              this.countis = parsed;
+              this.filteredCounties = [...parsed];
+              console.log(`Loaded valid counties for ${this.country} from cache:`, parsed);
+              return;
+            }
+          }
+
           const source = Array.isArray(this.countis) ? [...this.countis] : [];
           const valueMap = this.countyValueMap || new Map();
           const regionValueMap = this.regionValueMap || new Map();
@@ -4925,7 +4953,7 @@ const all = this.sortedFavorites || [];
               params.append('minReviews', minReviews);
               params.append('order', this.order || 'rating_desc');
               params.append('page', '1');
-              params.append('limit', '20'); // 只取前 20 条，用 total 判断是否 >= 20
+              params.append('limit', '28'); // 只取前 28 条，用 total 判断是否 >= 28
 
               // 同时带上当前区域筛选（考虑 region 合项映射），使判断真正基于「当前筛选后的结果数」
               if (this.selectedRegion) {
@@ -4943,7 +4971,7 @@ const all = this.sortedFavorites || [];
               if (!data || !Array.isArray(data.data)) continue;
               const parsedTotal = Number.parseInt(data.total, 10);
               const total = Number.isFinite(parsedTotal) ? parsedTotal : data.data.length;
-              if (total >= 20) {
+              if (total >= 28) {
                 validCountis.push(processedName);
               }
             } catch (e) {
@@ -4957,6 +4985,13 @@ const all = this.sortedFavorites || [];
 
           this.countis = validCountis;
           this.filteredCounties = [...validCountis];
+
+          // 保存到缓存，按国家区分
+          try {
+            localStorage.setItem(cacheKey, JSON.stringify(validCountis));
+          } catch (e) {
+            console.warn(`Failed to save valid counties cache for ${this.country}:`, e);
+          }
 
           // 如果当前选中的 county 不在有效列表中，重置为「所有」
           if (this.selectedCounty && !this.countis.includes(this.selectedCounty)) {
