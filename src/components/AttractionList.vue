@@ -4806,6 +4806,29 @@ const all = this.sortedFavorites || [];
           }
         });
 
+        // 合项显示名规则：将短名与都/府合并，统一显示为都/府
+        const mergeDisplayRules = [
+          { display: '东京都', keys: ['东京都', '东京'] },
+          { display: '京都府', keys: ['京都府', '京都'] },
+          { display: '大阪府', keys: ['大阪府', '大阪'] }
+        ];
+        for (const { display, keys } of mergeDisplayRules) {
+          const allOriginals = new Set();
+          let hasAny = false;
+          for (const k of keys) {
+            if (valueMap.has(k)) {
+              hasAny = true;
+              (valueMap.get(k) || []).forEach(v => allOriginals.add(v));
+              valueMap.delete(k);
+              processedSet.delete(k);
+            }
+          }
+          if (hasAny && allOriginals.size > 0) {
+            valueMap.set(display, Array.from(allOriginals));
+            processedSet.add(display);
+          }
+        }
+
         // 返回处理后的选项列表（已排序）和映射
         return {
           processed: Array.from(processedSet).sort(),
