@@ -4684,6 +4684,29 @@ const all = this.sortedFavorites || [];
           }
         });
 
+        // 合项显示名规则：将短名与都/府合并，统一显示为都/府
+        const mergeDisplayRules = [
+          { display: '东京都', keys: ['东京都', '东京'] },
+          { display: '京都府', keys: ['京都府', '京都'] },
+          { display: '大阪府', keys: ['大阪府', '大阪'] }
+        ];
+        for (const { display, keys } of mergeDisplayRules) {
+          const allOriginals = new Set();
+          let hasAny = false;
+          for (const k of keys) {
+            if (valueMap.has(k)) {
+              hasAny = true;
+              (valueMap.get(k) || []).forEach(v => allOriginals.add(v));
+              valueMap.delete(k);
+              processedSet.delete(k);
+            }
+          }
+          if (hasAny && allOriginals.size > 0) {
+            valueMap.set(display, Array.from(allOriginals));
+            processedSet.add(display);
+          }
+        }
+
         // 返回处理后的选项列表（已排序）和映射
         return {
           processed: Array.from(processedSet).sort(),
@@ -4812,7 +4835,7 @@ const all = this.sortedFavorites || [];
             if (Array.isArray(parsed) && parsed.length > 0) {
               this.countis = parsed;
               this.filteredCounties = [...parsed];
-              console.log(`Loaded valid counties for ${this.country} from cache:`, parsed);
+              console.log(`Loaded valid counties for ${this.country} from cache:`, parsed.length);
               return;
             }
           }
@@ -4825,31 +4848,39 @@ const all = this.sortedFavorites || [];
           for (const processedName of source) {
             if (!processedName) continue;
             try {
-              const originalCounty = this.getOriginalValue(processedName, valueMap);
-              const params = new URLSearchParams();
-              const minReviews = Number.isFinite(this.minReviews) ? this.minReviews : 0;
-              params.append('minReviews', minReviews);
-              params.append('order', this.order || 'rating_desc');
-              params.append('page', '1');
-              params.append('limit', '28'); // 只取前 28 条，用 total 判断是否 >= 28
+              // 合项：一个展示名可能对应多个 API 原始值，total 需用「所有原始值」分别请求后加总
+              const allOriginalCounties = this.getAllOriginalValues(processedName, valueMap);
+              let totalSum = 0;
 
-              // 同时带上当前区域筛选（考虑 region 合项映射），使判断真正基于「当前筛选后的结果数」
-              if (this.selectedRegion) {
-                const originalRegion = this.getOriginalValue(this.selectedRegion, regionValueMap);
-                if (originalRegion) {
-                  params.append('region', originalRegion);
+              for (const originalCounty of allOriginalCounties) {
+                const params = new URLSearchParams();
+                const minReviews = Number.isFinite(this.minReviews) ? this.minReviews : 0;
+                params.append('minReviews', minReviews);
+                params.append('order', this.order || 'rating_desc');
+                params.append('page', '1');
+                params.append('limit', '28'); // 只取前 28 条，用 total 判断
+
+                // 同时带上当前区域筛选（考虑 region 合项映射）
+                if (this.selectedRegion) {
+                  const originalRegion = this.getOriginalValue(this.selectedRegion, regionValueMap);
+                  if (originalRegion) {
+                    params.append('region', originalRegion);
+                  }
                 }
+                if (originalCounty) {
+                  params.append('county', originalCounty);
+                }
+                const res = await fetch(`https://juseaxerf.com/api/attractions/${this.country}?${params.toString()}`, withBackendApiKey());
+                if (!res || !res.ok) continue;
+                const data = await res.json();
+                if (!data || !Array.isArray(data.data)) continue;
+                const parsedTotal = Number.parseInt(data.total, 10);
+                const total = Number.isFinite(parsedTotal) ? parsedTotal : data.data.length;
+                totalSum += total;
               }
-              if (originalCounty) {
-                params.append('county', originalCounty);
-              }
-              const res = await fetch(`https://juseaxerf.com/api/attractions/${this.country}?${params.toString()}`, withBackendApiKey());
-              if (!res || !res.ok) continue;
-              const data = await res.json();
-              if (!data || !Array.isArray(data.data)) continue;
-              const parsedTotal = Number.parseInt(data.total, 10);
-              const total = Number.isFinite(parsedTotal) ? parsedTotal : data.data.length;
-              if (total >= 28) {
+              
+              const passed = totalSum >= 28;
+              if (passed) {
                 validCountis.push(processedName);
               }
             } catch (e) {
