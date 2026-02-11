@@ -21,6 +21,7 @@ export const COUNTRY_CATALOG = [
   { slug: 'france', iso2: 'fr' },
   { slug: 'germany', iso2: 'de' },
   { slug: 'uk', iso2: 'gb' },
+  { slug: 'ireland', iso2: 'ie' },
   { slug: 'spain', iso2: 'es' },
   { slug: 'italy', iso2: 'it' },
   { slug: 'portugal', iso2: 'pt' },
@@ -57,6 +58,7 @@ export const COUNTRY_CATALOG = [
   { slug: 'peru', iso2: 'pe' },
   { slug: 'chile', iso2: 'cl' },
   { slug: 'bolivia', iso2: 'bo' },
+  { slug: 'colombia', iso2: 'co' },
   // 非洲
   { slug: 'morocco', iso2: 'ma' },
   { slug: 'egypt', iso2: 'eg' },
