@@ -33,9 +33,30 @@ function normalizeUrl(url) {
   }
 }
 
-function buildKey(req) {
+function hashStringFNV1a(str) {
+  try {
+    let hash = 0x811c9dc5;
+    for (let i = 0; i < str.length; i++) {
+      hash ^= str.charCodeAt(i);
+      hash = Math.imul(hash, 0x01000193);
+    }
+    return (hash >>> 0).toString(36);
+  } catch (e) {
+    return '0';
+  }
+}
+
+async function buildKey(req) {
   const method = (req.method || 'GET').toUpperCase();
-  return `${method}:${normalizeUrl(req.url)}`;
+  const url = normalizeUrl(req.url);
+  if (method !== 'POST') return `${method}:${url}`;
+  let bodyText = '';
+  try {
+    bodyText = await req.clone().text();
+  } catch (e) {
+    bodyText = '';
+  }
+  return `${method}:${url}:b=${bodyText ? hashStringFNV1a(bodyText) : '0'}`;
 }
 
 async function saveEntry(key, entry) {
@@ -135,6 +156,20 @@ export function installFetchCache(options = {}) {
     }
   };
 
+  const shouldCachePostRequest = (req) => {
+    try {
+      const url = new URL(req.url, window.location.origin);
+      // Never cache user-specific endpoints (auth-bound).
+      if (url.pathname && url.pathname.startsWith('/api/user/')) return false;
+      // Cache only idempotent, public dataset endpoints (by-ids).
+      if (/^\/api\/attractions-positions\/[^/]+\/by-ids$/i.test(url.pathname)) return true;
+      if (/^\/api\/attractions-geo\/[^/]+\/by-ids$/i.test(url.pathname)) return true;
+      return false;
+    } catch (e) {
+      return false;
+    }
+  };
+
   const refreshInBackground = (req, key) => {
     try {
       const r = req.clone();
@@ -157,8 +192,8 @@ export function installFetchCache(options = {}) {
     // 强制绕过浏览器自身的 HTTP 缓存，统一由此层管理
     const req = new Request(input, { cache: 'no-store', ...init });
     const method = (req.method || 'GET').toUpperCase();
-    const cacheable = method === 'GET' && shouldCacheRequest(req);
-    const key = cacheable ? buildKey(req) : null;
+    const cacheable = (method === 'GET' && shouldCacheRequest(req)) || (method === 'POST' && shouldCachePostRequest(req));
+    const key = cacheable ? await buildKey(req) : null;
 
     if (cacheable && key) {
       const cached = await readEntry(key);
