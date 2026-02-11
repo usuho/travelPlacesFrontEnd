@@ -766,7 +766,7 @@
   import CreateAttractionModal from './CreateAttractionModal.vue'
   import { addCustomAttraction, findCustomAttractionById, deleteCustomAttraction } from '../utils/customAttractions.js'
   import { getImageUrl as getCustomImageUrl, deleteImagesForId as deleteCustomImagesForId, setImage as setCustomImage } from '../utils/customImageStore.js'
-  import { withBackendApiKey } from '../utils/geoApi.js';
+  import { withBackendApiKey, fetchAttractionsPositionsByIds } from '../utils/geoApi.js';
   import { ensureUserDataHydrated, queueUserDataSync, uploadCustomImage, deleteCustomImages } from '../stores/userDataSync.js'
   import { Converter } from 'opencc-js';
 
@@ -4934,7 +4934,7 @@ const all = this.sortedFavorites || [];
             const p = parseInt(localStorage.getItem('attractionsPage'), 10);
             if (Number.isFinite(p) && p > 0) this.page = p;
           } catch (e) {}
-          this.total = Array.isArray(snapshot.items) ? snapshot.items.length : this.total;
+          this.total = Array.isArray(snapshot.items) ? snapshot.items.length : (Array.isArray(snapshot.ids) ? snapshot.ids.length : this.total);
         }
       },
       getCurrentFilterSnapshot() {
@@ -4951,7 +4951,9 @@ const all = this.sortedFavorites || [];
           if (!raw) return null;
           const obj = JSON.parse(raw);
           if (!obj || String(obj.country || '') !== String(this.country)) return null;
-          if (!Array.isArray(obj.items) || !obj.items.length) return null;
+          const hasItems = Array.isArray(obj.items) && obj.items.length > 0;
+          const hasIds = Array.isArray(obj.ids) && obj.ids.length > 0;
+          if (!hasItems && !hasIds) return null;
           return obj;
         } catch (e) {
           return null;
@@ -4982,7 +4984,7 @@ const all = this.sortedFavorites || [];
         }
         return false;
       },
-      applyDistanceQueuePage(resetPage = false) {
+      async applyDistanceQueuePage(resetPage = false) {
         const snapshot = this.readDistanceQueueFromStorage();
         if (!snapshot || !this.distanceQueueMatchesFilters(snapshot)) {
           this.clearDistanceQueue(true);
@@ -4991,17 +4993,46 @@ const all = this.sortedFavorites || [];
         this.distanceSortAvailable = true;
         this.distanceQueue = snapshot;
         if (resetPage) this.page = 1;
-        const total = Array.isArray(snapshot.items) ? snapshot.items.length : 0;
+        const total = Array.isArray(snapshot.items) ? snapshot.items.length : (Array.isArray(snapshot.ids) ? snapshot.ids.length : 0);
         this.total = total;
         const maxPage = Math.max(1, Math.ceil((total || 1) / this.limit));
         if (!Number.isFinite(this.page) || this.page < 1) this.page = 1;
         if (this.page > maxPage) this.page = maxPage;
         try { localStorage.setItem('attractionsPage', this.page); } catch (e) {}
         const start = (this.page - 1) * this.limit;
-        const pageItems = snapshot.items.slice(start, start + this.limit).map(item => ({
-          ...item,
-          image1: item.image1 || '',
-        }));
+        const end = start + this.limit;
+        let pageItems = [];
+        if (Array.isArray(snapshot.items) && snapshot.items.length) {
+          pageItems = snapshot.items.slice(start, end).map(item => ({
+            ...item,
+            image1: item && item.image1 ? item.image1 : '',
+          }));
+        } else if (Array.isArray(snapshot.ids) && snapshot.ids.length) {
+          const pageIds = snapshot.ids.slice(start, end).filter(Boolean);
+          try {
+            const rows = await fetchAttractionsPositionsByIds(this.country, pageIds);
+            const byId = new Map((Array.isArray(rows) ? rows : []).map(r => [String(r && r.id), r]));
+            pageItems = pageIds.map(id => {
+              const hit = byId.get(String(id));
+              if (hit) {
+                return {
+                  id: hit.id,
+                  name: hit.name || '',
+                  region: hit.region || '',
+                  county: hit.county || '',
+                  rating: hit.rating,
+                  total_reviews: hit.total_reviews,
+                  positive_reviews: hit.positive_reviews,
+                  hasImage: !!hit.hasImage,
+                  image1: '',
+                };
+              }
+              return { id, name: '', region: '', county: '', rating: '', total_reviews: '', positive_reviews: '', hasImage: false, image1: '' };
+            });
+          } catch (e) {
+            pageItems = pageIds.map(id => ({ id, name: '', region: '', county: '', rating: '', total_reviews: '', positive_reviews: '', hasImage: false, image1: '' }));
+          }
+        }
         this.attractions = pageItems;
         this.loading = false;
         this.prefetchDistanceQueueImages(pageItems);
@@ -5125,7 +5156,7 @@ const all = this.sortedFavorites || [];
         const fetchToken = ++this.activeFetchToken;
         this.listShownOnce = false;
         if (this.order === 'distance_near') {
-          const applied = this.applyDistanceQueuePage(!!isregion);
+          const applied = await this.applyDistanceQueuePage(!!isregion);
           if (!applied) {
             this.loading = false;
             this.order = 'rating_desc';

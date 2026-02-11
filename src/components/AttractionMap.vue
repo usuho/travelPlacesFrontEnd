@@ -22,7 +22,7 @@ import 'leaflet/dist/leaflet.css';
 import { findCustomAttractionById, getAllCustomAttractions } from '../utils/customAttractions.js';
 import { getImageUrl as getCustomImageUrl } from '../utils/customImageStore.js';
 import { fetchAttractionsGeo, fetchAttractionsGeoByIds, fetchAttractionsPositions, fetchAttractionsPositionsByIds, getLastApiBase, withBackendApiKey } from '../utils/geoApi.js';
-import { getGeoKeys } from '../utils/geoKeys.js';
+import { getAttractionsGeoSnapshot, putAttractionsGeoSnapshot } from '../utils/attractionsGeoSnapshotStore.js';
 import { getCountrySlugByIso, isSupportedCountrySlug } from '../utils/countryCatalog.js';
 import { ensureUserDataHydrated, queueUserDataSync } from '../stores/userDataSync.js';
 
@@ -32,7 +32,6 @@ export default {
     return {
       map: null,
       country: this.$route.params.country,
-      _geoKeys: null,
       // ·ɲ
       focusId: this.$route.query.focusId || null,
       fromDetails: this.$route.query.from === 'details',
@@ -55,6 +54,12 @@ export default {
       allMarkers: new Map(),
       _didInitCenter: false,
       _allGeoData: [],
+      _allGeoSource: 'none', // none | snapshot | remote
+      _allGeoTs: 0,
+      _allGeoFetchPromise: null,
+      _allGeoFetchCountry: '',
+      _allGeoSnapshotTtlMs: 1000 * 60 * 60 * 24 * 30, // 24h
+      _allGeoSnapshotMaxEntries: 20,
       showLoading: false,
       isLocating: false,
       _hasRenderedFirst: false,
@@ -81,6 +86,13 @@ export default {
       _isDraggingFavMarker: false,
       _favDragRestoreMapDragging: null,
       _favDragRestoreTouchZoom: null,
+      _pageActive: false,
+      _hardwareBackBound: false,
+      _popstateBound: false,
+      _popstateGuardActive: false,
+      _lastActivatedFocusId: null,
+      _countyValueMapCacheRaw: null,
+      _countyValueMapCache: null,
     };
   },
   computed: {
@@ -94,6 +106,10 @@ export default {
   },
   watch: {
     '$route.params.country'(next) {
+      try {
+        const path = this.$route && typeof this.$route.path === 'string' ? this.$route.path : '';
+        if (!path.startsWith('/map')) return;
+      } catch (e) { return; }
       const slug = (next || '').toString().toLowerCase();
       if (!slug || slug === this.country) return;
       this.country = slug;
@@ -102,6 +118,10 @@ export default {
       if (this.map) this.reloadNormalMarkers();
     },
     '$route.query.listCountry'(next) {
+      try {
+        const path = this.$route && typeof this.$route.path === 'string' ? this.$route.path : '';
+        if (!path.startsWith('/map')) return;
+      } catch (e) { return; }
       if (String(this.country) !== 'custom') return;
       const slug = next ? String(next).toLowerCase() : '';
       if (!slug || slug === this.normalsCountry) return;
@@ -110,9 +130,18 @@ export default {
     }
   },
     async mounted() {
+      this._pageActive = true;
       try { await ensureUserDataHydrated(); } catch (e) {}
       this.loadFavoritesState();
       this.initMap();
+      // 安卓实体返回键：行为与页面“返回”按钮保持一致
+      try {
+        this._onHardwareBack = (evt) => {
+          try { evt && evt.preventDefault && evt.preventDefault(); } catch (e) {}
+          this.handleBack();
+        };
+        this._bindHardwareBackListener();
+      } catch (e) {}
       // ¼һηԴĹңڴԴͼʱΪͨĻԴ
       try { if (String(this.country) !== 'custom') localStorage.setItem('lastNonCustomCountry', String(this.country)); } catch (e) {}
       this.normalsCountry = this.determineNormalsCountry();
@@ -126,20 +155,22 @@ export default {
     if (String(this.country) === 'custom' && !this.fromDetails) {
       try { await this.geocodeAllCustomIfNeeded(); } catch (e) {}
     }
-    // Դ£ȳʹϴηԴҵĿգհμ
-    if (String(this.country) === 'custom') {
-      const normalsCountry = this.normalsCountry || '';
-      if (normalsCountry) {
-        try {
-          const snap = this._loadNormalsSnapshot(normalsCountry);
-          if (Array.isArray(snap) && snap.length) {
-            this._allGeoData = snap;
-            this.renderAllInView && this.renderAllInView();
-          }
-        } catch (e) {}
-      }
-    }
-    try { this.fetchAllGeoOnce().then(() => { this.renderAllInView && this.renderAllInView(); }); } catch (e) {}
+    // 先用快照快速渲染（localStorage / IndexedDB），再按需后台刷新
+    try {
+      const isCustomCountry = String(this.country) === 'custom';
+      const fetchCountry = isCustomCountry ? (this.normalsCountry || '') : String(this.country || '');
+      const fetchCountryNorm = String(fetchCountry || '').trim().toLowerCase();
+       if (fetchCountryNorm) {
+         try {
+           const didWarm = await this.tryWarmStartAllGeoFromSnapshot(fetchCountryNorm);
+           if (didWarm) {
+             try { this.renderAllInView && this.renderAllInView(); } catch (e) {}
+           }
+         } catch (e) {}
+       }
+    } catch (e) {}
+
+    try { this.fetchAllGeoOnce().then(() => { try { this.renderAllInView && this.renderAllInView(); } catch (e) {} }).catch(() => {}); } catch (e) {}
 
     if (this.focusId) {
       await this.focusSpecificAttraction();
@@ -149,11 +180,158 @@ export default {
       }
     }
   },
+  activated() {
+    this._pageActive = true;
+    try { this._bindHardwareBackListener(); } catch (e) {}
+    try { this._invalidateMapSizeSoon(); } catch (e) {}
+
+    // When switching countries via list -> map, $route.params.country may not change.
+    // Sync from current route on activation to avoid showing stale markers.
+    try { this._syncCountryFromRouteIfNeeded(); } catch (e) {}
+
+    // keep route-driven flags in sync when using <keep-alive>
+    try { this._syncRouteFlagsFromRoute(); } catch (e) {}
+
+    // If we are opened from details (focus mode), ensure back-guard is active.
+    try {
+      if (this.fromDetails) {
+        if (!this._popstateGuardActive) this.activateBrowserBackGuard();
+        else this._bindPopstateBackListener();
+      } else {
+        this._popstateGuardActive = false;
+        this._unbindPopstateBackListener();
+      }
+    } catch (e) {}
+
+    // Focus mode may be triggered on re-activation (e.g. details -> map -> details).
+    try {
+      const fid = this.focusId ? String(this.focusId) : '';
+      if (fid && fid !== String(this._lastActivatedFocusId || '')) {
+        this._lastActivatedFocusId = fid;
+        this.focusSpecificAttraction && this.focusSpecificAttraction().catch(() => {});
+      } else if (!fid) {
+        this._lastActivatedFocusId = null;
+      }
+    } catch (e) {}
+
+    // Avoid re-rendering the whole dataset on back navigation; only render if nothing is on the map yet.
+    try {
+      const hasNormals = !!(this.allMarkers && this.allMarkers.size > 0);
+      if (!hasNormals && Array.isArray(this._allGeoData) && this._allGeoData.length) {
+        this.renderAllInView && this.renderAllInView(true);
+      }
+    } catch (e) {}
+  },
+  deactivated() {
+    this._pageActive = false;
+    try { this._unbindPopstateBackListener(); } catch (e) {}
+    try { this._unbindHardwareBackListener(); } catch (e) {}
+    this._popstateGuardActive = false;
+  },
   beforeUnmount() {
-    try { if (this._onMapBack) window.removeEventListener('popstate', this._onMapBack); } catch (e) {}
+    try { this._unbindPopstateBackListener(); } catch (e) {}
+    try { this._unbindHardwareBackListener(); } catch (e) {}
     try { this.map && this.map.remove(); } catch (e) {}
   },
   methods: {
+    _bindHardwareBackListener() {
+      try {
+        if (this._hardwareBackBound) return;
+        if (!this._onHardwareBack || typeof window === 'undefined') return;
+        window.addEventListener('hardware-back', this._onHardwareBack);
+        this._hardwareBackBound = true;
+      } catch (e) {}
+    },
+    _unbindHardwareBackListener() {
+      try {
+        if (!this._hardwareBackBound) return;
+        if (!this._onHardwareBack || typeof window === 'undefined') return;
+        window.removeEventListener('hardware-back', this._onHardwareBack);
+        this._hardwareBackBound = false;
+      } catch (e) {}
+    },
+    _bindPopstateBackListener() {
+      try {
+        if (this._popstateBound) return;
+        if (!this._onMapBack || typeof window === 'undefined') return;
+        window.addEventListener('popstate', this._onMapBack, { passive: true });
+        this._popstateBound = true;
+      } catch (e) {}
+    },
+    _unbindPopstateBackListener() {
+      try {
+        if (!this._popstateBound) return;
+        if (!this._onMapBack || typeof window === 'undefined') return;
+        window.removeEventListener('popstate', this._onMapBack);
+        this._popstateBound = false;
+      } catch (e) {}
+    },
+    _invalidateMapSizeSoon() {
+      try {
+        if (!this.map || !this.map.invalidateSize) return;
+        const fn = () => { try { this.map.invalidateSize({ animate: false }); } catch (e) {} };
+        try { requestAnimationFrame(fn); return; } catch (e) {}
+        setTimeout(fn, 0);
+      } catch (e) {}
+    },
+    _syncCountryFromRouteIfNeeded() {
+      try {
+        const path = this.$route && typeof this.$route.path === 'string' ? this.$route.path : '';
+        if (!path.startsWith('/map')) return false;
+      } catch (e) { return false; }
+
+      let routeCountry = '';
+      try { routeCountry = (this.$route && this.$route.params && this.$route.params.country) ? String(this.$route.params.country).toLowerCase() : ''; } catch (e) { routeCountry = ''; }
+      if (!routeCountry) return false;
+
+      const prevCountry = String(this.country || '').toLowerCase();
+      const prevNormals = String(this.normalsCountry || '').toLowerCase();
+
+      let didChange = false;
+      if (routeCountry !== prevCountry) {
+        this.country = routeCountry;
+        didChange = true;
+      }
+
+      if (routeCountry !== 'custom') {
+        if (String(this.normalsCountry || '').toLowerCase() !== routeCountry) {
+          this.normalsCountry = routeCountry;
+          didChange = true;
+        }
+        try { localStorage.setItem('lastNonCustomCountry', routeCountry); } catch (e) {}
+      } else {
+        let desiredNormals = '';
+        try { desiredNormals = this.determineNormalsCountry(); } catch (e) { desiredNormals = ''; }
+        desiredNormals = String(desiredNormals || '').toLowerCase();
+        if (desiredNormals && desiredNormals !== prevNormals) {
+          this.normalsCountry = desiredNormals;
+          didChange = true;
+        }
+      }
+
+      if (!didChange || !this.map) return didChange;
+
+      // Reset map view to the new country's default to avoid a flash of the previous view.
+      try {
+        const { center, zoom } = this.getDefaultView();
+        if (Array.isArray(center) && center.length === 2 && Number.isFinite(Number(zoom))) {
+          this.map.setView(center, zoom, { animate: false });
+        }
+      } catch (e) {}
+
+      try { this.reloadNormalMarkers(); } catch (e) {}
+      return true;
+    },
+    _syncRouteFlagsFromRoute() {
+      try {
+        const q = (this.$route && this.$route.query) ? this.$route.query : {};
+        const newFocusId = q && q.focusId ? String(q.focusId) : null;
+        const newFromDetails = q && String(q.from) === 'details';
+        this.focusId = newFocusId;
+        this.fromDetails = !!newFromDetails;
+        if (this.fromDetails) this._blockFavFit = true;
+      } catch (e) {}
+    },
     determineNormalsCountry() {
       if (String(this.country) !== 'custom') return String(this.country || '');
       const fromQuery = this.getListCountryFromQuery();
@@ -178,13 +356,16 @@ export default {
           history.pushState({ mapBackGuard: true }, document.title, location.href);
         }
       } catch (e) {}
-      if (this._onMapBack || typeof window === 'undefined') return;
+      if (typeof window === 'undefined') return;
+      this._popstateGuardActive = true;
       try {
-        this._onMapBack = (evt) => {
-          try { evt && evt.preventDefault && evt.preventDefault(); } catch (err) {}
-          this.handleBack();
-        };
-        window.addEventListener('popstate', this._onMapBack, { passive: true });
+        if (!this._onMapBack) {
+          this._onMapBack = (evt) => {
+            try { evt && evt.preventDefault && evt.preventDefault(); } catch (err) {}
+            this.handleBack();
+          };
+        }
+        this._bindPopstateBackListener();
       } catch (e) {}
     },
     async handleLocateClick() {
@@ -308,13 +489,20 @@ export default {
           reject(e);
         }
       });
-      // 先尝试快速返回缓存/粗精度，再高精度；仅超时则逐级放宽，提升室内/弱网命中率
+      // Prefer high-accuracy (GPS) first, then fall back to cached/low-accuracy.
+
       const attempts = [
-        { enableHighAccuracy: false, timeout: 8000, maximumAge: 600000 }, // 先拿最近10分钟的缓存坐标
+
+        { enableHighAccuracy: true, timeout: 12000, maximumAge: 0 },
+
         { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 },
-        { enableHighAccuracy: false, timeout: 15000, maximumAge: 0 },
-        { enableHighAccuracy: true, timeout: 35000, maximumAge: 0 },
+
+        { enableHighAccuracy: false, timeout: 15000, maximumAge: 600000 },
+
+        { enableHighAccuracy: false, timeout: 20000, maximumAge: 0 },
+
       ];
+
       let lastErr = null;
       return (async () => {
         for (const opts of attempts) {
@@ -517,7 +705,7 @@ export default {
       } catch (e) {}
     },
     async reloadNormalMarkers() {
-      this._allGeoData = [];
+      this._applyAllGeoData([], 'none', 0, '');
       this._allRenderSeq++;
       try { this.allLayer && this.allLayer.clearLayers(); } catch (e) {}
       try { this.focusedLayer && this.focusedLayer.clearLayers(); } catch (e) {}
@@ -528,8 +716,23 @@ export default {
       this._hasRenderedFirst = false;
       this._hasRenderedNormalOnce = false;
       this.showLoading = true;
-      await this.fetchAllGeoOnce();
-      this.renderAllInView && this.renderAllInView();
+      
+      const isCustomCountry = String(this.country) === 'custom';
+      const fetchCountry = isCustomCountry ? (this.normalsCountry || '') : String(this.country || '');
+      const fetchCountryNorm = String(fetchCountry || '').trim().toLowerCase();
+
+      try {
+        const didWarm = await this.tryWarmStartAllGeoFromSnapshot(fetchCountryNorm);
+        if (didWarm) {
+          try { this.renderAllInView && this.renderAllInView(); } catch (e) {}
+        }
+      } catch (e) {}
+
+      try {
+        this.fetchAllGeoOnce().then(() => {
+          try { this.renderAllInView && this.renderAllInView(); } catch (e) {}
+        }).catch(() => {});
+      } catch (e) {}
     },
     _clearListFiltersCache() {
       const safeRemove = (k) => { try { localStorage.removeItem(k); } catch (e) {} };
@@ -1014,6 +1217,7 @@ export default {
             }
           }
 
+          try { this.scheduleRecomputeOverlapAll(); } catch (e) {}
           try { this.renderAllInView && this.renderAllInView(true); } catch (e) {}
           try { this.closeOffscreenFavoritePopups && this.closeOffscreenFavoritePopups(); } catch (e) {}
         });
@@ -1151,6 +1355,7 @@ export default {
         france: { center: [46.5, 2.5], zoom: 5 },
         germany: { center: [51.0, 10.0], zoom: 5 },
         uk: { center: [55.0, -2.5], zoom: 5 },
+        ireland: { center: [53.2, -8.0], zoom: 6 },
         spain: { center: [40.0, -3.5], zoom: 5 },
         italy: { center: [42.5, 12.5], zoom: 5 },
         portugal: { center: [39.5, -8.0], zoom: 6 },
@@ -1180,6 +1385,7 @@ export default {
         peru: { center: [-9.1, -75.0], zoom: 5 },
         chile: { center: [-35.7, -71.5], zoom: 4 },
         bolivia: { center: [-16.7, -64.6], zoom: 5 },
+        colombia: { center: [4.6, -74.1], zoom: 5 },
         morocco: { center: [31.8, -7.1], zoom: 5 },
         egypt: { center: [26.8, 30.8], zoom: 5 },
         southafrica: { center: [-29.0, 24.0], zoom: 5 },
@@ -1573,6 +1779,7 @@ export default {
                   county: p.county,
                   rating: p.rating,
                   total_reviews: p.total_reviews,
+                  positive_reviews: p.positive_reviews,
                   lat: Number(cached.lat),
                   lng: Number(cached.lng),
                   hasImage: !!p.hasImage,
@@ -1616,61 +1823,147 @@ export default {
       } catch (e) {}
     },
 
-    async fetchAllGeoOnce() {
-      if (Array.isArray(this._allGeoData) && this._allGeoData.length) return;
+    _ensureGeoItemsHaveCountry(arr, country) {
+      try {
+        const c = String(country || '').trim().toLowerCase();
+        if (!c || !Array.isArray(arr)) return;
+        for (const r of arr) {
+          if (!r || typeof r !== 'object') continue;
+          if (!r.country) r.country = c;
+        }
+      } catch (e) {}
+    },
+    _isAllGeoSnapshotFresh(ts) {
+      const t = Number(ts) || 0;
+      if (!t) return false;
+      const ttl = Number(this._allGeoSnapshotTtlMs);
+      if (!Number.isFinite(ttl) || ttl <= 0) return false;
+      return (Date.now() - t) <= ttl;
+    },
+    _applyAllGeoData(arr, source, ts, countryHint) {
+      const list = Array.isArray(arr) ? arr : [];
+      this._ensureGeoItemsHaveCountry(list, countryHint);
+      this._allGeoData = list;
+      this._allGeoSource = source || (list.length ? 'remote' : 'none');
+      this._allGeoTs = Number.isFinite(Number(ts)) ? Number(ts) : 0;
+    },
+    async tryWarmStartAllGeoFromSnapshot(fetchCountry) {
+      const c = String(fetchCountry || '').trim().toLowerCase();
+      if (!c) return false;
+
+      try {
+        const local = this._loadNormalsSnapshotPayload(c);
+        if (local && Array.isArray(local.items) && local.items.length) {
+          this._applyAllGeoData(local.items, 'snapshot', Number(local.ts) || 0, c);
+          return true;
+        }
+      } catch (e) {}
+
+      try {
+        const entry = await getAttractionsGeoSnapshot(c);
+        if (entry && Array.isArray(entry.items) && entry.items.length) {
+          this._applyAllGeoData(entry.items, 'snapshot', Number(entry.ts) || 0, c);
+          return true;
+        }
+      } catch (e) {}
+
+      return false;
+    },
+
+    async fetchAllGeoOnce(options = {}) {
+      const force = !!(options && options.force);
       const isCustomCountry = String(this.country) === 'custom';
       const fetchCountry = isCustomCountry ? (this.normalsCountry || '') : String(this.country || '');
-      if (!fetchCountry) return;
-      try {
-        let data = [];
-        try { const res = await fetchAttractionsGeo(fetchCountry); if (Array.isArray(res)) data = res; } catch (e) {}
-        // ǰ˲ȫȱʧγȵͨ㳢棨ղһ£
+      const fetchCountryNorm = String(fetchCountry || '').trim().toLowerCase();
+      if (!fetchCountryNorm) return;
+
+      const hasData = Array.isArray(this._allGeoData) && this._allGeoData.length;
+      const hasFreshSnapshot = hasData && this._allGeoSource === 'snapshot' && this._isAllGeoSnapshotFresh(this._allGeoTs);
+      if (!force && hasData && (this._allGeoSource === 'remote' || hasFreshSnapshot)) return;
+
+      if (this._allGeoFetchPromise && String(this._allGeoFetchCountry) === String(fetchCountryNorm)) {
+        return this._allGeoFetchPromise;
+      }
+
+      const run = (async () => {
         try {
-          const pos = await fetchAttractionsPositions(fetchCountry);
-          if (Array.isArray(pos) && pos.length) {
-            // 优化：在循环前一次性加载缓存到内存，避免每次循环都访问 localStorage
-            const geoCache = this._geoLoad();
-            const byId = new Map();
-            if (Array.isArray(data)) {
-              for (const r of data) byId.set(String(r.id), r);
-            }
-            for (const p of pos) {
-              const idStr = String(p.id);
-              const existing = byId.get(idStr);
-              const needGeocode = !existing || !Number.isFinite(existing.lat) || !Number.isFinite(existing.lng);
-              if (!needGeocode) continue;
-              const cacheKey = `${String(fetchCountry)}|${idStr}`;
-              // 优化：直接从内存缓存中读取，而不是每次都访问 localStorage
-              const cached = geoCache && geoCache[cacheKey];
-              if (cached && Number.isFinite(cached.lat) && Number.isFinite(cached.lng)) {
-                const item = {
-                  id: p.id,
-                  name: p.name,
-                  region: p.region,
-                  county: p.county,
-                  rating: p.rating,
-                  total_reviews: p.total_reviews,
-                  lat: Number(cached.lat),
-                  lng: Number(cached.lng),
-                  hasImage: !!p.hasImage,
-                  country: fetchCountry,
-                };
-                if (existing) {
-                  Object.assign(existing, item);
+          let data = [];
+          try { const res = await fetchAttractionsGeo(fetchCountryNorm); if (Array.isArray(res)) data = res; } catch (e) {}
+
+          // Ensure country field for downstream (especially when this.country === 'custom')
+          try { this._ensureGeoItemsHaveCountry(data, fetchCountryNorm); } catch (e) {}
+
+          // ǰ˲ȫȱʧγȵͨ㳢棨ղһ£
+          try {
+            const pos = await fetchAttractionsPositions(fetchCountryNorm);
+            if (Array.isArray(pos) && pos.length) {
+              // 优化：在循环前一次性加载缓存到内存，避免每次循环都访问 localStorage
+              const geoCache = this._geoLoad();
+              const byId = new Map();
+              if (Array.isArray(data)) {
+                for (const r of data) byId.set(String(r.id), r);
+              }
+              for (const p of pos) {
+                const idStr = String(p.id);
+                const existing = byId.get(idStr);
+                const needGeocode = !existing || !Number.isFinite(existing.lat) || !Number.isFinite(existing.lng);
+                if (!needGeocode) continue;
+                const cacheKey = `${String(fetchCountryNorm)}|${idStr}`;
+                // 优化：直接从内存缓存中读取，而不是每次都访问 localStorage
+                const cached = geoCache && geoCache[cacheKey];
+                if (cached && Number.isFinite(cached.lat) && Number.isFinite(cached.lng)) {
+                  const item = {
+                    id: p.id,
+                    name: p.name,
+                    region: p.region,
+                    county: p.county,
+                    rating: p.rating,
+                    total_reviews: p.total_reviews,
+                    positive_reviews: p.positive_reviews,
+                    lat: Number(cached.lat),
+                    lng: Number(cached.lng),
+                    hasImage: !!p.hasImage,
+                    country: fetchCountryNorm,
+                  };
+                  if (existing) {
+                    Object.assign(existing, item);
+                  } else {
+                    data.push(item);
+                    byId.set(idStr, item);
+                  }
                 } else {
-                  data.push(item);
-                  byId.set(idStr, item);
+                 // skip: no browser geocode cache; do not log
                 }
-              } else {
-                // skip: no browser geocode cache; do not log
               }
             }
-          }
-        } catch (e) {}
-        this._allGeoData = Array.isArray(data) ? data : [];
-        // ͨб֮Դҽͼʱֱչʾ
-        try { this._saveNormalsSnapshot(String(fetchCountry), this._allGeoData); } catch (e) {}
-      } catch (e) { this._allGeoData = []; }
+          } catch (e) {}
+
+          // If the route changed during fetch, drop results
+          const currentFetchCountry = String(
+            String(this.country) === 'custom' ? (this.normalsCountry || '') : String(this.country || '')
+          ).trim().toLowerCase();
+          if (currentFetchCountry !== fetchCountryNorm) return;
+
+          this._applyAllGeoData(Array.isArray(data) ? data : [], 'remote', Date.now(), fetchCountryNorm);
+          // ͨб֮Դҽͼʱֱչʾ
+          try {
+            const snapCountry = String(fetchCountryNorm);
+            const snapData = this._allGeoData;
+            this._scheduleIdle(() => { try { this._saveNormalsSnapshot(snapCountry, snapData); } catch (e) {} });
+          } catch (e) {}
+        } catch (e) {
+          // Keep whatever we already have (snapshot or empty)
+          if (!Array.isArray(this._allGeoData)) this._applyAllGeoData([], 'none', 0, fetchCountryNorm);
+        }
+      })();
+
+      this._allGeoFetchCountry = fetchCountryNorm;
+      this._allGeoFetchPromise = run.finally(() => {
+        if (String(this._allGeoFetchCountry) === String(fetchCountryNorm)) {
+          this._allGeoFetchPromise = null;
+        }
+      });
+      return this._allGeoFetchPromise;
     },
 
     renderAllInView(isInteractive = false) {
@@ -1678,29 +1971,81 @@ export default {
       const bounds = this.map.getBounds();
       const filters = this.getActiveFilters ? this.getActiveFilters() : { minReviews: 0, region: '', county: '' };
 
-      // ȫɸѡǰĻڡͨͨ
-      const visibleList = (this._allGeoData || []).filter(r => {
-        if (!Number.isFinite(r.lat) || !Number.isFinite(r.lng)) return false;
-        if (bounds && !bounds.contains(L.latLng(r.lat, r.lng))) return false;
-        if (this.passFilters && !this.passFilters(r, filters)) return false;
-        return true;
-      });
-
-      // ʴӸߵ
-      visibleList.sort((a, b) => this.getNumericRating(b.rating) - this.getNumericRating(a.rating));
-
-      // Incremental async rendering (diff only) to avoid blocking interactions
+      // Determine favorites (avoid duplicating as normal markers)
       const favIdSet_async = new Set();
       try { for (const f of (this.favorites || [])) { if (String(f.country || this.country) === String(this.country)) favIdSet_async.add(String(f.id)); } } catch (e) {}
 
-      // Determine target ids within cap
-      const limit_async = Math.min(visibleList.length, this._visibleCap);
-      const targetIds = new Set();
-      for (let _i = 0; _i < limit_async; _i++) {
-        const r = visibleList[_i];
-        const id = String(r.id);
-        if (!favIdSet_async.has(id)) targetIds.add(id);
+      // Fast bounds checks (avoid creating many LatLng objects when dataset is large)
+      let minLat = -90, maxLat = 90, minLng = -180, maxLng = 180, wrapsLng = false;
+      try {
+        if (bounds && bounds.getSouthWest && bounds.getNorthEast) {
+          const sw = bounds.getSouthWest();
+          const ne = bounds.getNorthEast();
+          minLat = sw.lat; minLng = sw.lng;
+          maxLat = ne.lat; maxLng = ne.lng;
+          wrapsLng = minLng > maxLng;
+        }
+      } catch (e) {}
+      const inBoundsFast = (lat, lng) => {
+        if (lat < minLat || lat > maxLat) return false;
+        if (!wrapsLng) return lng >= minLng && lng <= maxLng;
+        return (lng >= minLng) || (lng <= maxLng); // crosses antimeridian
+      };
+
+      // Pick top N by rating without sorting the full visible list (important when zoomed out).
+      const cap = Number.isFinite(this._visibleCap) ? Math.max(0, this._visibleCap) : 0;
+      let visibleCount = 0;
+      const heap = []; // min-heap by score: { score, item }
+      const heapLess = (a, b) => a.score < b.score;
+      const heapSwap = (i, j) => { const t = heap[i]; heap[i] = heap[j]; heap[j] = t; };
+      const heapUp = (i) => {
+        while (i > 0) {
+          const p = (i - 1) >> 1;
+          if (!heapLess(heap[i], heap[p])) break;
+          heapSwap(i, p);
+          i = p;
+        }
+      };
+      const heapDown = (i) => {
+        while (true) {
+          const l = i * 2 + 1;
+          if (l >= heap.length) break;
+          const r = l + 1;
+          const s = (r < heap.length && heapLess(heap[r], heap[l])) ? r : l;
+          if (!heapLess(heap[s], heap[i])) break;
+          heapSwap(i, s);
+          i = s;
+        }
+      };
+      const heapPush = (node) => { heap.push(node); heapUp(heap.length - 1); };
+      const heapReplaceMin = (node) => { heap[0] = node; heapDown(0); };
+
+      for (const r of (this._allGeoData || [])) {
+        if (!r) continue;
+        const lat = Number(r.lat);
+        const lng = Number(r.lng);
+        if (!Number.isFinite(lat) || !Number.isFinite(lng)) continue;
+        if (bounds && !inBoundsFast(lat, lng)) continue;
+        if (this.passFilters && !this.passFilters(r, filters)) continue;
+        visibleCount++;
+
+        const idStr = String(r.id);
+        if (favIdSet_async.has(idStr)) continue;
+        if (cap <= 0) continue;
+
+        const score = this.getNumericRating(r.rating);
+        if (heap.length < cap) {
+          heapPush({ score, item: r });
+        } else if (heap[0] && score > heap[0].score) {
+          heapReplaceMin({ score, item: r });
+        }
       }
+
+      const visibleTop = heap.map(x => x.item);
+      visibleTop.sort((a, b) => this.getNumericRating(b.rating) - this.getNumericRating(a.rating));
+
+      const targetIds = new Set();
+      for (const r of visibleTop) targetIds.add(String(r.id));
 
       // Remove markers that are no longer visible
       for (const [id, m] of this.allMarkers.entries()) {
@@ -1713,10 +2058,9 @@ export default {
 
       // Collect items to add
       const toAdd = [];
-      for (let _i = 0; _i < limit_async; _i++) {
-        const r = visibleList[_i];
+      for (const r of visibleTop) {
         const id = String(r.id);
-        if (targetIds.has(id) && !this.allMarkers.has(id)) toAdd.push(r);
+        if (!this.allMarkers.has(id)) toAdd.push(r);
       }
 
       const seq_async = ++this._allRenderSeq;
@@ -1747,7 +2091,7 @@ export default {
         }
         // update stats progressively
         this.statsRendered = this.allMarkers.size;
-        this.statsNeverRendered = Math.max(0, visibleList.length - this.statsRendered);
+        this.statsNeverRendered = Math.max(0, visibleCount - this.statsRendered);
         if (!this._hasRenderedNormalOnce && this.statsRendered > 0) {
           this._hasRenderedNormalOnce = true;
         }
@@ -1767,7 +2111,7 @@ export default {
       } else {
         // still update stats and schedule overlap if needed
         this.statsRendered = this.allMarkers.size;
-        this.statsNeverRendered = Math.max(0, visibleList.length - this.statsRendered);
+        this.statsNeverRendered = Math.max(0, visibleCount - this.statsRendered);
         try { this.scheduleRecomputeOverlapAll(); } catch (e) {}
       }
 
@@ -1779,25 +2123,27 @@ export default {
         const hasFavMarkers = !!(this.favoritesLayer && this.favoritesLayer._layers && Object.keys(this.favoritesLayer._layers).length > 0);
         const favListEmpty = !hasFavItems;
         const favGeoMissing = hasFavItems && !hasFavMarkers && this._favGeoPending === 0;
-        if (this.map && !this._didAutoPanToFirst && !this._hasRenderedNormalOnce && visibleList.length === 0 && (favListEmpty || favGeoMissing)) {
+        if (this.map && !this._didAutoPanToFirst && !this._hasRenderedNormalOnce && visibleCount === 0 && (favListEmpty || favGeoMissing)) {
           const currentZoom = this.map.getZoom();
-          const b = bounds;
           const f = filters;
-          const candidates = (this._allGeoData || [])
-            .filter(r => Number.isFinite(r.lat) && Number.isFinite(r.lng))
-            .filter(r => (this.passFilters ? this.passFilters(r, f) : true))
-            .sort((a, b2) => this.getNumericRating(b2.rating) - this.getNumericRating(a.rating));
-          if (candidates.length) {
-            let target = null;
-            if (b && b.isValid && b.isValid()) {
-              target = candidates.find(r => !b.contains(L.latLng(r.lat, r.lng))) || candidates[0];
-            } else {
-              target = candidates[0];
-            }
-            if (target) {
-              this._didAutoPanToFirst = true;
-              try { this.map.setView([target.lat, target.lng], currentZoom, { animate: false }); } catch (e) {}
-            }
+          
+          const bValid = !!(bounds && bounds.isValid && bounds.isValid());
+          let bestAny = null, bestAnyScore = -1;
+          let bestOutside = null, bestOutsideScore = -1;
+          for (const r of (this._allGeoData || [])) {
+            if (!r) continue;
+            const lat = Number(r.lat);
+            const lng = Number(r.lng);
+            if (!Number.isFinite(lat) || !Number.isFinite(lng)) continue;
+            if (this.passFilters && !this.passFilters(r, f)) continue;
+            const score = this.getNumericRating(r.rating);
+            if (score > bestAnyScore) { bestAnyScore = score; bestAny = r; }
+            if (bValid && !inBoundsFast(lat, lng) && score > bestOutsideScore) { bestOutsideScore = score; bestOutside = r; }
+          }
+          const target = bValid ? (bestOutside || bestAny) : bestAny;
+          if (target) {
+            this._didAutoPanToFirst = true;
+            try { this.map.setView([target.lat, target.lng], currentZoom, { animate: false }); } catch (e) {}
           }
         }
       } catch (e) {}
@@ -2336,6 +2682,7 @@ export default {
         france:    { iso2: 'fr', viewbox: [-5.5, 51.5, 9.8, 41.0], labelEn: 'France' },
         germany:   { iso2: 'de', viewbox: [5.8, 55.1, 15.0, 47.2], labelEn: 'Germany' },
         uk:        { iso2: 'gb', viewbox: [-8.6, 59.0, 1.8, 49.9], labelEn: 'United Kingdom' },
+        ireland:   { iso2: 'ie', viewbox: [-10.7, 55.5, -5.3, 51.3], labelEn: 'Ireland' },
         spain:     { iso2: 'es', viewbox: [-9.3, 43.8, 3.3, 36.0], labelEn: 'Spain' },
         italy:     { iso2: 'it', viewbox: [6.6, 47.1, 18.8, 36.6], labelEn: 'Italy' },
         portugal:  { iso2: 'pt', viewbox: [-9.5, 42.2, -6.2, 36.8], labelEn: 'Portugal' },
@@ -2370,6 +2717,7 @@ export default {
         peru:      { iso2: 'pe', viewbox: [-81.4, -0.1, -68.7, -18.3], labelEn: 'Peru' },
         chile:     { iso2: 'cl', viewbox: [-75.7, -17.5, -66.4, -55.6], labelEn: 'Chile' },
         bolivia:   { iso2: 'bo', viewbox: [-69.6, -9.8, -57.5, -22.9], labelEn: 'Bolivia' },
+        colombia:  { iso2: 'co', viewbox: [-79.1, 13.7, -66.8, -4.3], labelEn: 'Colombia' },
         morocco:   { iso2: 'ma', viewbox: [-13.2, 35.9, -1.0, 27.5], labelEn: 'Morocco' },
         egypt:     { iso2: 'eg', viewbox: [24.7, 31.7, 36.9, 22.0], labelEn: 'Egypt' },
         southafrica:{ iso2: 'za', viewbox: [16.5, -22.1, 32.9, -34.9], labelEn: 'South Africa' },
@@ -2765,18 +3113,14 @@ export default {
             try { el.classList.remove('fade-in-image'); } catch (e) {}
           }, { once: true, passive: true });
         } catch (e) {}
-        const rawAttr = el.getAttribute('src');
-        const isCustom = String(meta.country || this.country) === 'custom';
-        if (!rawAttr || isCustom) {
-          this.loadImage(meta).then(src => { 
-              if (src) {
-              el.src = src;
-              if (el.complete && el.naturalWidth) applyLoaded();
-            } else {
-              try { if (placeholder) placeholder.style.display = "none"; } catch (_) {}
-            }
-          });
-        }
+        this.loadImage(meta).then(src => {
+          if (src) {
+            el.src = src;
+            if (el.complete && el.naturalWidth) applyLoaded();
+          } else {
+            try { if (placeholder) placeholder.style.display = "none"; } catch (_) {}
+          }
+        });
       }
       // ת
       try {
@@ -2794,6 +3138,11 @@ export default {
               localStorage.setItem('selectedAttractionRatingColor', color);
             } catch (e) {}
             try { await this.buildDistanceBrowseQueue(meta); } catch (e) {}
+            // 记录当前地图路由，便于详情页使用返回键时能回到地图
+            try {
+              const currentRoute = this.$route && this.$route.fullPath ? this.$route.fullPath : `/map/${this.country}`;
+              sessionStorage.setItem('lastMapRoute', currentRoute);
+            } catch (e) {}
             this.$router.push({ path: `/attraction/${country}/${id}` , query: { from: 'map' } });
           }, { once: true, passive: true });
         }
@@ -2885,23 +3234,54 @@ export default {
 
     //  ҳͨգڿʾʵԺΪ׼ 
     _snapshotKey(country) { return `allGeoSnapshot_${String(country||'')}`; },
+    _loadNormalsSnapshotPayload(country) {
+      try {
+        const raw = localStorage.getItem(this._snapshotKey(country));
+        if (!raw) return { ts: 0, items: [] };
+        const obj = JSON.parse(raw) || {};
+        const ts = Number(obj.ts) || 0;
+        const items = Array.isArray(obj.items) ? obj.items : [];
+        return { ts, items };
+      } catch (e) {
+        return { ts: 0, items: [] };
+      }
+    },
     _saveNormalsSnapshot(country, arr) {
       try {
         const list = Array.isArray(arr) ? arr.filter(x => Number.isFinite(x.lat) && Number.isFinite(x.lng)) : [];
-        if (list.length > 5000) return; // 数据量过大时不落 localStorage，避免占满配额
-        const light = list.map(x => ({ id: x.id, name: x.name, region: x.region, county: x.county, rating: x.rating, total_reviews: x.total_reviews, lat: x.lat, lng: x.lng, hasImage: !!x.hasImage, country: String(x.country || country || this.country) }));
-        const payload = { ts: Date.now(), items: light };
-        this._safeSetItem(this._snapshotKey(country), JSON.stringify(payload));
+        if (!list.length) return;
+
+        const nowTs = Date.now();
+        const canWriteLocal = list.length <= 5000;
+        let light = null;
+
+        if (canWriteLocal) {
+          light = list.map(x => ({
+            id: x.id,
+            name: x.name,
+            region: x.region,
+            county: x.county,
+            rating: x.rating,
+            total_reviews: x.total_reviews,
+            positive_reviews: x.positive_reviews,
+            lat: x.lat,
+            lng: x.lng,
+            hasImage: !!x.hasImage,
+            country: String(x.country || country || this.country),
+          }));
+          const payload = { ts: nowTs, items: light };
+          this._safeSetItem(this._snapshotKey(country), JSON.stringify(payload));
+        }
+
+        // IndexedDB snapshot (supports large datasets). Keep a small number of countries to avoid unbounded storage.
+        try {
+          const itemsForIdb = light && Array.isArray(light) && light.length ? light : list;
+          putAttractionsGeoSnapshot(String(country || ''), itemsForIdb, { ts: nowTs, maxEntries: this._allGeoSnapshotMaxEntries }).catch(() => {});
+        } catch (e) {}
       } catch (e) {}
     },
     _loadNormalsSnapshot(country) {
-      try {
-        const raw = localStorage.getItem(this._snapshotKey(country));
-        if (!raw) return [];
-        const obj = JSON.parse(raw) || {};
-        const items = Array.isArray(obj.items) ? obj.items : [];
-        return items;
-      } catch (e) { return []; }
+      return (this._loadNormalsSnapshotPayload(country) || {}).items || [];
     },
     _safeSetItem(key, value) {
       try {
@@ -2950,12 +3330,23 @@ export default {
     getCountyValueMap() {
       try {
         const mapStr = localStorage.getItem('attractionsCountyValueMap');
-        if (mapStr) {
-          const mapArray = JSON.parse(mapStr);
-          return new Map(mapArray);
+        if (!mapStr) {
+          this._countyValueMapCacheRaw = null;
+          this._countyValueMapCache = null;
+          return null;
         }
+        if (mapStr === this._countyValueMapCacheRaw && this._countyValueMapCache instanceof Map) {
+          return this._countyValueMapCache;
+        }
+        const mapArray = JSON.parse(mapStr);
+        const map = new Map(mapArray);
+        this._countyValueMapCacheRaw = mapStr;
+        this._countyValueMapCache = map;
+        return map;
       } catch (e) {
         console.error('Failed to get countyValueMap from localStorage:', e);
+        this._countyValueMapCacheRaw = null;
+        this._countyValueMapCache = null;
       }
       return null;
     },
@@ -2974,7 +3365,7 @@ export default {
         const tr = parseInt(item.total_reviews, 10);
         if (Number.isFinite(tr) && tr < (f.minReviews || 0)) return false;
       }
-            // 支持合项匹配：如果 county 筛选存在，检查 item.county 是否在合项的所有原始值中
+      // 支持合项匹配：如果 county 筛选存在，检查 item.county 是否在合项的所有原始值中
       if (f.county) {
         const countyValueMap = this.getCountyValueMap();
         if (countyValueMap) {
@@ -3077,8 +3468,18 @@ export default {
         }
         const restWithout = withoutCoords.filter(i => String(i.id) !== currentIdStr);
         const queue = [currentCandidate, ...zeroDistance, ...nonZeroWith, ...restWithout].filter(Boolean);
-        queue.forEach((item, idx) => { item.page = Math.floor(idx / pageSize) + 1; });
-        const currentPage = queue.find(i => String(i.id) === currentIdStr)?.page || 1;
+        const hitIndex = queue.findIndex(i => String(i && i.id) === currentIdStr);
+        const currentPage = hitIndex >= 0 ? (Math.floor(hitIndex / pageSize) + 1) : 1;
+        const storageItems = queue.map(item => ({
+          id: item && item.id,
+          name: (item && item.name) || '',
+          region: (item && item.region) || '',
+          county: (item && item.county) || '',
+          rating: item && item.rating,
+          total_reviews: item && item.total_reviews,
+          positive_reviews: item && item.positive_reviews,
+          hasImage: item && item.hasImage ? 1 : 0,
+        })).filter(it => it && it.id);
         const payload = {
           country: listCountry,
           filters: {
@@ -3088,9 +3489,16 @@ export default {
           },
           baseId: currentIdStr,
           generatedAt: Date.now(),
-          items: queue,
+          items: storageItems,
         };
-        this._safeSetItem('distanceBrowseQueue', JSON.stringify(payload));
+        const saved = this._safeSetItem('distanceBrowseQueue', JSON.stringify(payload));
+        if (!saved) {
+          // localStorage 空间不足时，退化为仅保存 ID 队列（用于详情页左右切换）
+          const idsOnly = { ...payload };
+          delete idsOnly.items;
+          idsOnly.ids = queue.map(it => it && it.id).filter(Boolean);
+          this._safeSetItem('distanceBrowseQueue', JSON.stringify(idsOnly));
+        }
         this._safeSetItem('attractionsOrder', 'distance_near');
         this._safeSetItem('attractionsPage', String(currentPage));
       } catch (e) {
@@ -3108,16 +3516,33 @@ export default {
       return listCountry;
     },
     async obtainGeoDatasetForQueue(listCountry) {
+      const lc = String(listCountry || '').trim().toLowerCase();
+      if (!lc || lc === 'custom') return [];
       const activeCountry = String(this.country || '').toLowerCase() === 'custom'
         ? String(this.normalsCountry || '').toLowerCase()
         : String(this.country || '').toLowerCase();
-      if (Array.isArray(this._allGeoData) && this._allGeoData.length && String(activeCountry) === String(listCountry)) {
+      if (Array.isArray(this._allGeoData) && this._allGeoData.length && String(activeCountry) === String(lc)) {
+
         return this._allGeoData;
       }
-      let res = await fetchAttractionsGeo(listCountry);
+      
+      // Try snapshot first to avoid large network fetch + JSON parse on hot paths (e.g. queue build).
+      if (lc && lc !== 'custom') {
+        try {
+          const local = this._loadNormalsSnapshotPayload(lc);
+          if (local && Array.isArray(local.items) && local.items.length) return local.items;
+        } catch (e) {}
+        try {
+          const entry = await getAttractionsGeoSnapshot(lc);
+          if (entry && Array.isArray(entry.items) && entry.items.length) return entry.items;
+        } catch (e) {}
+      }
+
+      let res = await fetchAttractionsGeo(lc);
+      try { this._ensureGeoItemsHaveCountry(res, lc); } catch (e) {}
       if (!Array.isArray(res) || !res.length) {
         try {
-          const pos = await fetchAttractionsPositions(listCountry);
+          const pos = await fetchAttractionsPositions(lc);
           if (Array.isArray(pos) && pos.length) {
             res = pos.map(p => ({
               id: p.id,
@@ -3130,11 +3555,18 @@ export default {
               lat: p.lat,
               lng: p.lng,
               hasImage: !!p.hasImage,
-              country: listCountry,
+              country: lc,
             }));
           }
         } catch (e) {}
       }
+      try {
+        if (Array.isArray(res) && res.length) {
+          const snapCountry = String(lc);
+          const snapData = res;
+          this._scheduleIdle(() => { try { this._saveNormalsSnapshot(snapCountry, snapData); } catch (e) {} });
+        }
+      } catch (e) {}
       return Array.isArray(res) ? res : [];
     },
     computeDistanceKm(lat1, lng1, lat2, lng2) {
@@ -3155,7 +3587,7 @@ export default {
         if (filters && filters.region) params.append('region', filters.region);
         if (filters && filters.county) params.append('county', filters.county);
         const base = (typeof getLastApiBase === 'function' ? getLastApiBase() : '') || '';
-        const resp = await fetch(`${base}/api/attractions/${country}?${params.toString()}`, withBackendApiKey());
+        const resp = await fetch(`${base}/api/attractions/${country}?${params.toString()}`);
         const data = resp && resp.ok ? await resp.json() : null;
         if (!data || !Array.isArray(data.data)) return [];
         return data.data
@@ -3167,22 +3599,15 @@ export default {
     },
 
     getImageUrl(meta, imgId) {
-      // ȳͬõ URL򷵻ؿַռλ popupopen 첽
+      // cache only; loadImage does fetch with API key
+      if (!meta) return '';
       const key = `${meta.country || this.country}-${meta.id}-1`;
       if (this.imageCache.has(key)) return this.imageCache.get(key);
-      if (String(meta.country || this.country) === 'custom') {
-        // ԴԶȡ洢
-        return '';
-      } else {
-        if (meta.hasImage) {
-          // ֱֻ֧棩
-          return '';
-        }
-      }
       return '';
     },
 
     async loadImage(meta) {
+      if (!meta) return '';
       const key = `${meta.country || this.country}-${meta.id}-1`;
       if (this.imageCache.has(key)) return this.imageCache.get(key);
       try {
@@ -3193,19 +3618,18 @@ export default {
             const url = await getCustomImageUrl(k);
             if (url) { this.imageCache.set(key, url); return url; }
           }
-        } else {
-          // ʹȱ hasImage ǣҲԼͼڵʱ
-          const base = getLastApiBase();
-          const country = String(meta.country || this.country);
-          const url = `${base}/api/attraction-image/${country}/${meta.id}/1`;
-          const resp = await fetch(url, withBackendApiKey());
-          if (resp && resp.ok) {
-            const blob = await resp.blob();
-            const objectUrl = URL.createObjectURL(blob);
-            this.imageCache.set(key, objectUrl);
-            return objectUrl;
-          }
+          return '';
         }
+        if (!meta.hasImage) return '';
+        const base = getLastApiBase();
+        const country = String(meta.country || this.country);
+        const url = `${base}/api/attraction-image/${country}/${meta.id}/1`;
+        const resp = await fetch(url, withBackendApiKey());
+        if (!resp || !resp.ok) return '';
+        const blob = await resp.blob();
+        const objectUrl = URL.createObjectURL(blob);
+        this.imageCache.set(key, objectUrl);
+        return objectUrl;
       } catch (e) {}
       return '';
     },
@@ -3330,13 +3754,17 @@ export default {
 }
 
 .locate-button .locate-icon {
-  width: 16px;
-  height: 16px;
+  width: 18px;
+  height: 18px;
+  min-width: 18px;
+  min-height: 18px;
   border: 2px solid rgba(255, 255, 255, 0.9);
   border-radius: 50%;
   position: relative;
   display: block;
+  box-sizing: border-box;
   aspect-ratio: 1 / 1;
+  flex: none;
 }
 
 .locate-button .locate-icon::after {
@@ -3462,11 +3890,33 @@ export default {
 :deep(.popup-thumb img.fade-in-image) { opacity: 1; transform: scale(1); filter: blur(0); }
 :deep(.popup-image-placeholder) { position: absolute; inset: 0; background: linear-gradient(120deg, #f0f0f0, #e0e0e0, #f0f0f0); background-size: 200% 100%; animation: popupPlaceholderShimmer 1.4s infinite linear; }
 :deep(.popup-main) { display: grid; grid-template-columns: 1fr auto; grid-template-rows: auto auto; column-gap: 8px; row-gap: 2px; }
-:deep(.popup-name) { grid-column: 1 / 3; font-weight: 800; max-width: 220px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+:deep(.popup-name) {
+  grid-column: 1 / 3;
+  /* 名称：中文优先造字工房创基黑体，英文保持系统默认字体 */
+  font-family:
+    'ZaoZiGongFangChuangJiHei',
+    -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, "Microsoft YaHei", 'Helvetica Neue', Arial, sans-serif;
+  font-weight: 500;
+  max-width: 220px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 :deep(.popup-meta) { color: #64748b; font-size: 12px; }
 :deep(.popup-rating) { color: #fff; font-weight: 800; padding: 2px 6px; font-size: 12px; border-radius: 6px; align-self: start; display: inline-flex; align-items: center; gap: 4px; }
 :deep(.popup-rating-label) { opacity: 0.9; font-weight: 700; }
 :deep(.popup-rating-value) { font-weight: 900; }
+
+@media (max-width: 768px) {
+  /* Replace popup gaps with margins on mobile while keeping spacing identical */
+  :deep(.map-popup) { gap: 0; }
+  :deep(.map-popup > * + *) { margin-left: 8px; }
+  :deep(.map-popup .popup-main) { column-gap: 0; row-gap: 0; }
+  :deep(.map-popup .popup-meta),
+  :deep(.map-popup .popup-rating) { margin-top: 2px; }
+  :deep(.map-popup .popup-rating) { margin-left: 8px; gap: 0; }
+  :deep(.map-popup .popup-rating > * + *) { margin-left: 4px; }
+}
 
 @keyframes popupPlaceholderShimmer {
   0% { background-position: 200% 0; }
@@ -3482,14 +3932,6 @@ export default {
 :deep(.popup-rating-label),
 :deep(.popup-rating-value) {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
-}
-
-:deep(.popup-name) {
-  /* 名称：中文优先造字工房创基黑体，英文保持系统默认字体 */
-  font-family:
-    'ZaoZiGongFangChuangJiHei',
-    -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, "Microsoft YaHei", 'Helvetica Neue', Arial, sans-serif;
-  font-weight: 500;
 }
 
 /* мָʾصͼ */
