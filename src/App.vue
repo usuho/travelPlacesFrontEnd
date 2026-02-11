@@ -23,7 +23,12 @@
         <div v-if="showLogoutTooltip" class="sync-tooltip">长按登出</div>
       </transition>
     </div>
-    <router-view></router-view>
+    <router-view v-slot="{ Component }">
+      <keep-alive v-if="keepAliveEnabled" include="AttractionMap">
+        <component :is="Component" />
+      </keep-alive>
+      <component v-else :is="Component" />
+    </router-view>
     <!-- Global top-right site icon -->
     <img
       v-if="!isCountrySelect"
@@ -63,6 +68,9 @@ export default {
     isCountrySelect() {
       const path = this.$route && this.$route.path
       return path === '/' || path === '/login' || path === '/register'
+    },
+    keepAliveEnabled() {
+      return !this.isCountrySelect
     },
     showSyncIndicator() {
       const path = (this.$route && this.$route.path) || ''
