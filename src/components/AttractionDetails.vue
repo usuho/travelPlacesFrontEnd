@@ -465,7 +465,7 @@
           const order = localStorage.getItem('attractionsOrder') || '';
           if (order !== 'distance_near') return false;
           const q = this.getDistanceQueueSnapshot();
-          return !!(q && Array.isArray(q.items) && q.items.length);
+          return !!(q && ((Array.isArray(q.items) && q.items.length) || (Array.isArray(q.ids) && q.ids.length)));
         } catch (e) {
           return false;
         }
@@ -986,7 +986,9 @@
           if (!raw) return null;
           const obj = JSON.parse(raw);
           if (!obj || String(obj.country || '') !== String(this.country)) return null;
-          if (!Array.isArray(obj.items) || !obj.items.length) return null;
+          const hasItems = Array.isArray(obj.items) && obj.items.length > 0;
+          const hasIds = Array.isArray(obj.ids) && obj.ids.length > 0;
+          if (!hasItems && !hasIds) return null;
           return obj;
         } catch (e) {
           return null;
@@ -1006,7 +1008,7 @@
           return;
         }
         const queue = this.getDistanceQueueSnapshot();
-        if (!queue || !Array.isArray(queue.items) || !queue.items.length) {
+        if (!queue || (!Array.isArray(queue.items) && !Array.isArray(queue.ids))) {
           this.clearDistanceQueueStorage();
           this.ids = [this.id];
           this.listPage = 1;
@@ -1015,7 +1017,13 @@
           try { localStorage.setItem('ids', this.ids.join(',')); localStorage.setItem('attractionIndex', '0'); } catch (e) {}
           return;
         }
-        const hitIndex = queue.items.findIndex(it => String(it.id) === String(this.id));
+        const currentIdStr = String(this.id);
+        let hitIndex = -1;
+        if (Array.isArray(queue.items)) {
+          hitIndex = queue.items.findIndex(it => String(it && it.id) === currentIdStr);
+        } else if (Array.isArray(queue.ids)) {
+          hitIndex = queue.ids.findIndex(id => String(id) === currentIdStr);
+        }
         if (hitIndex === -1) {
           this.clearDistanceQueueStorage();
           this.ids = [this.id];
@@ -1027,15 +1035,22 @@
         }
         let targetPage = parseInt(localStorage.getItem('attractionsPage'), 10);
         if (!Number.isFinite(targetPage) || targetPage <= 0) {
-          const hit = queue.items[hitIndex];
+          const hit = Array.isArray(queue.items) ? queue.items[hitIndex] : null;
           targetPage = (hit && hit.page) ? hit.page : Math.floor(hitIndex / this.listPageLimit) + 1;
         }
         const start = (targetPage - 1) * this.listPageLimit;
-        const slice = queue.items.slice(start, start + this.listPageLimit);
-        if (slice.length) {
-          this.ids = slice.map(it => it.id);
+        const end = start + this.listPageLimit;
+        let sliceIds = [];
+        if (Array.isArray(queue.items)) {
+          const slice = queue.items.slice(start, end);
+          sliceIds = slice.map(it => it && it.id).filter(Boolean);
+        } else if (Array.isArray(queue.ids)) {
+          sliceIds = queue.ids.slice(start, end).filter(Boolean);
+        }
+        if (sliceIds.length) {
+          this.ids = sliceIds;
           this.listPage = targetPage;
-          const localIndex = slice.findIndex(it => String(it.id) === String(this.id));
+          const localIndex = sliceIds.findIndex(id => String(id) === currentIdStr);
           this.index = localIndex >= 0 ? localIndex : 0;
           try {
             localStorage.setItem('ids', this.ids.join(','));
@@ -1043,16 +1058,23 @@
             localStorage.setItem('attractionsPage', String(this.listPage));
           } catch (e) {}
         }
-        this.hasNextPage = queue.items.length > targetPage * this.listPageLimit;
+        const totalLen = Array.isArray(queue.items) ? queue.items.length : (Array.isArray(queue.ids) ? queue.ids.length : 0);
+        this.hasNextPage = totalLen > targetPage * this.listPageLimit;
       },
       clearDistanceQueueStorage() {
         try { localStorage.removeItem('distanceBrowseQueue'); } catch (e) {}
       },
       getFiltersFromStorage() {
         const out = { minReviews: 0, region: '', county: '' };
+        const normalize = (v) => {
+          if (v === null || v === undefined) return '';
+          const s = String(v);
+          if (s === 'undefined' || s === 'null') return '';
+          return s.trim();
+        };
         try { const v = localStorage.getItem('attractionMinReviews'); if (v !== null && v !== '' && !Number.isNaN(parseInt(v,10))) out.minReviews = parseInt(v,10); } catch (e) {}
-        try { const v = localStorage.getItem('attractionsRegion'); if (v !== null) out.region = v; } catch (e) {}
-        try { const v = localStorage.getItem('attractionsCounty'); if (v !== null) out.county = v; } catch (e) {}
+        try { const v = localStorage.getItem('attractionsRegion'); if (v !== null) out.region = normalize(v); } catch (e) {}
+        try { const v = localStorage.getItem('attractionsCounty'); if (v !== null) out.county = normalize(v); } catch (e) {}
         return out;
       },
       computeDistanceKm(lat1, lng1, lat2, lng2) {
@@ -1085,11 +1107,32 @@
       },
       async ensureDistanceQueueForMapEntry() {
         if (!this.fromMap) return;
+        const currentIdStr = String(this.id);
         const existing = this.getDistanceQueueSnapshot();
-        if (existing && String(existing.country || '') === String(this.country) && Array.isArray(existing.items) && existing.items.some(it => String(it.id) === String(this.id))) {
-          return;
+        if (existing && String(existing.country || '') === String(this.country)) {
+          if (Array.isArray(existing.items) && existing.items.some(it => String(it && it.id) === currentIdStr)) return;
+          if (Array.isArray(existing.ids) && existing.ids.some(id => String(id) === currentIdStr)) return;
         }
         const filters = this.getFiltersFromStorage();
+        // 支持 county 合项：读取 AttractionList 写入的 valueMap（处理后的值 -> [原始值...]）
+        let countyValueMap = null;
+        try {
+          const mapStr = localStorage.getItem('attractionsCountyValueMap');
+          if (mapStr) {
+            const mapArray = JSON.parse(mapStr);
+            countyValueMap = new Map(mapArray);
+          }
+        } catch (_) { countyValueMap = null; }
+        const getAllOriginalValuesForCounty = (processedValue) => {
+          try {
+            if (!processedValue || !countyValueMap) return [processedValue];
+            const originalValues = countyValueMap.get(processedValue);
+            if (originalValues && originalValues.length > 0) return originalValues;
+            return [processedValue];
+          } catch (_) {
+            return [processedValue];
+          }
+        };
         let positions = [];
         try {
           positions = await fetchAttractionsPositions(this.country);
@@ -1099,8 +1142,7 @@
           if (Array.isArray(extra) && extra.length) positions = positions.concat(extra);
         } catch (e) {}
         if (!Array.isArray(positions) || !positions.length) return;
-        let baseItem = positions.find(p => String(p.id) === String(this.id));
-        const currentIdStr = String(this.id);
+        let baseItem = positions.find(p => String(p.id) === currentIdStr);
         let baseLat = Number(baseItem && baseItem.lat);
         let baseLng = Number(baseItem && baseItem.lng);
         if (!Number.isFinite(baseLat) || !Number.isFinite(baseLng)) {
@@ -1134,7 +1176,15 @@
             const tr = parseInt(item.total_reviews, 10);
             if (Number.isFinite(tr) && tr < (filters.minReviews || 0)) return false;
           }
-          if (filters.county && String(item.county||'') !== String(filters.county)) return false;
+          if (filters.county) {
+            const itemCounty = String(item.county || '');
+            if (countyValueMap) {
+              const allCountyValues = getAllOriginalValuesForCounty(filters.county);
+              if (!allCountyValues.some(val => String(val) === itemCounty)) return false;
+            } else {
+              if (itemCounty !== String(filters.county)) return false;
+            }
+          }
           if (filters.region && String(item.region||'') !== String(filters.region)) return false;
           return true;
         };
@@ -1186,8 +1236,18 @@
         }
         const restWithout = withoutCoords.filter(i => String(i.id) !== currentIdStr);
         const queue = [baseCandidate, ...zeroDistance, ...nonZeroWith, ...restWithout].filter(Boolean);
-        queue.forEach((item, idx) => { item.page = Math.floor(idx / pageSize) + 1; });
-        const currentPage = queue.find(i => String(i.id) === currentIdStr)?.page || 1;
+        const hitIndex = queue.findIndex(i => String(i && i.id) === currentIdStr);
+        const currentPage = hitIndex >= 0 ? (Math.floor(hitIndex / pageSize) + 1) : 1;
+        const storageItems = queue.map(item => ({
+          id: item && item.id,
+          name: (item && item.name) || '',
+          region: (item && item.region) || '',
+          county: (item && item.county) || '',
+          rating: item && item.rating,
+          total_reviews: item && item.total_reviews,
+          positive_reviews: item && item.positive_reviews,
+          hasImage: item && item.hasImage ? 1 : 0,
+        })).filter(it => it && it.id);
         const payload = {
           country: String(this.country),
           filters: {
@@ -1197,7 +1257,7 @@
           },
           baseId: currentIdStr,
           generatedAt: Date.now(),
-          items: queue,
+          items: storageItems,
         };
         try {
           const safe = (k, v) => {
@@ -1208,7 +1268,14 @@
               try { localStorage.setItem(k, v); return true; } catch (_) { return false; }
             }
           };
-          safe('distanceBrowseQueue', JSON.stringify(payload));
+          const saved = safe('distanceBrowseQueue', JSON.stringify(payload));
+          if (!saved) {
+            // localStorage 空间不足时，退化为仅保存 ID 队列（用于详情页左右切换）
+            const idsOnly = { ...payload };
+            delete idsOnly.items;
+            idsOnly.ids = queue.map(it => it && it.id).filter(Boolean);
+            safe('distanceBrowseQueue', JSON.stringify(idsOnly));
+          }
           safe('attractionsOrder', 'distance_near');
           safe('attractionsPage', String(currentPage));
         } catch (e) {}
@@ -1250,16 +1317,24 @@
           const order = localStorage.getItem('attractionsOrder') || 'rating_desc';
           if (order === 'distance_near') {
             const queue = this.getDistanceQueueSnapshot();
-            if (!queue || !Array.isArray(queue.items)) { this.hasNextPage = false; return false; }
+            if (!queue || (!Array.isArray(queue.items) && !Array.isArray(queue.ids))) { this.hasNextPage = false; return false; }
             const start = (targetPage - 1) * this.listPageLimit;
-            const slice = queue.items.slice(start, start + this.listPageLimit);
-            if (!slice.length) { this.hasNextPage = false; return false; }
-            this.ids = slice.map(item => item.id);
+            const end = start + this.listPageLimit;
+            let sliceIds = [];
+            if (Array.isArray(queue.items)) {
+              const slice = queue.items.slice(start, end);
+              sliceIds = slice.map(item => item && item.id).filter(Boolean);
+            } else if (Array.isArray(queue.ids)) {
+              sliceIds = queue.ids.slice(start, end).filter(Boolean);
+            }
+            if (!sliceIds.length) { this.hasNextPage = false; return false; }
+            this.ids = sliceIds;
             try { localStorage.setItem('ids', this.ids.join(',')); } catch (e) {}
             this.listPage = targetPage;
             try { localStorage.setItem('attractionsPage', String(targetPage)); } catch (e) {}
             this.updateLastRoutePage(targetPage);
-            this.hasNextPage = queue.items.length > targetPage * this.listPageLimit;
+            const totalLen = Array.isArray(queue.items) ? queue.items.length : (Array.isArray(queue.ids) ? queue.ids.length : 0);
+            this.hasNextPage = totalLen > targetPage * this.listPageLimit;
             return true;
           }
         } catch (e) {}

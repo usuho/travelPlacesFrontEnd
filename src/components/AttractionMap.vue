@@ -3089,8 +3089,18 @@ export default {
         }
         const restWithout = withoutCoords.filter(i => String(i.id) !== currentIdStr);
         const queue = [currentCandidate, ...zeroDistance, ...nonZeroWith, ...restWithout].filter(Boolean);
-        queue.forEach((item, idx) => { item.page = Math.floor(idx / pageSize) + 1; });
-        const currentPage = queue.find(i => String(i.id) === currentIdStr)?.page || 1;
+        const hitIndex = queue.findIndex(i => String(i && i.id) === currentIdStr);
+        const currentPage = hitIndex >= 0 ? (Math.floor(hitIndex / pageSize) + 1) : 1;
+        const storageItems = queue.map(item => ({
+          id: item && item.id,
+          name: (item && item.name) || '',
+          region: (item && item.region) || '',
+          county: (item && item.county) || '',
+          rating: item && item.rating,
+          total_reviews: item && item.total_reviews,
+          positive_reviews: item && item.positive_reviews,
+          hasImage: item && item.hasImage ? 1 : 0,
+        })).filter(it => it && it.id);
         const payload = {
           country: listCountry,
           filters: {
@@ -3100,9 +3110,16 @@ export default {
           },
           baseId: currentIdStr,
           generatedAt: Date.now(),
-          items: queue,
+          items: storageItems,
         };
-        this._safeSetItem('distanceBrowseQueue', JSON.stringify(payload));
+        const saved = this._safeSetItem('distanceBrowseQueue', JSON.stringify(payload));
+        if (!saved) {
+          // localStorage 空间不足时，退化为仅保存 ID 队列（用于详情页左右切换）
+          const idsOnly = { ...payload };
+          delete idsOnly.items;
+          idsOnly.ids = queue.map(it => it && it.id).filter(Boolean);
+          this._safeSetItem('distanceBrowseQueue', JSON.stringify(idsOnly));
+        }
         this._safeSetItem('attractionsOrder', 'distance_near');
         this._safeSetItem('attractionsPage', String(currentPage));
       } catch (e) {
