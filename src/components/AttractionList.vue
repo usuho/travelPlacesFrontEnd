@@ -799,6 +799,7 @@
   import { getImageUrl as getCustomImageUrl, deleteImagesForId as deleteCustomImagesForId, setImage as setCustomImage } from '../utils/customImageStore.js'
   import { withBackendApiKey, fetchAttractionsPositionsByIds } from '../utils/geoApi.js';
   import { ensureUserDataHydrated, queueUserDataSync, deleteCustomImages } from '../stores/userDataSync.js'
+  import { invalidateAttractionMapCache } from '../stores/attractionMapCache.js'
   import { Capacitor } from '@capacitor/core';
   import { Filesystem, Directory, Encoding } from '@capacitor/filesystem';
   import { Converter } from 'opencc-js';
@@ -1339,6 +1340,7 @@
         this.page = 1;
         localStorage.setItem('attractionsPage', this.page); 
         localStorage.setItem('attractionsRegion', this.selectedRegion);
+        try { invalidateAttractionMapCache('filters:region'); } catch (e) {}
         if (!resetByDistance) {
           this.fetchAttractions(true);
         }
@@ -1352,6 +1354,7 @@
         this.page = 1;
         localStorage.setItem('attractionsPage', this.page); 
         localStorage.setItem('attractionsCounty',this.selectedCounty);
+        try { invalidateAttractionMapCache('filters:county'); } catch (e) {}
         // 先获取regions的映射，再调用fetchAttractions
         this.fetchRegions().then(() => {
           if (!resetByDistance) {
@@ -1844,6 +1847,7 @@
         this.exportHasImages = false;
         await this.$nextTick();
         await this.sleep(0);
+        let didExport = false;
         try {
           // When only one (or zero) favorite tab exists, bypass choice dialog
           // Otherwise, require explicit choice if not already chosen
@@ -1851,6 +1855,7 @@
             const tabsCount = Array.isArray(this.favoriteTabs) ? this.favoriteTabs.length : 0;
             if (tabsCount > 1) { this.showExportChoice = true; return; }
           }
+          didExport = true;
           const active = this.favoriteTabs.find(t => t.id === this.activeTabId);
           const items = Array.isArray(this.favorites) ? [...this.favorites] : [];
           this.exportTotal = items.length;
@@ -1984,6 +1989,9 @@
           this.exporting = false;
           this.exportProgress = 0;
           this.exportTotal = 0;
+          if (didExport) {
+            try { invalidateAttractionMapCache('favorites:export'); } catch (e) {}
+          }
         }
       },
       openExportFallback(jsonText, fileName) {
@@ -2005,7 +2013,9 @@
         this.exportHasImages = false;
         await this.$nextTick();
         await this.sleep(0);
+        let didExport = false;
         try {
+          didExport = true;
           const tabs = Array.isArray(this.favoriteTabs) ? this.favoriteTabs : [];
           const imageBudget = { used: 0, limit: this.getExportImageLimit() };
           let outTabs;
@@ -2121,6 +2131,9 @@
           this.exporting = false;
           this.exportProgress = 0;
           this.exportTotal = 0;
+          if (didExport) {
+            try { invalidateAttractionMapCache('favorites:exportAll'); } catch (e) {}
+          }
         }
       },
       closeExportFallback() { this.showExportModal = false; },
@@ -2516,7 +2529,12 @@
           if ((!this.favoriteTabs || this.favoriteTabs.length === 0) && localStorage.getItem(key)) {
             return;
           }
-          localStorage.setItem(key, JSON.stringify(this.favoriteTabs));
+          const next = JSON.stringify(this.favoriteTabs || []);
+          let prev = null;
+          try { prev = localStorage.getItem(key); } catch (e) { prev = null; }
+          if (prev === next) return;
+          localStorage.setItem(key, next);
+          try { invalidateAttractionMapCache('favorites:save'); } catch (e) {}
         } catch(e) {}
         try { queueUserDataSync(); } catch (e) {}
       },
@@ -2589,6 +2607,7 @@
         // 记忆选中的tab
         try { localStorage.setItem('favoriteTabs_activeId', id); } catch(e) {}
         try { queueUserDataSync(); } catch (e) {}
+        try { invalidateAttractionMapCache('favorites:switchTab'); } catch (e) {}
 
         const at = this.favoriteTabs.find(t => t.id === id);
         this.favorites = at ? at.items : [];
@@ -5667,6 +5686,7 @@ const all = this.sortedFavorites || [];
           this.page = 1;
           localStorage.setItem('attractionsPage', this.page);
           localStorage.setItem('attractionMinReviews', this.minReviews);
+          try { invalidateAttractionMapCache('filters:minReviews'); } catch (e) {}
           if (!resetByDistance) {
             this.fetchAttractions(false);
           }

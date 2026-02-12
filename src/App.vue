@@ -24,10 +24,10 @@
       </transition>
     </div>
     <router-view v-slot="{ Component }">
-      <keep-alive v-if="keepAliveEnabled" include="AttractionMap">
-        <component :is="Component" />
+      <keep-alive v-if="keepAliveEnabled" include="AttractionMap" :max="1" :key="mapKeepAliveKey">
+        <component v-if="isMapRoute" :is="Component" :key="mapComponentKey" />
       </keep-alive>
-      <component v-else :is="Component" />
+      <component v-if="!keepAliveEnabled || !isMapRoute" :is="Component" />
     </router-view>
     <!-- Global top-right site icon -->
     <img
@@ -46,6 +46,7 @@
 import { userDataSyncState, resetUserDataSync } from './stores/userDataSync.js'
 import { getAuthUser, clearAuthSession, clearLocalStoragePreservingRememberPassword } from './stores/auth.js'
 import { clearAllImages } from './utils/customImageStore.js'
+import { attractionMapCacheState } from './stores/attractionMapCache.js'
 
 const LONG_PRESS_MS = 800;
 
@@ -71,6 +72,17 @@ export default {
     },
     keepAliveEnabled() {
       return !this.isCountrySelect
+    },
+    isMapRoute() {
+      const path = (this.$route && this.$route.path) || ''
+      return path.startsWith('/map/')
+    },
+    mapKeepAliveKey() {
+      return attractionMapCacheState.version || 0
+    },
+    mapComponentKey() {
+      const country = this.$route && this.$route.params ? this.$route.params.country : ''
+      return `map:${String(country || '').toLowerCase()}:${attractionMapCacheState.version || 0}`
     },
     showSyncIndicator() {
       const path = (this.$route && this.$route.path) || ''

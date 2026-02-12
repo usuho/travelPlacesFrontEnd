@@ -222,6 +222,7 @@
   import { findCustomAttractionById, deleteCustomAttraction } from '../utils/customAttractions.js'
   import { getImageUrl as getCustomImageUrl, deleteImagesForId as deleteCustomImagesForId } from '../utils/customImageStore.js'
   import { ensureUserDataHydrated, queueUserDataSync, deleteCustomImages } from '../stores/userDataSync.js'
+  import { invalidateAttractionMapCache } from '../stores/attractionMapCache.js'
   import CreateAttractionModal from './CreateAttractionModal.vue'
 
   export default {
@@ -698,6 +699,7 @@
           this.saveFavoritesList(list);
           this.removeFromFavoriteTabs(id, country);
           this.isFavorited = false;
+          try { invalidateAttractionMapCache('favorites:toggleFromDetail'); } catch (e) {}
         } else {
           const nextOrder = (list && list.length ? list.length : 0) + 1;
           const item = { id, name: this.attraction.name, region: this.attraction.region, rating: this.attraction.rating, county: this.attraction.county, country, order: nextOrder };
@@ -705,6 +707,7 @@
           this.saveFavoritesList(list);
           this.addToFavoriteTabs(item);
           this.isFavorited = true;
+          try { invalidateAttractionMapCache('favorites:toggleFromDetail'); } catch (e) {}
         }
       },
       cancelDeleteCustom() {
@@ -760,6 +763,7 @@
         } catch(e) {}
         this.customDeleteConfirmVisible = false;
         this.isFavorited = false;
+        try { invalidateAttractionMapCache('favorites:deleteCustomFromDetail'); } catch (e) {}
         // 删除后返回到之前的景点列表
         this.goBack();
       },
