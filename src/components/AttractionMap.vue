@@ -93,6 +93,8 @@ export default {
       _lastActivatedFocusId: null,
       _countyValueMapCacheRaw: null,
       _countyValueMapCache: null,
+      _regionValueMapCacheRaw: null,
+      _regionValueMapCache: null,
     };
   },
   computed: {
@@ -3346,8 +3348,40 @@ export default {
       }
       return null;
     },
+    // 获取 regionValueMap（从 localStorage 读取，结构与列表页一致）
+    getRegionValueMap() {
+      try {
+        const mapStr = localStorage.getItem('attractionsRegionValueMap');
+        if (!mapStr) {
+          this._regionValueMapCacheRaw = null;
+          this._regionValueMapCache = null;
+          return null;
+        }
+        if (mapStr === this._regionValueMapCacheRaw && this._regionValueMapCache instanceof Map) {
+          return this._regionValueMapCache;
+        }
+        const mapArray = JSON.parse(mapStr);
+        const map = new Map(mapArray);
+        this._regionValueMapCacheRaw = mapStr;
+        this._regionValueMapCache = map;
+        return map;
+      } catch (e) {
+        console.error('Failed to get regionValueMap from localStorage:', e);
+        this._regionValueMapCacheRaw = null;
+        this._regionValueMapCache = null;
+      }
+      return null;
+    },
     // 获取所有匹配的原始值（用于合项匹配）
     getAllOriginalValuesForCounty(processedValue, valueMap) {
+      if (!processedValue || !valueMap) return [processedValue];
+      const originalValues = valueMap.get(processedValue);
+      if (originalValues && originalValues.length > 0) {
+        return originalValues;
+      }
+      return [processedValue];
+    },
+    getAllOriginalValuesForRegion(processedValue, valueMap) {
       if (!processedValue || !valueMap) return [processedValue];
       const originalValues = valueMap.get(processedValue);
       if (originalValues && originalValues.length > 0) {
@@ -3375,7 +3409,18 @@ export default {
           if (String(item.county||'') !== String(f.county)) return false;
         }
       }
-      if (f.region && String(item.region||'') !== String(f.region)) return false;
+      if (f.region) {
+        const regionValueMap = this.getRegionValueMap();
+        if (regionValueMap) {
+          const allRegions = this.getAllOriginalValuesForRegion(f.region, regionValueMap);
+          const itemRegion = String(item.region || '');
+          if (!allRegions.some(val => String(val) === itemRegion)) {
+            return false;
+          }
+        } else {
+          if (String(item.region||'') !== String(f.region)) return false;
+        }
+      }
       return true;
     },
 
