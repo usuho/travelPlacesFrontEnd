@@ -6,28 +6,32 @@ let lastApiBase = '';
 
 function apiBaseCandidates() {
   const list = [];
-  // 1) relative (same origin)
-  list.push('');
-  // 2) Vite env configured base
+  let envBase = '';
   try {
-    if (import.meta && import.meta.env && import.meta.env.VITE_API_BASE) {
-      list.push(String(import.meta.env.VITE_API_BASE));
-    }
+    envBase = (import.meta && import.meta.env && import.meta.env.VITE_API_BASE) ? String(import.meta.env.VITE_API_BASE) : '';
   } catch (e) {}
-  // 3) Common local dev servers
+  const isDev = !!(import.meta && import.meta.env && import.meta.env.DEV);
+
+  let host = 'localhost';
   try {
     const { hostname } = window.location || {};
-    const host = hostname || 'localhost';
-    // Prefer same host on port 3000
-    list.push(`http://${host}:3000`);
+    host = hostname || 'localhost';
   } catch (e) {}
-  // Also try localhost loopbacks
-  list.push('http://localhost:3000');
+  
+  if (envBase) list.push(envBase);
+
+  // Prefer same host on port 3000 for local dev
+  list.push(`http://${host}:3000`);
+  if (host !== 'localhost') list.push('http://localhost:3000');
   list.push('http://127.0.0.1:3000');
-  // 4) remote fallback (cloud / legacy)
+  
+  // Cloud fallback
   list.push('https://juseaxerf.com');
-  list.push('https://juseaxerf.com');
-  return list;
+  
+  // Same-origin only when built assets are served by backend or no explicit base is set
+  if (!isDev || !envBase) list.push('');
+
+  return Array.from(new Set(list.filter(Boolean)));
 }
 
 export function withBackendApiKey(options) {
