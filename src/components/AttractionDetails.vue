@@ -467,20 +467,34 @@
           if (this.fromMap) {
             // 从地图进入：优先尝试打开 Google Maps 应用，其次打开网页版
             const q = this.buildMapQuery();
-            const schemeUrl = `comgooglemaps://?q=${encodeURIComponent(q)}`;
             const webUrl = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(q)}`;
-            let opened = false;
-            try {
-              // 直接尝试跳转到 Google Maps 应用
-              window.location.href = schemeUrl;
-              opened = true;
-            } catch (e) {
-              opened = false;
+            const schemeUrl = `comgooglemaps://?q=${encodeURIComponent(q)}`;
+            const ua = (typeof navigator !== 'undefined' && navigator.userAgent) ? navigator.userAgent.toLowerCase() : '';
+            const isMobile = /android|iphone|ipad|ipod/.test(ua);
+
+            // 桌面端直接新开标签页，避免自定义 scheme 失败后被弹窗拦截
+            if (!isMobile) {
+              try { window.open(webUrl, '_blank', 'noopener,noreferrer'); } catch (e) { window.location.href = webUrl; }
+              return;
             }
-            // 无论是否成功，兜底在短延迟后打开网页版（若已跳转到 App，则此步骤一般被系统拦截）
-            setTimeout(() => {
-              try { window.open(webUrl, '_blank'); } catch (e) { window.location.href = webUrl; }
-            }, 300);
+
+            // 移动端：先尝试调起 App，若失败在同页回落到网页版（不依赖 window.open，避免被拦截）
+            let fallbackTimer = null;
+            const cancelFallback = () => {
+              if (fallbackTimer) {
+                clearTimeout(fallbackTimer);
+                fallbackTimer = null;
+              }
+            };
+            fallbackTimer = setTimeout(() => {
+              window.location.href = webUrl;
+            }, 700);
+            const clearOnBlur = () => cancelFallback();
+            window.addEventListener('blur', clearOnBlur, { once: true });
+            window.addEventListener('pagehide', clearOnBlur, { once: true });
+            document.addEventListener('visibilitychange', () => { if (document.hidden) cancelFallback(); }, { once: true });
+
+            window.location.href = schemeUrl;
             return;
           }
           // 非地图进入：保持原逻辑，跳到站内地图
