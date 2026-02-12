@@ -4804,6 +4804,14 @@ const all = this.sortedFavorites || [];
           this.regions = result.processed;
           this.filteredRegions = result.processed;
           this.regionValueMap = result.valueMap;
+
+          // 将 region 映射表保存到 localStorage，供地图页复用合项匹配
+          try {
+            const mapArray = Array.from(result.valueMap.entries());
+            localStorage.setItem('attractionsRegionValueMap', JSON.stringify(mapArray));
+          } catch (e) {
+            console.error('Failed to save regionValueMap to localStorage:', e);
+          }
         } catch (error) {
           console.error('Error fetching regions:', error);
         }
