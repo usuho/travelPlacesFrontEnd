@@ -195,9 +195,13 @@ export default {
           'saudiarabia',
           'uae',
           'qatar',
-          'brunei'
+          'brunei',
+          'philippines',
+          'india',
+          'bhutan',
+          'nepal'
         ],
-        oceania: ['australia', 'newzealand'],
+        oceania: ['australia', 'newzealand', 'papuanewguinea'],
         europe: [
           'switzerland',
           'iceland',
@@ -256,13 +260,13 @@ export default {
           'peru',
           'chile',
           'bolivia',
+          'colombia',
           'guatemala',
           'elsalvador',
           'honduras',
           'nicaragua',
           'costarica',
-          'panama',
-          'colombia'
+          'panama'
         ],
         africa: ['morocco', 'egypt', 'southafrica', 'madagascar']
       },
