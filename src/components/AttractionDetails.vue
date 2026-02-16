@@ -124,7 +124,7 @@
                   <span class="info-label">具体位置</span>
                   <span class="info-value">
                     <a href="javascript:void(0)" class="map-link" @click="openMapForThis">
-                      {{ attraction.position }}<span v-if="fromMap" class="map-link-hint">…用谷歌地图打开</span>
+                      {{ positionDisplay }}<span v-if="fromMap" class="map-link-hint">…用谷歌地图打开</span>
                     </a>
                   </span>
                 </div>
@@ -411,6 +411,11 @@
         const positive = this.attraction.positive_reviews;
         const display = (positive === undefined || positive === null || positive === '') ? '-' : positive;
         return `${display} 条好评`;
+      },
+      positionDisplay() {
+        const raw = this.attraction && this.attraction.position;
+        const text = typeof raw === 'string' ? raw.trim() : '';
+        return text ? text : '--';
       },
       detailSwipeStyle() {
         return {
