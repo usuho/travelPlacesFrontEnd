@@ -40,6 +40,19 @@ export const COUNTRY_CATALOG = [
   { slug: 'lithuania', iso2: 'lt' },
   { slug: 'latvia', iso2: 'lv' },
   { slug: 'estonia', iso2: 'ee' },
+  { slug: 'ukraine', iso2: 'ua' },
+  { slug: 'georgia', iso2: 'ge' },
+  { slug: 'armenia', iso2: 'am' },
+  { slug: 'azerbaijan', iso2: 'az' },
+  { slug: 'serbia', iso2: 'rs' },
+  { slug: 'bulgaria', iso2: 'bg' },
+  { slug: 'romania', iso2: 'ro' },
+  { slug: 'moldova', iso2: 'md' },
+  { slug: 'northmacedonia', iso2: 'mk' },
+  { slug: 'albania', iso2: 'al' },
+  { slug: 'montenegro', iso2: 'me' },
+  { slug: 'bosniaherzegovina', iso2: 'ba' },
+  { slug: 'kosovo', iso2: 'xk' },
   // 亚洲
   { slug: 'korea', iso2: 'kr' },
   { slug: 'indonesia', iso2: 'id' },
@@ -50,6 +63,10 @@ export const COUNTRY_CATALOG = [
   { slug: 'saudiarabia', iso2: 'sa' },
   { slug: 'uae', iso2: 'ae' },
   { slug: 'qatar', iso2: 'qa' },
+  { slug: 'philippines', iso2: 'ph' },
+  { slug: 'india', iso2: 'in' },
+  { slug: 'bhutan', iso2: 'bt' },
+  { slug: 'nepal', iso2: 'np' },
   // 南北美
   { slug: 'argentina', iso2: 'ar' },
   { slug: 'uruguay', iso2: 'uy' },
@@ -58,6 +75,12 @@ export const COUNTRY_CATALOG = [
   { slug: 'peru', iso2: 'pe' },
   { slug: 'chile', iso2: 'cl' },
   { slug: 'bolivia', iso2: 'bo' },
+  { slug: 'guatemala', iso2: 'gt' },
+  { slug: 'elsalvador', iso2: 'sv' },
+  { slug: 'honduras', iso2: 'hn' },
+  { slug: 'nicaragua', iso2: 'ni' },
+  { slug: 'costarica', iso2: 'cr' },
+  { slug: 'panama', iso2: 'pa' },
   { slug: 'colombia', iso2: 'co' },
   // 非洲
   { slug: 'morocco', iso2: 'ma' },
@@ -71,6 +94,7 @@ export const COUNTRY_CATALOG = [
   { slug: 'denmark', iso2: 'dk' },
   { slug: 'australia', iso2: 'au' },
   { slug: 'newzealand', iso2: 'nz' },
+  { slug: 'papuanewguinea', iso2: 'pg' },
 ];
 
 const isoLookup = COUNTRY_CATALOG.reduce((acc, item) => {
