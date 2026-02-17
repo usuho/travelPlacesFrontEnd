@@ -58,6 +58,19 @@
           </svg>
         </span>
       </div>
+      <div class="continent-nav">
+        <button
+          v-for="continent in quickJumpContinents"
+          :key="`jump-${continent}`"
+          type="button"
+          class="continent-nav-btn card"
+          @click="scrollToContinent(continent)"
+        >
+          <span class="continent-nav-btn-text">
+            {{ translateContinent(continent) }}
+          </span>
+        </button>
+      </div>
     </div>
 
     <div v-if="hasSearchQuery && matchedCountries.length > 0" class="search-results">
@@ -113,6 +126,7 @@
       <div
         v-for="(countries, continent) in continents"
         :key="continent"
+        :id="`continent-${continent}`"
         class="continent-section"
       >
         <h2 class="continent-title">{{ translateContinent(continent) }}</h2>
@@ -363,6 +377,7 @@ export default {
       },
       placeholderText: '搜寻国家，发现美和新奇',
       searchQuery: '',
+      quickJumpContinents: ['oceania', 'europe', 'america', 'africa'],
       searchFocused: false,
       hasEverSearched: false,
       showHeroLogo: false,
@@ -549,6 +564,23 @@ export default {
         oceania: '大洋洲'
       };
       return translations[continent] || continent;
+    },
+    scrollToContinent(continent) {
+      const scrollToTarget = () => {
+        const target = document.getElementById(`continent-${continent}`);
+        if (!target) return;
+        target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      };
+
+      if (this.hasSearchQuery) {
+        this.searchQuery = '';
+        this.$nextTick(() => {
+          requestAnimationFrame(scrollToTarget);
+        });
+        return;
+      }
+
+      scrollToTarget();
     },
     getCountryEmoji(country) {
       const emojis = {
@@ -1000,6 +1032,50 @@ export default {
   margin: 24px auto 0;
 }
 
+.continent-nav {
+  display: flex;
+  justify-content: flex-start;
+  flex-wrap: wrap;
+  max-width: 560px;
+  margin: 14px auto 0;
+}
+
+.continent-nav-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: #fff;
+  backdrop-filter: blur(10px);
+  border-radius: 24px;
+  padding: 6px 14px;
+  min-height: 34px;
+  margin: 0 10px 10px 0;
+  cursor: pointer;
+  color: #1d1d1f;
+  text-align: center;
+  transition: transform 0.25s ease, box-shadow 0.25s ease;
+}
+
+.continent-nav-btn:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 14px 28px rgba(0, 0, 0, 0.12);
+}
+
+.continent-nav-btn:focus-visible {
+  outline: 2px solid #8aa9ff;
+  outline-offset: 2px;
+}
+
+.continent-nav-btn-text {
+  font-family:
+    'ZaoZiGongFangChuangJiHei',
+    -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif,
+    '造字工房创际黑', 'ZCOOL XiaoWei', 'Noto Serif SC', 'Songti SC', 'STSong', 'Source Han Serif SC', 'SimSun', serif;
+  font-size: 0.88rem;
+  line-height: 1;
+}
+
 .search-input {
   width: 100%;
   padding: 14px 52px 14px 18px;
@@ -1210,6 +1286,21 @@ export default {
   .search-bar {
     margin-top: 12px;
     max-width: 100%;
+  }
+
+  .continent-nav {
+    margin-top: 10px;
+    max-width: 100%;
+  }
+
+  .continent-nav-btn {
+    min-height: 30px;
+    padding: 5px 10px;
+    margin: 0 8px 8px 0;
+  }
+
+  .continent-nav-btn-text {
+    font-size: 0.76rem;
   }
 
   .search-input {
