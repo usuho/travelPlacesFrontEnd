@@ -1,9 +1,10 @@
-﻿<template>
+<template>
   <div class="container fade-in">
     <!-- 固定顶部区域（标题 + 筛选器） -->
     <div class="fixed-header">
       <header class="page-header">
         <div class="header-content">
+
           <div class="title-text-group">
             <h1
               class="page-title title-hero"
@@ -328,7 +329,7 @@
       </div>
 
       <!-- 景点列表 -->
-      <div v-if="!loading && listVisible" class="attractions-section">
+      <div v-if="!loading" class="attractions-section">
         <div v-if="attractions.length === 0" class="empty-state">
           <div class="empty-icon">🏞️</div>
           <h3>暂无景点数据</h3>
@@ -584,11 +585,45 @@
                   <span class="fav-name">{{ node.f && node.f.name }}</span>
                   <span class="fav-meta">{{ node.f && node.f.region }}</span>
                 </div>
-                <span
-                  v-if="node.f && String(node.f.country) !== 'custom' && node.f.rating !== undefined && node.f.rating !== null && node.f.rating !== ''"
-                  class="fav-rating"
-                  :style="{ backgroundColor: getRatingColor(node.f.rating) }"
-                >{{ node.f && node.f.rating }}</span>
+                <div v-if="node.f" class="fav-right-meta">
+                  <span class="fav-date-slot">
+                    <button
+                      type="button"
+                      class="fav-date-trigger"
+                      :class="{ selected: hasFavoriteDate(node.f) }"
+                      @click.stop="openFavoriteDatePicker(node.f)"
+                    >
+                      <template v-if="hasFavoriteDate(node.f)">
+                        <span class="fav-date-lines">
+                          <span class="fav-date-year">{{ getFavoriteDateYear(node.f) }}</span>
+                          <span class="fav-date-md">{{ getFavoriteDateMonthDay(node.f) }}</span>
+                        </span>
+                      </template>
+                      <template v-else>
+                        <svg class="fav-date-icon" viewBox="0 0 24 24" aria-hidden="true">
+                          <path d="M7 2a1 1 0 0 1 1 1v1h8V3a1 1 0 1 1 2 0v1h1a3 3 0 0 1 3 3v12a3 3 0 0 1-3 3H5a3 3 0 0 1-3-3V7a3 3 0 0 1 3-3h1V3a1 1 0 0 1 1-1Zm13 8H4v9a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-9ZM5 6a1 1 0 0 0-1 1v1h16V7a1 1 0 0 0-1-1H5Z"></path>
+                        </svg>
+                      </template>
+                    </button>
+                    <input
+                      :ref="getFavoriteDateInputRefKey(node.f)"
+                      type="date"
+                      class="fav-date-native-input"
+                      :value="normalizeFavoriteDate(node.f.favoriteDate)"
+                      @input="onFavoriteDateNativeInput(node.f, $event)"
+                      @change="onFavoriteDateNativeInput(node.f, $event)"
+                      tabindex="-1"
+                      aria-hidden="true"
+                    />
+                  </span>
+                  <span class="fav-rating-slot">
+                    <span
+                      v-if="String(node.f.country) !== 'custom' && node.f.rating !== undefined && node.f.rating !== null && node.f.rating !== ''"
+                      class="fav-rating"
+                      :style="{ backgroundColor: getRatingColor(node.f.rating) }"
+                    >{{ node.f && node.f.rating }}</span>
+                  </span>
+                </div>
               </div>
             </template>
           </div>
@@ -671,7 +706,7 @@
     <!-- Import Paste Dialog -->
     <teleport to="body">
       <div v-if="showImportPaste" class="confirm-backdrop" @click="cancelImportPaste">
-        <div class="confirm-dialog" @click.stop>
+        <div class="confirm-dialog has-close" @click.stop>
           <button class="confirm-close" aria-label="关闭" @click="cancelImportPaste">×</button>
           <div class="confirm-message">
             无法读取所选文件，请粘贴json文件内文本导入
@@ -690,12 +725,42 @@
     <!-- Export Choice Dialog -->
     <teleport to="body">
       <div v-if="showExportChoice" class="confirm-backdrop" @click="closeExportChoice">
-        <div class="confirm-dialog" @click.stop>
+        <div class="confirm-dialog has-close" @click.stop>
           <button class="confirm-close" aria-label="关闭" @click="closeExportChoice">×</button>
           <div class="confirm-message">导出当前收藏列表或全部收藏列表？</div>
           <div class="confirm-actions">
             <button class="btn-cancel" @click="exportChoiceCurrent">当前</button>
             <button class="btn-primary" @click="exportChoiceAll">全部</button>
+          </div>
+        </div>
+      </div>
+    </teleport>
+
+    <!-- Exporting Progress Dialog -->
+    <teleport to="body">
+      <div v-if="exporting" class="confirm-backdrop" @click.stop>
+        <div class="confirm-dialog" @click.stop>
+          <div class="confirm-message">
+            <div class="export-progress-header">
+              <span class="export-progress-text">正在导出收藏，请稍候...</span>
+              <span
+                class="export-progress-count"
+                v-if="exportTotal"
+              >
+                {{ exportProgress }} / {{ exportTotal }}
+              </span>
+            </div>
+            <div
+              class="export-progress-bar"
+              v-if="exportTotal"
+            >
+              <div
+                class="export-progress-fill"
+                :style="{
+                  width: Math.min(100, Math.max(0, (exportProgress / exportTotal) * 100)) + '%'
+                }"
+              ></div>
+            </div>
           </div>
         </div>
       </div>
@@ -764,11 +829,13 @@
   <script>
   import { openDB } from 'idb';
   import CreateAttractionModal from './CreateAttractionModal.vue'
-  import { addCustomAttraction, findCustomAttractionById, deleteCustomAttraction } from '../utils/customAttractions.js'
+  import { findCustomAttractionById, deleteCustomAttraction, saveAllCustomAttractions } from '../utils/customAttractions.js'
   import { getImageUrl as getCustomImageUrl, deleteImagesForId as deleteCustomImagesForId, setImage as setCustomImage } from '../utils/customImageStore.js'
   import { withBackendApiKey, fetchAttractionsPositionsByIds } from '../utils/geoApi.js';
-  import { ensureUserDataHydrated, queueUserDataSync, uploadCustomImage, deleteCustomImages } from '../stores/userDataSync.js'
+  import { ensureUserDataHydrated, queueUserDataSync, deleteCustomImages } from '../stores/userDataSync.js'
   import { invalidateAttractionMapCache } from '../stores/attractionMapCache.js'
+  import { Capacitor } from '@capacitor/core';
+  import { Filesystem, Directory, Encoding } from '@capacitor/filesystem';
   import { Converter } from 'opencc-js';
 
   export default {
@@ -833,6 +900,10 @@
         exportJsonText: '',
         exportFileName: '',
         exportDataUrl: '',
+        exporting: false,
+        exportProgress: 0,
+        exportTotal: 0,
+        exportHasImages: false,
         // 导入失败改为粘贴方式
         showImportPaste: false,
         importPasteText: '',
@@ -889,6 +960,7 @@
         // 点击穿透保护（关闭收藏菜单后短时间屏蔽卡片点击）
         clickGuard: false,
         clickGuardTimer: null,
+        favoriteDateClickLockUntil: 0,
         renameSaveTimer: null,
         // 页面横向滑动分页
         swipeStartX: 0,
@@ -973,13 +1045,13 @@
           peru: '秘鲁',
           chile: '智利',
           bolivia: '玻利维亚',
-          colombia: '哥伦比亚',
           guatemala: '危地马拉',
           elsalvador: '萨尔瓦多',
           honduras: '洪都拉斯',
           nicaragua: '尼加拉瓜',
           costarica: '哥斯达黎加',
           panama: '巴拿马',
+          colombia: '哥伦比亚',
           morocco: '摩洛哥',
           egypt: '埃及',
           southafrica: '南非',
@@ -1083,8 +1155,6 @@
         distanceSortAvailable: false,
         distanceQueue: null,
         listRenderTick: 0,
-        listVisible: true,
-        listShownOnce: false,
         fetchRetryDelay: 2000,
         activeFetchToken: 0,
         maxFetchRetries: 5,
@@ -1093,7 +1163,7 @@
 
     computed: {
       listRenderKey() {
-        return `${this.page || 1}-${this.listRenderTick}`;
+        return `${this.order || 'rating_desc'}-${this.page || 1}-${this.listRenderTick}`;
       },
       totalPages() {
         return Math.ceil(this.total / this.limit);
@@ -1144,6 +1214,7 @@
             ? this.favoritesListStyle
             : {};
         const style = { ...base };
+        style['--fav-rating-slot-width'] = `${this.favoriteRatingSlotWidth}px`;
         if (this.dragging) {
           style.overflowY = 'hidden';
           style.WebkitOverflowScrolling = 'auto';
@@ -1151,6 +1222,30 @@
           style.touchAction = 'none';
         }
         return style;
+      },
+      favoriteRatingSlotWidth() {
+        const fallback = 56;
+        try {
+          const favs = Array.isArray(this.sortedFavorites) ? this.sortedFavorites : [];
+          const texts = favs
+            .filter(f => f && String(f.country) !== 'custom')
+            .map(f => String(f.rating == null ? '' : f.rating).trim())
+            .filter(Boolean);
+          if (!texts.length || typeof document === 'undefined') return fallback;
+          if (!this._favRatingMeasureCanvas) this._favRatingMeasureCanvas = document.createElement('canvas');
+          const ctx = this._favRatingMeasureCanvas.getContext && this._favRatingMeasureCanvas.getContext('2d');
+          if (!ctx) return fallback;
+          ctx.font = "800 12px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Microsoft YaHei', Arial, sans-serif";
+          let maxTextWidth = 0;
+          for (const text of texts) {
+            const w = ctx.measureText(text).width || 0;
+            if (w > maxTextWidth) maxTextWidth = w;
+          }
+          const padded = Math.ceil(maxTextWidth + 12);
+          return Math.max(fallback, padded);
+        } catch (e) {
+          return fallback;
+        }
       },
 
       countryFlagUrl() {
@@ -1203,13 +1298,13 @@
           peru: 'pe',
           chile: 'cl',
           bolivia: 'bo',
-          colombia: 'co',
           guatemala: 'gt',
           elsalvador: 'sv',
           honduras: 'hn',
           nicaragua: 'ni',
           costarica: 'cr',
           panama: 'pa',
+          colombia: 'co',
           morocco: 'ma',
           egypt: 'eg',
           southafrica: 'za',
@@ -1294,6 +1389,7 @@
       }
     },
     async created() {
+      try { await ensureUserDataHydrated(); } catch (e) {}
       this.ensureCountryState();
       this.isRestoring = true;
       // 进入列表页时再次从 localStorage 读取，避免 0 被默认值覆盖
@@ -1324,7 +1420,6 @@
       await this.fetchRegions();
       this.fetchAttractions(false);
       this.fetchAllAttractions();
-      try { await ensureUserDataHydrated(); } catch (e) {}
       this.loadFavorites();
       // 确保自创景点收藏信息为最新
       try { this.refreshCustomFavorites(); this.saveFavorites(); } catch(e) {}
@@ -1355,6 +1450,14 @@
         };
         // disabled: do not add popstate interception on list page
         // window.addEventListener('popstate', this._onListBack, { passive: true });
+      } catch (e) {}
+      // 安卓实体返回键：走与蓝色“返回”按钮一致的逻辑
+      try {
+        this._onHardwareBack = (evt) => {
+          try { evt && evt.preventDefault && evt.preventDefault(); } catch (e) {}
+          this.goBack();
+        };
+        window.addEventListener('hardware-back', this._onHardwareBack);
       } catch (e) {}
     },
 
@@ -1474,11 +1577,11 @@
           this.favRightActionId = null;
           this.favRightSwipeItemId = null;
           this.favRightSwipeOffsetX = 0;
-          this.favListTouchScrolling = false;
-          this.setClickGuard();
-          try {
-            document.removeEventListener('mousedown', this.onOutsideClick, { capture: true });
-            document.removeEventListener('touchstart', this.onOutsideClick, { capture: true });
+        this.favListTouchScrolling = false;
+        this.setClickGuard();
+        try {
+          document.removeEventListener('mousedown', this.onOutsideClick, { capture: true });
+          document.removeEventListener('touchstart', this.onOutsideClick, { capture: true });
             window.removeEventListener('resize', this.updateFavoritesMenuPosition);
             window.removeEventListener('scroll', this.updateFavoritesMenuPosition);
           } catch (e) {}
@@ -1488,7 +1591,7 @@
 
     },
 
-    beforeDestroy() {
+    beforeUnmount() {
       this.activeFetchToken += 1;
       this.clearSwipeResetTimer();
       this.closeFavoritesContextMenu();
@@ -1509,6 +1612,7 @@
       try {
         window.removeEventListener('resize', this.updateSwipeEnabled);
         if (this._onListBack) window.removeEventListener('popstate', this._onListBack);
+        if (this._onHardwareBack) window.removeEventListener('hardware-back', this._onHardwareBack);
       } catch (e) {}
     },
 
@@ -1598,221 +1702,100 @@
         this.resetFiltersAndPagination(true);
         this.clearResetFiltersRouteFlag();
       },
-      extractImportedCustomImages(entry) {
-        const out = {};
-        try {
-          const legacy = entry && entry.images && typeof entry.images === 'object' ? entry.images : null;
-          if (legacy) {
-            if (typeof legacy.main === 'string' && legacy.main.startsWith('data:')) out.main = legacy.main;
-            if (typeof legacy.sec0 === 'string' && legacy.sec0.startsWith('data:')) out.sec0 = legacy.sec0;
-            if (typeof legacy.sec1 === 'string' && legacy.sec1.startsWith('data:')) out.sec1 = legacy.sec1;
-            return out;
-          }
-
-          const images = entry && entry.data && entry.data.images && typeof entry.data.images === 'object'
-            ? entry.data.images
-            : null;
-
-          if (images) {
-            if (typeof images.main === 'string' && images.main.startsWith('data:')) out.main = images.main;
-            if (typeof images.sec0 === 'string' && images.sec0.startsWith('data:')) out.sec0 = images.sec0;
-            if (typeof images.sec1 === 'string' && images.sec1.startsWith('data:')) out.sec1 = images.sec1;
-            const secondary = Array.isArray(images.secondary) ? images.secondary : [];
-            if (!out.sec0 && typeof secondary[0] === 'string' && secondary[0].startsWith('data:')) out.sec0 = secondary[0];
-            if (!out.sec1 && typeof secondary[1] === 'string' && secondary[1].startsWith('data:')) out.sec1 = secondary[1];
-          }
-        } catch (e) {}
-        return out;
-      },
-      stripInlineImageData(custom) {
-        try {
-          if (!custom || typeof custom !== 'object') return custom;
-          const images = custom.images;
-          if (!images || typeof images !== 'object') return custom;
-
-          const nextImages = { ...(images || {}) };
-          // 保留S3路径，只清除dataUrl
-          if (typeof nextImages.main === 'string') {
-            if (nextImages.main.startsWith('data:')) {
-              nextImages.main = '';
-            }
-            // 否则保留原值（可能是S3路径）
-          } else {
-            nextImages.main = '';
-          }
-
-          const secondary = Array.isArray(nextImages.secondary) ? [...nextImages.secondary] : [];
-          while (secondary.length < 2) secondary.push('');
-          nextImages.secondary = secondary.slice(0, 2).map((val) => {
-            if (typeof val !== 'string') return '';
-            if (val.startsWith('data:')) return '';
-            // 保留S3路径
-            return val;
-          });
-
-          return { ...custom, images: nextImages };
-        } catch (e) {
-          return custom;
-        }
-      },
-      async getCustomImageData(id) {
-        const toDataUrl = async (blob) => {
-          if (!blob) return '';
-          return await new Promise((resolve) => {
-            try {
-              const fr = new FileReader();
-              fr.onload = () => resolve(fr.result || '');
-              fr.onerror = () => resolve('');
-              fr.readAsDataURL(blob);
-            } catch (err) { resolve(''); }
-          });
-        };
-        const result = {};
-        const custom = findCustomAttractionById(id) || {};
-        const refs = {
-          main: (custom.images && custom.images.main) || '',
-          sec0: (custom.images && Array.isArray(custom.images.secondary) && custom.images.secondary[0]) || '',
-          sec1: (custom.images && Array.isArray(custom.images.secondary) && custom.images.secondary[1]) || ''
-        };
-        const slots = [
-          { slot: 'main', storeKey: `${id}:main` },
-          { slot: 'sec0', storeKey: `${id}:sec0` },
-          { slot: 'sec1', storeKey: `${id}:sec1` },
-        ];
+      async getCustomImageData(id, budget) {
         try {
           const d = await openDB('customAttractionsDB', 1);
-          for (const { slot, storeKey } of slots) {
+          const keys = [`${id}:main`, `${id}:sec0`, `${id}:sec1`];
+          const out = {};
+
+          const blobToDataUrl = async (blob) => {
+            if (!blob) return '';
             try {
-              const blob = await d.get('images', storeKey);
-              if (blob) {
-                const dataUrl = await toDataUrl(blob);
-                if (dataUrl) { result[slot] = dataUrl; continue; }
+              return await new Promise((resolve) => {
+                try {
+                  const fr = new FileReader();
+                  fr.onload = () => resolve(fr.result || '');
+                  fr.onerror = () => resolve('');
+                  fr.readAsDataURL(blob);
+                } catch (err) { resolve(''); }
+              });
+            } catch (e) { return ''; }
+          };
+
+          const maxSide = 720;
+          const quality = 0.8;
+          const blobToScaledDataUrl = async (blob) => {
+            if (!blob) return '';
+            try {
+              const url = URL.createObjectURL(blob);
+              return await new Promise((resolve) => {
+                try {
+                  const img = new Image();
+                  img.onload = () => {
+                    try {
+                      let w = img.naturalWidth || img.width || 0;
+                      let h = img.naturalHeight || img.height || 0;
+                      if (!w || !h) {
+                        resolve('');
+                        return;
+                      }
+                      const scale = Math.min(1, maxSide / Math.max(w, h));
+                      w = Math.max(1, Math.round(w * scale));
+                      h = Math.max(1, Math.round(h * scale));
+                      const canvas = document.createElement('canvas');
+                      canvas.width = w;
+                      canvas.height = h;
+                      const ctx = canvas.getContext('2d');
+                      if (!ctx) {
+                        resolve('');
+                        return;
+                      }
+                      ctx.drawImage(img, 0, 0, w, h);
+                      const dataUrl = canvas.toDataURL('image/jpeg', quality) || '';
+                      resolve(dataUrl);
+                    } catch (err) {
+                      resolve('');
+                    } finally {
+                      try { URL.revokeObjectURL(url); } catch (e) {}
+                    }
+                  };
+                  img.onerror = () => {
+                    try { URL.revokeObjectURL(url); } catch (e) {}
+                    resolve('');
+                  };
+                  img.src = url;
+                } catch (err) {
+                  resolve('');
+                }
+              });
+            } catch (e) { return ''; }
+          };
+
+          for (const key of keys) {
+            try {
+              const blob = await d.get('images', key);
+              if (!blob) continue;
+              const size = blob && blob.size ? blob.size : 0;
+              let dataUrl = '';
+              if (!budget || !Number.isFinite(budget.limit)) {
+                dataUrl = await blobToDataUrl(blob);
+              } else {
+                const remaining = Math.max(0, budget.limit - budget.used);
+                if (size && size <= remaining) {
+                  dataUrl = await blobToDataUrl(blob);
+                  budget.used += size;
+                } else {
+                  // 超出安全阈值时对图片进行压缩
+                  dataUrl = await blobToScaledDataUrl(blob);
+                  // 压缩后体积更小，这里粗略累加原始 size，避免再次大量原图
+                  budget.used += size;
+                }
               }
+              if (dataUrl) out[key.split(':')[1]] = dataUrl;
             } catch (e) {}
-            const ref = refs[slot] || '';
-            if (ref && typeof ref === 'string' && ref.startsWith('data:')) {
-              result[slot] = ref;
-              continue;
-            }
-            const tryKeys = [];
-            if (ref) tryKeys.push(ref);
-            tryKeys.push(storeKey);
-            for (const key of tryKeys) {
-              try {
-                const url = await getCustomImageUrl(key);
-                if (!url) continue;
-                const resp = await fetch(url);
-                const blob = await resp.blob();
-                const dataUrl = await toDataUrl(blob);
-                if (dataUrl) { result[slot] = dataUrl; break; }
-              } catch (e) {}
-            }
           }
-        } catch (e) {}
-        return result;
-      },
-      async upsertCustomFromImport(custom, images) {
-        const id = custom && custom.id ? String(custom.id) : ('custom_' + Date.now());
-        const base = { ...(custom || {}), id, country: 'custom' };
-        // stripInlineImageData已经保留了S3路径，清除了dataUrl
-        // 所以base.images中应该只包含S3路径或空字符串
-        const refs = {
-          main: (base.images && base.images.main) || '',
-          secondary: Array.isArray(base.images && base.images.secondary) ? [...base.images.secondary] : []
-        };
-        while (refs.secondary.length < 2) refs.secondary.push('');
-
-        // 判断是否为S3路径（包含/的路径，不是data:，也不是id:slot格式）
-        const isS3Path = (path) => {
-          if (!path || typeof path !== 'string') return false;
-          if (path.startsWith('data:')) return false;
-          // S3路径通常包含/，而id:slot格式不包含/
-          if (path.includes('/')) return true;
-          return false;
-        };
-
-        // 调试：检查导入的图片路径
-        try {
-          console.log('[Import] Custom attraction images:', {
-            id,
-            main: refs.main,
-            secondary: refs.secondary,
-            isMainS3: isS3Path(refs.main),
-            isSec0S3: isS3Path(refs.secondary[0]),
-            isSec1S3: isS3Path(refs.secondary[1]),
-            baseImages: base.images,
-            customImages: custom.images
-          });
-        } catch (e) {}
-
-        // 上传函数（用于兼容旧格式的dataUrl）
-        const cacheSlot = async (slotKey, dataUrl) => {
-          if (!dataUrl) return false;
-          try {
-            return await setCustomImage(`${id}:${slotKey}`, dataUrl);
-          } catch (e) {
-            return false;
-          }
-        };
-
-        const uploadSlot = async (slot, dataUrl) => {
-          if (!dataUrl) return '';
-          try {
-            const key = await uploadCustomImage(id, slot, dataUrl);
-            return key || '';
-          } catch (e) {
-            return '';
-          }
-        };
-
-        const uploadAndCache = async (slot, slotKey, dataUrl, existingRef) => {
-          const cachedOk = await cacheSlot(slotKey, dataUrl);
-          const key = await uploadSlot(slot, dataUrl);
-          if (key) return key;
-          if (cachedOk && !existingRef) return `${id}:${slotKey}`;
-          return existingRef || '';
-        };
-
-        // 兼容旧格式：如果有dataUrl，需要上传
-        const imgs = images && typeof images === 'object' ? images : {};
-        
-        // 处理主图：如果已经是S3路径，直接使用；否则如果有dataUrl则上传
-        if (!isS3Path(refs.main) && imgs.main && imgs.main.startsWith('data:')) {
-          refs.main = await uploadAndCache('main', 'main', imgs.main, refs.main);
-        }
-
-        // 处理副图1
-        if (!isS3Path(refs.secondary[0]) && imgs.sec0 && imgs.sec0.startsWith('data:')) {
-          refs.secondary[0] = await uploadAndCache('sec0', 'sec0', imgs.sec0, refs.secondary[0]);
-        }
-
-        // 处理副图2
-        if (!isS3Path(refs.secondary[1]) && imgs.sec1 && imgs.sec1.startsWith('data:')) {
-          refs.secondary[1] = await uploadAndCache('sec1', 'sec1', imgs.sec1, refs.secondary[1]);
-        }
-
-        const payload = {
-          ...base,
-          hasImage1: !!refs.main,
-          hasImage2: !!refs.secondary[0],
-          hasImage3: !!refs.secondary[1],
-          images: {
-            main: refs.main || '',
-            secondary: [refs.secondary[0] || '', refs.secondary[1] || '']
-          },
-          isImported: true  // 标记为来自导入，删除时不应删除S3资源
-        };
-        const saved = addCustomAttraction(payload);
-        // 调试：检查保存后的数据
-        try {
-          console.log('[Import] Saved custom attraction:', {
-            id: saved.id,
-            main: saved.images?.main,
-            secondary: saved.images?.secondary,
-            hasImage1: saved.hasImage1
-          });
-        } catch (e) {}
-        return saved;
+          return out;
+        } catch (e) { return {}; }
       },
 
       // 从浏览器地理编码缓存中移除某个自创景点的经纬度
@@ -1891,7 +1874,157 @@
           if (input && input.click) input.click();
         } catch (e) {}
       },
+      async sleep(ms) {
+        return new Promise(resolve => setTimeout(resolve, ms));
+      },
+      isNativeAndroid() {
+        try {
+          if (!Capacitor || !Capacitor.isNativePlatform || !Capacitor.isNativePlatform()) {
+            return false;
+          }
+          const platform = Capacitor.getPlatform && Capacitor.getPlatform();
+          return platform === 'android';
+        } catch (e) {
+          return false;
+        }
+      },
+      shouldIncludeImagesForExport() {
+        // 默认允许导出图片，具体是否压缩由 getCustomImageData 的预算控制
+        return true;
+      },
+      getExportImageLimit() {
+        try {
+          // 原生 Android 上保守一些，控制在约 4MB 原始图片数据以内
+          if (this.isNativeAndroid && this.isNativeAndroid()) {
+            return 4 * 1024 * 1024;
+          }
+        } catch (e) {}
+        // 浏览器环境宽松一些，基本不触发压缩
+        return Number.POSITIVE_INFINITY;
+      },
+      async saveExportWithFilesystem(jsonText, fileName) {
+        try {
+          if (!Capacitor || !Capacitor.isNativePlatform || !Capacitor.isNativePlatform()) {
+            return false;
+          }
+          const platform = Capacitor.getPlatform && Capacitor.getPlatform();
+          if (platform !== 'android') return false;
+          const safeName = (fileName || 'favorites.json').replace(/[\\/]+/g, '_');
+          const dir = Directory.Documents;
+          try {
+            await Filesystem.mkdir({ path: 'favorites_exports', directory: dir, recursive: true });
+          } catch (e) {}
+
+          // 如果已存在同名文件，则自动添加后缀避免覆盖
+          let finalName = safeName;
+          try {
+            const listing = await Filesystem.readdir({ path: 'favorites_exports', directory: dir });
+            const files = Array.isArray(listing?.files) ? listing.files : (listing || []);
+            const names = files.map((f) => {
+              if (!f) return '';
+              if (typeof f === 'string') return f;
+              return f.name || f.uri || '';
+            }).filter(Boolean);
+
+            if (names.includes(finalName)) {
+              const dot = safeName.lastIndexOf('.');
+              const base = dot > 0 ? safeName.slice(0, dot) : safeName;
+              const ext = dot > 0 ? safeName.slice(dot) : '';
+              let index = 1;
+              while (index < 1000) {
+                const candidate = `${base}(${index})${ext}`;
+                if (!names.includes(candidate)) {
+                  finalName = candidate;
+                  break;
+                }
+                index += 1;
+              }
+            }
+          } catch (e) {}
+
+          const path = `favorites_exports/${finalName}`;
+          await Filesystem.writeFile({
+            path,
+            data: jsonText,
+            directory: dir,
+            encoding: Encoding.UTF8,
+          });
+          try { alert(`已保存到本机文档目录：${path}`); } catch (e) {}
+          return true;
+        } catch (e) {
+          return false;
+        }
+      },
+      async buildExportItems(rawItems, includeImages, imageBudget) {
+        const items = Array.isArray(rawItems) ? [...rawItems] : [];
+        const result = [];
+        for (let i = 0; i < items.length; i++) {
+          const it = items[i];
+          const pending = !!it.pending;
+          const favoriteDate = this.normalizeFavoriteDate(it && it.favoriteDate);
+          if (String(it.country) === 'custom') {
+            const full = findCustomAttractionById(it.id) || null;
+            const base = { kind: 'custom', pending, data: full };
+            if (favoriteDate) base.favoriteDate = favoriteDate;
+            if (includeImages) {
+              try {
+                const images = await this.getCustomImageData(it.id, imageBudget);
+                if (images && Object.keys(images).length) {
+                  base.images = images;
+                  this.exportHasImages = true;
+                }
+              } catch (e) {}
+            }
+            result.push(base);
+          } else {
+            const entry = {
+              kind: 'ref',
+              pending,
+              data: {
+                id: it.id,
+                name: it.name,
+                region: it.region,
+                county: it.county,
+                country: it.country,
+                rating: it.rating,
+              },
+            };
+            if (favoriteDate) entry.favoriteDate = favoriteDate;
+            result.push(entry);
+          }
+          this.exportProgress += 1;
+          if (i % 3 === 2) {
+            await this.sleep(0);
+          }
+        }
+        return result;
+      },
+      async buildExportTabs(tabs, includeImages, imageBudget) {
+        const list = Array.isArray(tabs) ? tabs : [];
+        const outTabs = [];
+        let total = 0;
+        list.forEach(t => {
+          if (Array.isArray(t.items)) total += t.items.length;
+        });
+        this.exportTotal = total;
+        this.exportProgress = 0;
+        for (const t of list) {
+          const packedItems = await this.buildExportItems(t.items || [], includeImages, imageBudget);
+          outTabs.push({
+            tabName: t.name || '新建收藏',
+            items: packedItems,
+          });
+        }
+        return outTabs;
+      },
       async exportActiveFavorites(fromChoice) {
+        if (this.exporting) return;
+        this.exporting = true;
+        this.exportProgress = 0;
+        this.exportTotal = 0;
+        this.exportHasImages = false;
+        await this.$nextTick();
+        await this.sleep(0);
         let didExport = false;
         try {
           // When only one (or zero) favorite tab exists, bypass choice dialog
@@ -1903,95 +2036,140 @@
           didExport = true;
           const active = this.favoriteTabs.find(t => t.id === this.activeTabId);
           const items = Array.isArray(this.favorites) ? [...this.favorites] : [];
-          const payload = {
-            version: 1,
-            type: 'favorites-export',
-            tabName: active ? (active.name || '新的收藏') : '新的收藏',
-            exportedAt: new Date().toISOString(),
-            items: await Promise.all(items.map(async (it) => {
-              const pending = !!it.pending;
-              if (String(it.country) === 'custom') {
-                const full = findCustomAttractionById(it.id) || null;
-                // 导出时只记录S3路径，不导出dataUrl
-                const embedded = full ? {
-                  ...full,
-                  images: {
-                    main: (full.images && full.images.main) ? full.images.main : '',
-                    secondary: Array.isArray(full.images && full.images.secondary) ? [
-                      full.images.secondary[0] || '',
-                      full.images.secondary[1] || ''
-                    ] : ['', '']
-                  }
-                } : null;
-                if (embedded && embedded.images) {
-                  embedded.hasImage1 = !!embedded.images.main;
-                  embedded.hasImage2 = Array.isArray(embedded.images.secondary) ? !!embedded.images.secondary[0] : false;
-                  embedded.hasImage3 = Array.isArray(embedded.images.secondary) ? !!embedded.images.secondary[1] : false;
-                }
-                return { kind: 'custom', pending, data: embedded };
-              }
-              return { kind: 'ref', pending, data: {
-                id: it.id,
-                name: it.name,
-                region: it.region,
-                county: it.county,
-                country: it.country,
-                rating: it.rating
-              }};
-            }))
-          };
+          this.exportTotal = items.length;
+          this.exportProgress = 0;
+          const imageBudget = { used: 0, limit: this.getExportImageLimit() };
+          let packedItems;
+          let payload;
+          const allowImages = this.shouldIncludeImagesForExport();
+          try {
+            packedItems = await this.buildExportItems(items, allowImages, imageBudget);
+            payload = {
+              version: 1,
+              type: 'favorites-export',
+              tabName: active ? (active.name || '新的收藏') : '新的收藏',
+              exportedAt: new Date().toISOString(),
+              items: packedItems,
+            };
+          } catch (eBuild) {
+            if (allowImages) {
+              try { alert('导出包含图片的自创景点失败，已改为不导出图片。'); } catch (_) {}
+              this.exportProgress = 0;
+              packedItems = await this.buildExportItems(items, false);
+              payload = {
+                version: 1,
+                type: 'favorites-export',
+                tabName: active ? (active.name || '新的收藏') : '新的收藏',
+                exportedAt: new Date().toISOString(),
+                items: packedItems,
+              };
+            } else {
+              throw eBuild;
+            }
+          }
           const jsonText = JSON.stringify(payload, null, 2);
           const blob = new Blob([jsonText], { type: 'application/json;charset=utf-8' });
           const fileName = (payload.tabName || '收藏')
             .replace(/\s+/g, '_')
             .replace(/[^\w\u4e00-\u9fa5\-_]/g, '') + '_favorites.json';
+
+          // 原生安卓应用优先使用 Capacitor Filesystem 直接写入文件，增加超时保护
+          let fsOk = false;
+          if (this.isNativeAndroid && this.isNativeAndroid()) {
+            try {
+              const fsResult = await Promise.race([
+                this.saveExportWithFilesystem(jsonText, fileName),
+                this.sleep(15000).then(() => 'timeout'),
+              ]);
+              fsOk = fsResult === true;
+              if (fsResult === 'timeout') {
+                try { alert('导出文件较大，直接保存耗时较长，已改用其他导出方式。'); } catch (_) {}
+              }
+            } catch (eFs) {
+              fsOk = false;
+            }
+          }
+          if (fsOk) return;
+
+          const ua = (typeof navigator !== 'undefined' && navigator.userAgent) ? navigator.userAgent : '';
+          const isAndroidWebView = /Android/i.test(ua) && /\bwv\b/i.test(ua);
+
           // 优先使用 Web Share（移动端更友好）
           try {
-            const file = new File([blob], fileName, { type: 'application/json' });
-            if (navigator.canShare && navigator.canShare({ files: [file] })) {
-              await navigator.share({ files: [file], title: fileName });
-              return;
+            if (typeof File !== 'undefined' && navigator && typeof navigator.canShare === 'function') {
+              const file = new File([blob], fileName, { type: 'application/json' });
+              if (navigator.canShare({ files: [file] })) {
+                await navigator.share({ files: [file], title: fileName });
+                return;
+              }
             }
           } catch (eShare) {}
-          // 其次尝试 a[download]
+
+          // 次优先：仅分享文本，兼容不支持文件分享的 Android WebView 等环境
           try {
-            const a = document.createElement('a');
-            if ('download' in a) {
+            if (navigator && typeof navigator.share === 'function') {
+              await navigator.share({ title: fileName, text: jsonText });
+              return;
+            }
+          } catch (eShareText) {}
+
+          // Android WebView 中 download/window.open 对 Blob 常常无效，直接走剪贴板/弹窗回退
+          if (!isAndroidWebView) {
+            // 其次尝试 a[download]
+            try {
+              const a = document.createElement('a');
+              if ('download' in a) {
+                const url = URL.createObjectURL(blob);
+                a.href = url;
+                a.download = fileName;
+                document.body.appendChild(a);
+                a.click();
+                setTimeout(() => {
+                  try { document.body.removeChild(a); } catch(e) {}
+                  try { URL.revokeObjectURL(url); } catch(e) {}
+                }, 0);
+                return;
+              }
+            } catch (eDL) {}
+            // 再次回退：打开新标签页预览（iOS Safari 不支持 download）
+            try {
               const url = URL.createObjectURL(blob);
-              a.href = url;
-              a.download = fileName;
-              document.body.appendChild(a);
-              a.click();
-              setTimeout(() => {
-                try { document.body.removeChild(a); } catch(e) {}
-                try { URL.revokeObjectURL(url); } catch(e) {}
-              }, 0);
+              window.open(url, '_blank', 'noopener');
+              // 给出提示：在新页面通过分享/保存
+              try { alert('已在新页面打开导出的数据，可通过分享或“保存到文件”进行保存。'); } catch(e) {}
+              // 稍后释放 URL
+              setTimeout(() => { try { URL.revokeObjectURL(url); } catch(e) {} }, 4000);
               return;
-            }
-          } catch (eDL) {}
-          // 再次回退：打开新标签页预览（iOS Safari 不支持 download）
-          try {
-            const url = URL.createObjectURL(blob);
-            window.open(url, '_blank', 'noopener');
-            // 给出提示：在新页面通过分享/保存
-            try { alert('已在新页面打开导出的数据，可通过分享或“保存到文件”进行保存。'); } catch(e) {}
-            // 稍后释放 URL
-            setTimeout(() => { try { URL.revokeObjectURL(url); } catch(e) {} }, 4000);
-            return;
-          } catch (eOpen) {}
-          // 最后回退：复制到剪贴板
-          try {
-            if (navigator.clipboard && navigator.clipboard.writeText) {
-              await navigator.clipboard.writeText(jsonText);
-              alert('已复制导出数据到剪贴板，请粘贴保存。');
-              return;
-            }
-          } catch (eClip) {}
-          // 若以上方案均受限，显示回退弹窗以便复制/手动保存
-          this.openExportFallback(jsonText, fileName);
-        } catch (e) {}
-        if (didExport) {
-          try { invalidateAttractionMapCache('favorites:export'); } catch (e) {}
+            } catch (eOpen) {}
+          }
+
+          // 最后回退：复制到剪贴板或简短提示
+          if (!this.isNativeAndroid || !this.isNativeAndroid()) {
+            try {
+              if (navigator && navigator.clipboard && navigator.clipboard.writeText) {
+                await navigator.clipboard.writeText(jsonText);
+                alert('已复制导出数据到剪贴板，请粘贴保存。');
+                return;
+              }
+            } catch (eClip) {}
+            // 若以上方案均受限，显示回退弹窗以便复制/手动保存（仅非原生环境）
+            this.openExportFallback(jsonText, fileName);
+          } else {
+            // 原生 Android 上避免在页面中渲染超大 JSON，防止卡死和闪退
+            try {
+              alert('导出文件已生成，但当前手机环境无法直接展示或复制全部内容。如需备份，请在电脑浏览器打开本网站导出。');
+            } catch (_) {}
+          }
+        } catch (e) {
+          try { console.error && console.error('exportActiveFavorites error', e); } catch (_) {}
+          try { alert('导出收藏失败，请稍后重试，或删除部分包含大图片的自创景点后再尝试。'); } catch (_) {}
+        } finally {
+          this.exporting = false;
+          this.exportProgress = 0;
+          this.exportTotal = 0;
+          if (didExport) {
+            try { invalidateAttractionMapCache('favorites:export'); } catch (e) {}
+          }
         }
       },
       openExportFallback(jsonText, fileName) {
@@ -2006,93 +2184,134 @@
       },
       // Export all favorite tabs into a single file
       async exportAllFavorites() {
+        if (this.exporting) return;
+        this.exporting = true;
+        this.exportProgress = 0;
+        this.exportTotal = 0;
+        this.exportHasImages = false;
+        await this.$nextTick();
+        await this.sleep(0);
         let didExport = false;
         try {
           didExport = true;
           const tabs = Array.isArray(this.favoriteTabs) ? this.favoriteTabs : [];
-          const outTabs = [];
-          for (const t of tabs) {
-            const items = Array.isArray(t.items) ? [...t.items] : [];
-            const tabPack = {
-              tabName: t.name || '新建收藏',
-              items: await Promise.all(items.map(async (it) => {
-                const pending = !!it.pending;
-                if (String(it.country) === 'custom') {
-                  const full = findCustomAttractionById(it.id) || null;
-                  // 导出时只记录S3路径，不导出dataUrl
-                  const embedded = full ? {
-                    ...full,
-                    images: {
-                      main: (full.images && full.images.main) ? full.images.main : '',
-                      secondary: Array.isArray(full.images && full.images.secondary) ? [
-                        full.images.secondary[0] || '',
-                        full.images.secondary[1] || ''
-                      ] : ['', '']
-                    }
-                  } : null;
-                  if (embedded && embedded.images) {
-                    embedded.hasImage1 = !!embedded.images.main;
-                    embedded.hasImage2 = Array.isArray(embedded.images.secondary) ? !!embedded.images.secondary[0] : false;
-                    embedded.hasImage3 = Array.isArray(embedded.images.secondary) ? !!embedded.images.secondary[1] : false;
-                  }
-                  return { kind: 'custom', pending, data: embedded };
-                }
-                return { kind: 'ref', pending, data: {
-                  id: it.id,
-                  name: it.name,
-                  region: it.region,
-                  county: it.county,
-                  country: it.country,
-                  rating: it.rating
-                }};
-              }))
+          const imageBudget = { used: 0, limit: this.getExportImageLimit() };
+          let outTabs;
+          let payload;
+          const allowImages = this.shouldIncludeImagesForExport();
+          try {
+            outTabs = await this.buildExportTabs(tabs, allowImages, imageBudget);
+            payload = {
+              version: 1,
+              type: 'favorites-export-multi',
+              exportedAt: new Date().toISOString(),
+              tabs: outTabs,
             };
-            outTabs.push(tabPack);
+          } catch (eBuild) {
+            if (allowImages) {
+              try { alert('导出包含图片的自创景点失败，已改为不导出图片。'); } catch (_) {}
+              outTabs = await this.buildExportTabs(tabs, false);
+              payload = {
+                version: 1,
+                type: 'favorites-export-multi',
+                exportedAt: new Date().toISOString(),
+                tabs: outTabs,
+              };
+            } else {
+              throw eBuild;
+            }
           }
-          const payload = { version: 1, type: 'favorites-export-multi', exportedAt: new Date().toISOString(), tabs: outTabs };
           const jsonText = JSON.stringify(payload, null, 2);
           const blob = new Blob([jsonText], { type: 'application/json;charset=utf-8' });
           const fileName = 'all_favorites.json';
+
+          let fsOk = false;
+          if (this.isNativeAndroid && this.isNativeAndroid()) {
+            try {
+              const fsResult = await Promise.race([
+                this.saveExportWithFilesystem(jsonText, fileName),
+                this.sleep(15000).then(() => 'timeout'),
+              ]);
+              fsOk = fsResult === true;
+              if (fsResult === 'timeout') {
+                try { alert('导出文件较大，直接保存耗时较长，已改用其他导出方式。'); } catch (_) {}
+              }
+            } catch (eFs) {
+              fsOk = false;
+            }
+          }
+          if (fsOk) return;
+
+          const ua = (typeof navigator !== 'undefined' && navigator.userAgent) ? navigator.userAgent : '';
+          const isAndroidWebView = /Android/i.test(ua) && /\bwv\b/i.test(ua);
+
+          // 优先使用 Web Share（移动端更友好）
           try {
-            const file = new File([blob], fileName, { type: 'application/json' });
-            if (navigator.canShare && navigator.canShare({ files: [file] })) {
-              await navigator.share({ files: [file], title: fileName });
-              return;
+            if (typeof File !== 'undefined' && navigator && typeof navigator.canShare === 'function') {
+              const file = new File([blob], fileName, { type: 'application/json' });
+              if (navigator.canShare({ files: [file] })) {
+                await navigator.share({ files: [file], title: fileName });
+                return;
+              }
             }
           } catch (eShare) {}
+
+          // 次优先：仅分享文本，兼容不支持文件分享的 Android WebView 等环境
           try {
-            const a = document.createElement('a');
-            if ('download' in a) {
+            if (navigator && typeof navigator.share === 'function') {
+              await navigator.share({ title: fileName, text: jsonText });
+              return;
+            }
+          } catch (eShareText) {}
+
+          if (!isAndroidWebView) {
+            try {
+              const a = document.createElement('a');
+              if ('download' in a) {
+                const url = URL.createObjectURL(blob);
+                a.href = url;
+                a.download = fileName;
+                document.body.appendChild(a);
+                a.click();
+                setTimeout(() => {
+                  try { document.body.removeChild(a); } catch(e) {}
+                  try { URL.revokeObjectURL(url); } catch(e) {}
+                }, 0);
+                return;
+              }
+            } catch (eDL) {}
+            try {
               const url = URL.createObjectURL(blob);
-              a.href = url;
-              a.download = fileName;
-              document.body.appendChild(a);
-              a.click();
-              setTimeout(() => {
-                try { document.body.removeChild(a); } catch(e) {}
-                try { URL.revokeObjectURL(url); } catch(e) {}
-              }, 0);
+              window.open(url, '_blank', 'noopener');
+              try { alert('已在新页面打开导出内容，可通过浏览器保存。'); } catch(e) {}
+              setTimeout(() => { try { URL.revokeObjectURL(url); } catch(e) {} }, 4000);
               return;
-            }
-          } catch (eDL) {}
-          try {
-            const url = URL.createObjectURL(blob);
-            window.open(url, '_blank', 'noopener');
-            try { alert('已在新页面打开导出内容，可通过浏览器保存。'); } catch(e) {}
-            setTimeout(() => { try { URL.revokeObjectURL(url); } catch(e) {} }, 4000);
-            return;
-          } catch (eOpen) {}
-          try {
-            if (navigator.clipboard && navigator.clipboard.writeText) {
-              await navigator.clipboard.writeText(jsonText);
-              alert('已复制导出内容到剪贴板');
-              return;
-            }
-          } catch (eClip) {}
-          this.openExportFallback(jsonText, fileName);
-        } catch (e) {}
-        if (didExport) {
-          try { invalidateAttractionMapCache('favorites:exportAll'); } catch (e) {}
+            } catch (eOpen) {}
+          }
+          if (!this.isNativeAndroid || !this.isNativeAndroid()) {
+            try {
+              if (navigator && navigator.clipboard && navigator.clipboard.writeText) {
+                await navigator.clipboard.writeText(jsonText);
+                alert('已复制导出内容到剪贴板');
+                return;
+              }
+            } catch (eClip) {}
+            this.openExportFallback(jsonText, fileName);
+          } else {
+            try {
+              alert('导出文件已生成，但当前手机环境无法直接展示或复制全部内容。如需备份，请在电脑浏览器打开本网站导出。');
+            } catch (_) {}
+          }
+        } catch (e) {
+          try { console.error && console.error('exportAllFavorites error', e); } catch (_) {}
+          try { alert('导出全部收藏失败，请稍后重试，或删除部分包含大图片的自创景点后再尝试。'); } catch (_) {}
+        } finally {
+          this.exporting = false;
+          this.exportProgress = 0;
+          this.exportTotal = 0;
+          if (didExport) {
+            try { invalidateAttractionMapCache('favorites:exportAll'); } catch (e) {}
+          }
         }
       },
       closeExportFallback() { this.showExportModal = false; },
@@ -2170,44 +2389,36 @@
               for (const entry of arr) {
                 if (!entry || !entry.kind) continue;
                 if (entry.kind === 'custom' && entry.data) {
-
                   let custom = entry.data;
-
                   if (!custom.id) custom.id = 'custom_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
-
                   const existed = findCustomAttractionById(custom.id);
-
                   if (existed && JSON.stringify(existed) !== JSON.stringify(custom)) {
-
                     custom = { ...custom, id: 'custom_' + Date.now() + '_' + Math.random().toString(36).slice(2, 5) };
-
                   }
-
-                  const importImages = this.extractImportedCustomImages(entry);
-                  const cleanedCustom = this.stripInlineImageData(custom);
-                  const savedCustom = await this.upsertCustomFromImport(cleanedCustom, importImages);
-
-                  const targetCustom = savedCustom || custom;
-
-                  items.push({
-
-                    id: targetCustom.id,
-
-                    name: targetCustom.name,
-
-                    region: targetCustom.region,
-
-                    county: targetCustom.county,
-
-                    country: 'custom',
-
-                    pending: !!entry.pending
-
-                  });
-
+                  try {
+                    const allRaw = localStorage.getItem('customAttractions');
+                    const all = allRaw ? (JSON.parse(allRaw) || []) : [];
+                    const idx = all.findIndex(a => String(a.id) === String(custom.id));
+                    if (idx >= 0) all[idx] = custom; else all.push(custom);
+                    saveAllCustomAttractions(all);
+                  } catch (e) {}
+                  try {
+                    if (entry.images && typeof entry.images === 'object') {
+                      if (entry.images.main) await setCustomImage(`${custom.id}:main`, entry.images.main);
+                      if (entry.images.sec0) await setCustomImage(`${custom.id}:sec0`, entry.images.sec0);
+                      if (entry.images.sec1) await setCustomImage(`${custom.id}:sec1`, entry.images.sec1);
+                    }
+                  } catch (e) {}
+                  const favoriteDate = this.readFavoriteDateFromImportEntry(entry);
+                  const importedCustom = { id: custom.id, name: custom.name, region: custom.region, county: custom.county, country: 'custom', pending: !!entry.pending };
+                  if (favoriteDate) importedCustom.favoriteDate = favoriteDate;
+                  items.push(importedCustom);
                 } else if (entry.kind === 'ref' && entry.data) {
                   const it = entry.data;
-                  items.push({ id: it.id, name: it.name, region: it.region, county: it.county, country: it.country, rating: it.rating, pending: !!entry.pending });
+                  const favoriteDate = this.readFavoriteDateFromImportEntry(entry);
+                  const importedRef = { id: it.id, name: it.name, region: it.region, county: it.county, country: it.country, rating: it.rating, pending: !!entry.pending };
+                  if (favoriteDate) importedRef.favoriteDate = favoriteDate;
+                  items.push(importedRef);
                 }
               }
               items.forEach((it, idx) => (it.order = idx + 1));
@@ -2229,44 +2440,48 @@
           for (const entry of data.items) {
             if (!entry || !entry.kind) continue;
             if (entry.kind === 'custom' && entry.data) {
-
               let custom = entry.data;
-
+              // 确保有ID
               if (!custom.id) custom.id = 'custom_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
-
+              // 若ID已存在且不同内容，则生成新ID
               const existed = findCustomAttractionById(custom.id);
-
               if (existed && JSON.stringify(existed) !== JSON.stringify(custom)) {
-
                 custom = { ...custom, id: 'custom_' + Date.now() + '_' + Math.random().toString(36).slice(2, 5) };
-
               }
-
-              const importImages = this.extractImportedCustomImages(entry);
-              const cleanedCustom = this.stripInlineImageData(custom);
-              const savedCustom = await this.upsertCustomFromImport(cleanedCustom, importImages);
-
-              const targetCustom = savedCustom || custom;
-
-              items.push({
-
-                id: targetCustom.id,
-
-                name: targetCustom.name,
-
-                region: targetCustom.region,
-
-                county: targetCustom.county,
-
+                  // 写入/更新本地自创库
+              try {
+                const allRaw = localStorage.getItem('customAttractions');
+                const all = allRaw ? (JSON.parse(allRaw) || []) : [];
+                const idx = all.findIndex(a => String(a.id) === String(custom.id));
+                // 标记为来自导入
+                const customWithImport = { ...custom, isImported: true };
+                if (idx >= 0) all[idx] = customWithImport; else all.push(customWithImport);
+                saveAllCustomAttractions(all);
+              } catch (e) {}
+                            // 还原图片（如导出包含）
+              try {
+                if (entry.images && typeof entry.images === 'object') {
+                  if (entry.images.main) await setCustomImage(`${custom.id}:main`, entry.images.main);
+                  if (entry.images.sec0) await setCustomImage(`${custom.id}:sec0`, entry.images.sec0);
+                  if (entry.images.sec1) await setCustomImage(`${custom.id}:sec1`, entry.images.sec1);
+                }
+              } catch (e) {}
+              // 推入收藏项（自创）
+              const favoriteDate = this.readFavoriteDateFromImportEntry(entry);
+              const importedCustom = {
+                id: custom.id,
+                name: custom.name,
+                region: custom.region,
+                county: custom.county,
                 country: 'custom',
-
                 pending: !!entry.pending
-
-              });
-
+              };
+              if (favoriteDate) importedCustom.favoriteDate = favoriteDate;
+              items.push(importedCustom);
             } else if (entry.kind === 'ref' && entry.data) {
               const it = entry.data;
-              items.push({
+              const favoriteDate = this.readFavoriteDateFromImportEntry(entry);
+              const importedRef = {
                 id: it.id,
                 name: it.name,
                 region: it.region,
@@ -2274,7 +2489,9 @@
                 country: it.country,
                 rating: it.rating,
                 pending: !!entry.pending
-              });
+              };
+              if (favoriteDate) importedRef.favoriteDate = favoriteDate;
+              items.push(importedRef);
             }
           }
           // 设置顺序
@@ -2307,44 +2524,38 @@
             for (const entry of arr) {
               if (!entry || !entry.kind) continue;
               if (entry.kind === 'custom' && entry.data) {
-
                 let custom = entry.data;
-
                 if (!custom.id) custom.id = 'custom_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
-
                 const existed = findCustomAttractionById(custom.id);
-
                 if (existed && JSON.stringify(existed) !== JSON.stringify(custom)) {
-
                   custom = { ...custom, id: 'custom_' + Date.now() + '_' + Math.random().toString(36).slice(2, 5) };
-
                 }
-
-                const importImages = this.extractImportedCustomImages(entry);
-                const cleanedCustom = this.stripInlineImageData(custom);
-                const savedCustom = await this.upsertCustomFromImport(cleanedCustom, importImages);
-
-                const targetCustom = savedCustom || custom;
-
-                items.push({
-
-                  id: targetCustom.id,
-
-                  name: targetCustom.name,
-
-                  region: targetCustom.region,
-
-                  county: targetCustom.county,
-
-                  country: 'custom',
-
-                  pending: !!entry.pending
-
-                });
-
+                try {
+                  const allRaw = localStorage.getItem('customAttractions');
+                  const all = allRaw ? (JSON.parse(allRaw) || []) : [];
+                  const idx = all.findIndex(a => String(a.id) === String(custom.id));
+                  // 标记为来自导入
+                  const customWithImport = { ...custom, isImported: true };
+                  if (idx >= 0) all[idx] = customWithImport; else all.push(customWithImport);
+                  saveAllCustomAttractions(all);
+                } catch (e) {}
+                try {
+                  if (entry.images && typeof entry.images === 'object') {
+                    if (entry.images.main) await setCustomImage(`${custom.id}:main`, entry.images.main);
+                    if (entry.images.sec0) await setCustomImage(`${custom.id}:sec0`, entry.images.sec0);
+                    if (entry.images.sec1) await setCustomImage(`${custom.id}:sec1`, entry.images.sec1);
+                  }
+                } catch (e) {}
+                const favoriteDate = this.readFavoriteDateFromImportEntry(entry);
+                const importedCustom = { id: custom.id, name: custom.name, region: custom.region, county: custom.county, country: 'custom', pending: !!entry.pending };
+                if (favoriteDate) importedCustom.favoriteDate = favoriteDate;
+                items.push(importedCustom);
               } else if (entry.kind === 'ref' && entry.data) {
                 const it = entry.data;
-                items.push({ id: it.id, name: it.name, region: it.region, county: it.county, country: it.country, rating: it.rating, pending: !!entry.pending });
+                const favoriteDate = this.readFavoriteDateFromImportEntry(entry);
+                const importedRef = { id: it.id, name: it.name, region: it.region, county: it.county, country: it.country, rating: it.rating, pending: !!entry.pending };
+                if (favoriteDate) importedRef.favoriteDate = favoriteDate;
+                items.push(importedRef);
               }
             }
             items.forEach((it, idx) => (it.order = idx + 1));
@@ -2365,44 +2576,43 @@
         for (const entry of data.items) {
           if (!entry || !entry.kind) continue;
           if (entry.kind === 'custom' && entry.data) {
-
             let custom = entry.data;
-
             if (!custom.id) custom.id = 'custom_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
-
             const existed = findCustomAttractionById(custom.id);
-
             if (existed && JSON.stringify(existed) !== JSON.stringify(custom)) {
-
               custom = { ...custom, id: 'custom_' + Date.now() + '_' + Math.random().toString(36).slice(2, 5) };
-
             }
-
-            const importImages = this.extractImportedCustomImages(entry);
-            const cleanedCustom = this.stripInlineImageData(custom);
-            const savedCustom = await this.upsertCustomFromImport(cleanedCustom, importImages);
-
-            const targetCustom = savedCustom || custom;
-
-            items.push({
-
-              id: targetCustom.id,
-
-              name: targetCustom.name,
-
-              region: targetCustom.region,
-
-              county: targetCustom.county,
-
+            try {
+              const allRaw = localStorage.getItem('customAttractions');
+              const all = allRaw ? (JSON.parse(allRaw) || []) : [];
+              const idx = all.findIndex(a => String(a.id) === String(custom.id));
+              // 标记为来自导入
+              const customWithImport = { ...custom, isImported: true };
+              if (idx >= 0) all[idx] = customWithImport; else all.push(customWithImport);
+              saveAllCustomAttractions(all);
+            } catch (e) {}
+            try {
+              if (entry.images && typeof entry.images === 'object') {
+                if (entry.images.main) await setCustomImage(`${custom.id}:main`, entry.images.main);
+                if (entry.images.sec0) await setCustomImage(`${custom.id}:sec0`, entry.images.sec0);
+                if (entry.images.sec1) await setCustomImage(`${custom.id}:sec1`, entry.images.sec1);
+              }
+            } catch (e) {}
+            const favoriteDate = this.readFavoriteDateFromImportEntry(entry);
+            const importedCustom = {
+              id: custom.id,
+              name: custom.name,
+              region: custom.region,
+              county: custom.county,
               country: 'custom',
-
               pending: !!entry.pending
-
-            });
-
+            };
+            if (favoriteDate) importedCustom.favoriteDate = favoriteDate;
+            items.push(importedCustom);
           } else if (entry.kind === 'ref' && entry.data) {
             const it = entry.data;
-            items.push({
+            const favoriteDate = this.readFavoriteDateFromImportEntry(entry);
+            const importedRef = {
               id: it.id,
               name: it.name,
               region: it.region,
@@ -2410,7 +2620,9 @@
               country: it.country,
               rating: it.rating,
               pending: !!entry.pending
-            });
+            };
+            if (favoriteDate) importedRef.favoriteDate = favoriteDate;
+            items.push(importedRef);
           }
         }
         items.forEach((it, idx) => (it.order = idx + 1));
@@ -3040,26 +3252,27 @@
         const id = this.tabDeleteTargetId;
         if (!id) { this.cancelDeleteTab(); return; }
                 // 在删除整个收藏列表前，清理自创景点缓存与缩略图
-        const remoteKeys = [];
         try {
           const tab = this.favoriteTabs.find(t => t.id === id);
           const items = tab && Array.isArray(tab.items) ? tab.items : [];
           items.forEach(it => {
             if (String(it.country) === 'custom') {
+              let keysToDelete = [];
               try {
-                const custom = findCustomAttractionById(it.id) || {};
+                const custom = findCustomAttractionById(it.id);
                 // 检查是否来自导入，如果是则不删除S3上的图片
-                const isImported = custom.isImported === true;
+                const isImported = custom && custom.isImported === true;
                 if (!isImported) {
-                  const imgs = custom.images || {};
-                  if (imgs.main) remoteKeys.push(imgs.main);
-                  if (Array.isArray(imgs.secondary)) {
-                    imgs.secondary.forEach(k => { if (k) remoteKeys.push(k); });
-                  }
+                  const imgs = custom && custom.images ? custom.images : {};
+                  const sec = Array.isArray(imgs.secondary) ? imgs.secondary : [];
+                  if (imgs.main) keysToDelete.push(imgs.main);
+                  if (sec[0]) keysToDelete.push(sec[0]);
+                  if (sec[1]) keysToDelete.push(sec[1]);
                 }
               } catch (e) {}
               try { deleteCustomAttraction(it.id); } catch(e) {}
               try { deleteCustomImagesForId(it.id); } catch(e) {}
+              try { if (keysToDelete.length) deleteCustomImages(keysToDelete); } catch (e) {}
               try { this.removeGeoCacheForCustom(it.id); } catch(e) {}
             }
             const key = this.thumbKey ? this.thumbKey(it) : (it.country + '-' + it.id);
@@ -3082,7 +3295,6 @@
           this.favorites = at ? at.items : [];
           this.saveFavorites();
         }
-        try { if (remoteKeys.length) deleteCustomImages(remoteKeys); } catch (e) {}
         this.cancelDeleteTab();
       },
       attachEditOutsideListeners(editId) {
@@ -3398,9 +3610,7 @@ const all = this.sortedFavorites || [];
       thumbKey(f) {
         const base = `${f.country}-${f.id}`;
         if (String(f.country) !== 'custom') return base;
-        // 对自创景点：将当前主图引用一起纳入 key，
-        // 这样每次更换/清空主图时都会生成全新的缩略图 key，
-        // 避免收藏列表继续复用旧的缩略图缓存
+        // 对自创景点：将当前主图引用一起纳入 key，避免更换主图后仍复用旧缩略图缓存
         try {
           const a = findCustomAttractionById(f.id);
           const mainRef = a && a.images && a.images.main;
@@ -3448,14 +3658,111 @@ const all = this.sortedFavorites || [];
             }
             return;
           }
-          const ts = Date.now();
-          const imageUrl = `https://juseaxerf.com/api/attraction-image/${f.country}/${f.id}/1?ts=${ts}`;
-          const res = await fetch(imageUrl, withBackendApiKey({ cache: 'no-store' }));
+          // 非自创景点：允许走全局 fetchCache（IndexedDB）做离线/加速缓存
+          const imageUrl = `https://juseaxerf.com/api/attraction-image/${f.country}/${f.id}/1`;
+          const res = await fetch(imageUrl, withBackendApiKey());
           if (!res.ok) return;
           const blob = await res.blob();
           const url = URL.createObjectURL(blob);
           this.$set ? this.$set(this.favThumbs, key, url) : (this.favThumbs[key] = url);
         } catch (e) {}
+      },
+      normalizeFavoriteDate(value) {
+        try {
+          if (value instanceof Date && !Number.isNaN(value.getTime())) {
+            const y = String(value.getFullYear()).padStart(4, '0');
+            const m = String(value.getMonth() + 1).padStart(2, '0');
+            const d = String(value.getDate()).padStart(2, '0');
+            return `${y}-${m}-${d}`;
+          }
+          const raw = String(value || '').trim();
+          const m = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+          if (!m) return '';
+          const y = Number(m[1]);
+          const mo = Number(m[2]);
+          const d = Number(m[3]);
+          if (!Number.isFinite(y) || !Number.isFinite(mo) || !Number.isFinite(d)) return '';
+          const dt = new Date(y, mo - 1, d);
+          if (dt.getFullYear() !== y || (dt.getMonth() + 1) !== mo || dt.getDate() !== d) return '';
+          return `${String(y).padStart(4, '0')}-${String(mo).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+        } catch (e) {
+          return '';
+        }
+      },
+      hasFavoriteDate(item) {
+        return !!this.normalizeFavoriteDate(item && item.favoriteDate);
+      },
+      getFavoriteDateYear(item) {
+        const normalized = this.normalizeFavoriteDate(item && item.favoriteDate);
+        return normalized ? normalized.slice(0, 4) : '';
+      },
+      getFavoriteDateMonthDay(item) {
+        const normalized = this.normalizeFavoriteDate(item && item.favoriteDate);
+        if (!normalized) return '';
+        return `${normalized.slice(5, 7)}/${normalized.slice(8, 10)}`;
+      },
+      readFavoriteDateFromImportEntry(entry) {
+        if (!entry || typeof entry !== 'object') return '';
+        const direct = this.normalizeFavoriteDate(entry.favoriteDate);
+        if (direct) return direct;
+        return this.normalizeFavoriteDate(entry.data && entry.data.favoriteDate);
+      },
+      getFavoriteDateInputRefKey(item) {
+        if (!item) return '';
+        return `favDateInput_${String(item.country || '')}_${String(item.id || '')}`;
+      },
+      getFavoriteDateInputEl(item) {
+        const key = this.getFavoriteDateInputRefKey(item);
+        if (!key) return null;
+        const ref = this.$refs[key];
+        if (Array.isArray(ref)) return ref[0] || null;
+        return ref || null;
+      },
+      isFavoriteDateEvent(evt) {
+        try {
+          const t = evt && evt.target;
+          if (!t || !t.closest) return false;
+          return !!(t.closest('.fav-date-trigger') || t.closest('.fav-date-native-input'));
+        } catch (e) {
+          return false;
+        }
+      },
+      openFavoriteDatePicker(item) {
+        if (!item) return;
+        this.closeFavoritesContextMenu();
+        this.favoriteDateClickLockUntil = Date.now() + 700;
+        const input = this.getFavoriteDateInputEl(item);
+        if (!input) return;
+        const normalized = this.normalizeFavoriteDate(item.favoriteDate);
+        try {
+          if (input.value !== normalized) input.value = normalized;
+        } catch (e) {}
+        try {
+          if (typeof input.showPicker === 'function') {
+            input.showPicker();
+            return;
+          }
+        } catch (e) {}
+        try {
+          input.focus({ preventScroll: true });
+        } catch (e) {
+          try { input.focus(); } catch (_) {}
+        }
+        try {
+          input.click();
+        } catch (e) {}
+      },
+      onFavoriteDateNativeInput(target, evt) {
+        if (!target) return;
+        const normalized = this.normalizeFavoriteDate(evt && evt.target ? evt.target.value : '');
+        if (normalized) {
+          if (this.$set) this.$set(target, 'favoriteDate', normalized);
+          else target.favoriteDate = normalized;
+        } else {
+          if (this.$delete) this.$delete(target, 'favoriteDate');
+          else delete target.favoriteDate;
+        }
+        this.saveFavorites();
       },
       onOutsideClick(e) {
         // 当确认对话框/导出/创建弹窗打开时，保持收藏菜单不自动关闭
@@ -3533,8 +3840,8 @@ const all = this.sortedFavorites || [];
           });
           if (!btn) return; // 未找到可见按钮，不定位
           const rect = btn.getBoundingClientRect();
-          const width = 320;
           const vw = window.innerWidth || document.documentElement.clientWidth || 0;
+          const width = Math.min(380, Math.max(340, vw - 24));
           const left = Math.min(Math.max(12, rect.left), Math.max(12, vw - width - 12));
           this.favoritesMenuStyle = {
             top: `${rect.bottom + 6}px`,
@@ -4097,19 +4404,24 @@ const all = this.sortedFavorites || [];
       },
       onFavoritesNodeTouchStart(node, evt) {
         if (!node || node.type !== 'item') return;
+        if (this.isFavoriteDateEvent(evt)) return;
         this.startMenuItemPress(node.index, evt);
         this.onFavTouchStart(node.f, node.index, evt);
       },
       onFavoritesNodeTouchMove(node, evt) {
         if (!node || node.type !== 'item') return;
+        if (this.isFavoriteDateEvent(evt)) return;
         this.onFavTouchMove(evt);
       },
       onFavoritesNodeTouchEnd(node, evt) {
         if (!node || node.type !== 'item') return;
+        if (this.isFavoriteDateEvent(evt)) return;
         this.onFavTouchEnd(node.f, node.index, evt);
       },
       onFavoritesNodeClick(node, evt) {
         if (!node || node.type !== 'item') return;
+        if (this.isFavoriteDateEvent(evt)) return;
+        if (Date.now() < Number(this.favoriteDateClickLockUntil || 0)) return;
         if (evt && evt.stopPropagation) evt.stopPropagation();
         this.handleMenuItemClick(node.f, node.index, evt);
       },
@@ -4898,9 +5210,9 @@ const all = this.sortedFavorites || [];
           for (const countyValue of allCountyValues) {
             let response;
             if (countyValue) {
-              response = await fetch(`https://juseaxerf.com/api/regions/${this.country}/${encodeURIComponent(countyValue)}`, withBackendApiKey({ cache: 'no-store' }));
+              response = await fetch(`https://juseaxerf.com/api/regions/${this.country}/${encodeURIComponent(countyValue)}`, withBackendApiKey());
             } else {
-              response = await fetch(`https://juseaxerf.com/api/regions/${this.country}`, withBackendApiKey({ cache: 'no-store' }));
+              response = await fetch(`https://juseaxerf.com/api/regions/${this.country}`, withBackendApiKey());
             }
             
             if (response && response.ok) {
@@ -4935,7 +5247,7 @@ const all = this.sortedFavorites || [];
         }
       },
 
-       async fetchCountis() {
+      async fetchCountis() {
         try {
           const response = await fetch(`https://juseaxerf.com/api/countis/${this.country}`, withBackendApiKey());
           const data = await response.json();
@@ -4943,7 +5255,7 @@ const all = this.sortedFavorites || [];
           console.log('Raw counties from API:', filtered);
           const result = this.processOptions(filtered);
           console.log('Processed counties:', result.processed);
-          console.log('County value map:', Array.from(result.valueMap.entries()).map(([k, v]) => [k, v.length > 1 ? `[${v.join(', ')}]` : v[0]]));
+          console.log('County value map:', Array.from(result.valueMap.entries()).map(([k, v]) => [k, v]));
 
           // 基础数据立刻就位，避免阻塞页面加载
           this.countyValueMap = result.valueMap;
@@ -5023,7 +5335,7 @@ const all = this.sortedFavorites || [];
                 const total = Number.isFinite(parsedTotal) ? parsedTotal : data.data.length;
                 totalSum += total;
               }
-              
+
               const passed = totalSum >= 28;
               if (passed) {
                 validCountis.push(processedName);
@@ -5181,19 +5493,14 @@ const all = this.sortedFavorites || [];
         this.attractions = pageItems;
         this.loading = false;
         this.prefetchDistanceQueueImages(pageItems);
-        this.showListWithTick(true);
+        this.bumpListRenderTick();
         return true;
       },
       prefetchDistanceQueueImages(items) {
         items.forEach(async (a, i) => {
           try {
             if (a && a.hasImage && !a.image1) {
-              // 自创景点的图片允许被用户频繁修改，这里对 custom 国别禁用浏览器缓存
-              const isCustomCountry = String(this.country) === 'custom';
-              const ts = Date.now();
-              const baseUrl = `https://juseaxerf.com/api/attraction-image/${this.country}/${a.id}/1`;
-              const url = isCustomCountry ? `${baseUrl}?ts=${ts}` : baseUrl;
-              const res = await fetch(url, withBackendApiKey(isCustomCountry ? { cache: 'no-store' } : {}));
+              const res = await fetch(`https://juseaxerf.com/api/attraction-image/${this.country}/${a.id}/1`, withBackendApiKey());
               if (res && res.ok) {
                 const blob = await res.blob();
                 const url = URL.createObjectURL(blob);
@@ -5208,98 +5515,13 @@ const all = this.sortedFavorites || [];
       bumpListRenderTick() {
         this.listRenderTick = (this.listRenderTick + 1) % 1000000;
       },
-      showListWithTick(forceTick = false) {
-        this.$nextTick(() => {
-          this.listVisible = true;
-          if (!this.listShownOnce || forceTick) {
-            this.listShownOnce = true;
-            this.bumpListRenderTick();
-          }
-        });
-      },
-      preparePageChange() {
-        this.listVisible = false;
-        this.listShownOnce = false;
-        this.attractions = [];
-        this.loading = true;
-      },
       waitForRetry(delay) {
         return new Promise(resolve => setTimeout(resolve, delay));
-      },
-      fetchAttractionImages(list) {
-        if (!Array.isArray(list) || !list.length) return;
-        list.forEach(async (a, i) => {
-          if (!a || !a.hasImage || a.image1) return;
-          try {
-            // 自创景点的图片允许被用户频繁修改，这里强制禁用浏览器缓存，避免出现“换图后仍显示旧图”的情况
-            const isCustomCountry = String(this.country) === 'custom';
-            const ts = Date.now();
-            const baseUrl = `https://juseaxerf.com/api/attraction-image/${this.country}/${a.id}/1`;
-            const url = isCustomCountry ? `${baseUrl}?ts=${ts}` : baseUrl;
-            const res = await fetch(url, withBackendApiKey(isCustomCountry ? { cache: 'no-store' } : {}));
-            if (res && res.ok) {
-              const blob = await res.blob();
-              const url = URL.createObjectURL(blob);
-              if (this.attractions && this.attractions[i]) {
-                this.attractions[i].image1 = url;
-              }
-            }
-          } catch (e) {}
-        });
-      },
-      buildAttractionsCacheKey(paramsString) {
-        return `attractionsCache:${this.country}:${paramsString}`;
-      },
-      loadAttractionsCache(key) {
-        try {
-          const raw = localStorage.getItem(key);
-          if (!raw) return null;
-          const parsed = JSON.parse(raw);
-          if (!parsed || !Array.isArray(parsed.data)) return null;
-          return parsed;
-        } catch (e) {
-          return null;
-        }
-      },
-      saveAttractionsCache(key, payload) {
-        try {
-          localStorage.setItem(key, JSON.stringify(payload));
-        } catch (e) {}
-      },
-      clearAttractionsCache(key) {
-        try {
-          localStorage.removeItem(key);
-        } catch (e) {}
-      },
-      buildRegionsCacheKey() {
-        const county = this.selectedCounty || '';
-        return `regionsCache:${this.country}:${county}`;
-      },
-      loadRegionsCache(key) {
-        try {
-          const raw = localStorage.getItem(key);
-          if (!raw) return null;
-          const parsed = JSON.parse(raw);
-          if (!Array.isArray(parsed)) return null;
-          return parsed;
-        } catch (e) {
-          return null;
-        }
-      },
-      saveRegionsCache(key, regions) {
-        try {
-          localStorage.setItem(key, JSON.stringify(regions || []));
-        } catch (e) {}
-      },
-      clearRegionsCache(key) {
-        try {
-          localStorage.removeItem(key);
-        } catch (e) {}
       },
 
       async fetchAttractions(isregion) {
         const fetchToken = ++this.activeFetchToken;
-        this.listShownOnce = false;
+        this.loading = true;
         if (this.order === 'distance_near') {
           const applied = await this.applyDistanceQueuePage(!!isregion);
           if (!applied) {
@@ -5361,7 +5583,6 @@ const all = this.sortedFavorites || [];
           params.append('order', this.order);
           params.append('page', isregion ? 1 : this.page);
           params.append('limit', this.limit);
-          // 使用原始值进行API调用
           if (this.selectedRegion) {
             const originalRegion = this.getOriginalValue(this.selectedRegion, this.regionValueMap);
             params.append('region', originalRegion);
@@ -5372,118 +5593,82 @@ const all = this.sortedFavorites || [];
           }
           if (this.order === 'rating_desc') params.append('secondary', 'reviews_desc');
 
-        const paramsString = params.toString();
-        const cacheKey = this.buildAttractionsCacheKey(paramsString);
-        const baseUrl = `https://juseaxerf.com/api/attractions/${this.country}?${params.toString()}`;
-        const doFetch = (url, cacheMode = 'default') =>
-          fetch(url, withBackendApiKey({ cache: cacheMode }));
+          let attempts = 0;
+          while (this.activeFetchToken === fetchToken && attempts < this.maxFetchRetries) {
+            try {
+              const response = await fetch(`https://juseaxerf.com/api/attractions/${this.country}?${params.toString()}`, withBackendApiKey());
+              if (!response.ok) throw new Error(`HTTP ${response.status}`);
+              const data = await response.json();
+              if (this.activeFetchToken !== fetchToken) return;
 
-        // 先尝试读取成功缓存，优先渲染，避免重复看到 500
-        const cached = this.loadAttractionsCache(cacheKey);
-        const cachedSnapshot = cached && Array.isArray(cached.data) ? JSON.stringify(cached.data) : null;
-        this.loading = !(cached && Array.isArray(cached.data) && cached.data.length);
-        if (cached && Array.isArray(cached.data) && cached.data.length) {
-          this.total = Number.isFinite(cached.total) ? cached.total : cached.data.length;
-          this.attractions = cached.data.map(a => ({ ...a, image1: '' }));
-          this.fetchAttractionImages(this.attractions);
-          this.showListWithTick(); // 缓存页渲染也触发动画，但仅一次
-          // 如果是按好评率最高排序，需要计算第一个不是100%的景点所在页码
-          if (this.order === 'rating_desc') {
-            this.calculateFirstNon100PageForSingleRequest(fetchToken);
-          }
-        }
+              if (!data || !Array.isArray(data.data)) {
+                throw new Error('Invalid attractions payload');
+              }
 
-        let attempts = 0;
-        while (this.activeFetchToken === fetchToken && attempts < this.maxFetchRetries) {
-          try {
-            let response = await doFetch(baseUrl, 'no-store'); // 避免浏览器复用 500 缓存
-            if (!response.ok) {
-              const retryUrl = `${baseUrl}&_ts=${Date.now()}`;
-              response = await doFetch(retryUrl, 'reload');
-            }
-            if (!response.ok) throw new Error(`HTTP ${response.status}`);
-            const data = await response.json();
-            if (this.activeFetchToken !== fetchToken) return;
-
-            if (!data || !Array.isArray(data.data)) {
-              throw new Error('Invalid attractions payload');
-            }
-
-            const parsedTotal = Number.parseInt(data.total, 10);
-            const total = Number.isFinite(parsedTotal) ? parsedTotal : data.data.length;
-            this.total = total;
-            const serialized = JSON.stringify(data.data);
-            const sameAsCache = cachedSnapshot && serialized === cachedSnapshot;
-            this.saveAttractionsCache(cacheKey, { total, data: data.data }); // 仅缓存成功响应
-            if (sameAsCache && this.attractions && this.attractions.length) {
+              const parsedTotal = Number.parseInt(data.total, 10);
+              const total = Number.isFinite(parsedTotal) ? parsedTotal : data.data.length;
+              this.total = total;
+              
+              // 对于单请求情况，由于API支持分页，我们无法获取所有数据
+              // 所以只保存当前页的ID，详情页面需要通过API获取其他页的数据
+              // 清除之前保存的所有ID列表（如果存在）
+              try {
+                localStorage.removeItem('allAttractionIds');
+                localStorage.removeItem('allAttractionIdsPage');
+                localStorage.removeItem('allAttractionIdsTotal');
+              } catch (e) {}
+              
+              this.attractions = data.data.map(a => ({
+                ...a,
+                image1: '',
+              }));
               this.loading = false;
-              this.fetchAttractionImages(this.attractions);
-              // 数据相同不再重复动画
-              this.showListWithTick();
-              // 即使是缓存数据，也需要计算第一个不是100%的景点所在页码
+
+              this.attractions.forEach(async (a, i) => {
+                if (a.hasImage) {
+                  try {
+                    const res = await fetch(`https://juseaxerf.com/api/attraction-image/${this.country}/${a.id}/1`, withBackendApiKey());
+                    if (res && res.ok) {
+                      const blob = await res.blob();
+                      const url = URL.createObjectURL(blob);
+                      this.attractions[i].image1 = url;
+                    }
+                  } catch (e) {}
+                }
+              });
+
               if (this.order === 'rating_desc') {
+                const parsePercent = (v) => {
+                  if (v == null) return 0;
+                  const s = String(v).replace('%', '');
+                  const n = parseFloat(s);
+                  return Number.isFinite(n) ? n : 0;
+                };
+                this.attractions = [...this.attractions].sort((a, b) => {
+                  const ra = parsePercent(a.rating);
+                  const rb = parsePercent(b.rating);
+                  if (rb !== ra) return rb - ra;
+                  const ta = Number(a.total_reviews) || 0;
+                  const tb = Number(b.total_reviews) || 0;
+                  return tb - ta;
+                });
+                
+                // 在单请求模式下，如果是按好评率最高排序，需要获取所有数据来计算第一个不是100%的景点在哪一页
+                // 异步获取所有数据来计算正确的页码
                 this.calculateFirstNon100PageForSingleRequest(fetchToken);
               }
+              this.bumpListRenderTick();
               return;
-            }
-            this.attractions = data.data.map(a => ({
-              ...a,
-              image1: '',
-            }));
-            this.loading = false;
-
-            this.fetchAttractionImages(this.attractions);
-            this.showListWithTick(); // 新数据到达时触发动画
-            if (this.order === 'rating_desc') {
-              const parsePercent = (v) => {
-                if (v == null) return 0;
-                const s = String(v).replace('%', '');
-                const n = parseFloat(s);
-                return Number.isFinite(n) ? n : 0;
-              };
-              this.attractions = [...this.attractions].sort((a, b) => {
-                const ra = parsePercent(a.rating);
-                const rb = parsePercent(b.rating);
-                if (rb !== ra) return rb - ra;
-                const ta = Number(a.total_reviews) || 0;
-                const tb = Number(b.total_reviews) || 0;
-                return tb - ta;
-              });
-              
-              // 在单请求模式下，如果是按好评率最高排序，需要获取所有数据来计算第一个不是100%的景点在哪一页
-              // 异步获取所有数据来计算正确的页码
-              this.calculateFirstNon100PageForSingleRequest(fetchToken);
-            }
-            this.bumpListRenderTick();
-            return;
-          } catch (error) {
-            console.error('????????:', error);
-            if (this.activeFetchToken !== fetchToken) return;
-            attempts += 1;
-            if (attempts >= this.maxFetchRetries) {
-              this.loading = false;
-              const cached = this.loadAttractionsCache(cacheKey);
-              if (cached && Array.isArray(cached.data)) {
-                this.total = Number.isFinite(cached.total) ? cached.total : cached.data.length;
-                this.attractions = cached.data.map(a => ({ ...a, image1: '' }));
-                this.listVisible = true;
-                this.showListWithTick();
-                // 如果是按好评率最高排序，需要计算第一个不是100%的景点所在页码
-                if (this.order === 'rating_desc') {
-                  this.calculateFirstNon100PageForSingleRequest(fetchToken);
-                }
+            } catch (error) {
+              attempts++;
+              if (attempts >= this.maxFetchRetries) {
+                console.error('Failed to fetch attractions after retries:', error);
+                this.loading = false;
+                return;
               }
-              break;
+              await this.waitForRetry(this.fetchRetryDelay);
             }
-            await this.waitForRetry(this.fetchRetryDelay);
           }
-        }
-        // 清除之前保存的所有ID列表（如果存在），因为现在是单请求模式
-        try {
-          localStorage.removeItem('allAttractionIds');
-          localStorage.removeItem('allAttractionIdsPage');
-          localStorage.removeItem('allAttractionIdsTotal');
-        } catch (e) {}
         } else {
           // 多个请求的情况：需要合并简体和繁体的结果
           const allResults = [];
@@ -5675,25 +5860,21 @@ const all = this.sortedFavorites || [];
           }));
           this.loading = false;
 
-          // 在多请求模式下，gotoPage应该已经在排序完成后被设置了
-          // 这里不需要额外的后备方案，因为多请求模式会计算正确的值
+          this.attractions.forEach(async (a, i) => {
+            if (a.hasImage) {
+              try {
+                const res = await fetch(`https://juseaxerf.com/api/attraction-image/${this.country}/${a.id}/1`, withBackendApiKey());
+                if (res && res.ok) {
+                  const blob = await res.blob();
+                  const url = URL.createObjectURL(blob);
+                  this.attractions[i].image1 = url;
+                }
+              } catch (e) {}
+            }
+          });
 
-          this.fetchAttractionImages(this.attractions);
-          this.showListWithTick();
           this.bumpListRenderTick();
         }
-      },
-
-      goBack() {
-        localStorage.setItem('attractionsPage', 1); // 保存当前页数到localStorage
-        localStorage.setItem('attractionMinReviews',0);
-        localStorage.setItem('attractionsRegion', '');
-        localStorage.setItem('attractionsOrder',"rating_desc");
-        localStorage.setItem('attractionsCounty','');
-        localStorage.setItem('attractionsCounty','');
-        try { localStorage.removeItem('distanceBrowseQueue'); } catch (e) {}
-        // 返回到国家选择页（首页路径为 '/'）
-        this.$router.push('/');
       },
 
       async calculateFirstNon100PageForSingleRequest(fetchToken) {
@@ -5759,6 +5940,18 @@ const all = this.sortedFavorites || [];
         }
       },
 
+      goBack() {
+        localStorage.setItem('attractionsPage', 1); // 保存当前页数到localStorage
+        localStorage.setItem('attractionMinReviews',0);
+        localStorage.setItem('attractionsRegion', '');
+        localStorage.setItem('attractionsOrder',"rating_desc");
+        localStorage.setItem('attractionsCounty','');
+        localStorage.setItem('attractionsCounty','');
+        try { localStorage.removeItem('distanceBrowseQueue'); } catch (e) {}
+        // 返回到国家选择页（首页路径为 '/'）
+        this.$router.push('/');
+      },
+
       nextPage() {
       this.resetSwipeState(true);
       if (this.page < this.totalPages) {
@@ -5767,7 +5960,6 @@ const all = this.sortedFavorites || [];
         localStorage.setItem('attractionMinReviews',this.minReviews);
         localStorage.setItem('attractionsRegion', this.selectedRegion);
         localStorage.setItem('attractionsOrder',this.order)
-        this.preparePageChange();
         this.fetchAttractions(false);
       }
     },
@@ -5780,7 +5972,6 @@ const all = this.sortedFavorites || [];
           localStorage.setItem('attractionMinReviews',this.minReviews);
           localStorage.setItem('attractionsRegion', this.selectedRegion);
           localStorage.setItem('attractionsOrder',this.order)
-          this.preparePageChange();
           this.fetchAttractions(false);
         }
       },
@@ -5795,7 +5986,6 @@ const all = this.sortedFavorites || [];
         if (this.gotoPage && this.gotoPage !== this.page) {
           this.page = this.gotoPage;
           localStorage.setItem('attractionsPage', this.page);
-          this.preparePageChange();
           this.fetchAttractions(false);
         }
       },
@@ -5928,7 +6118,7 @@ const all = this.sortedFavorites || [];
 
 .attraction-header-mobile .attraction-name {
     font-size: 1.05rem;
-    font-weight: 1;
+    font-weight: 600;
     margin: 0;
     white-space: wrap;
   vertical-align: middle;  /* 对齐 */
@@ -6050,6 +6240,9 @@ const all = this.sortedFavorites || [];
   align-items: center;
   gap: 12px;
   overflow-x: auto;
+  overflow-y: hidden; /* avoid vertical squeezing when the scrollbar shows */
+  padding: 4px 0 8px; /* reserve room for horizontal scrollbar without clipping content */
+  scrollbar-gutter: stable;
   -ms-overflow-style: none; /* IE/Edge */
   scrollbar-width: none; /* Firefox */
 }
@@ -6085,19 +6278,18 @@ const all = this.sortedFavorites || [];
   height: 22px;
   min-width: 22px;
   min-height: 22px;
-  flex: 0 0 22px;
   border-radius: 50%;
   background: #f1f3f5;
   color: #333;
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  flex-shrink: 0;
+  aspect-ratio: 1;
   line-height: 1;
   font-weight: 700;
   cursor: pointer;
   user-select: none;
-  aspect-ratio: 1 / 1;
-  align-self: center;
 }
 .tab-plus:hover { background: #e9ecef; }
 .tab-placeholder {
@@ -6142,6 +6334,43 @@ const all = this.sortedFavorites || [];
   margin-bottom: 12px;
   font-size: 14px;
   color: #1d1d1f;
+}
+.export-progress-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+  gap: 8px;
+}
+.export-progress-text {
+  flex: 1 1 auto;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.export-progress-count {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  color: #065f46;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+.export-progress-bar {
+  position: relative;
+  width: 100%;
+  height: 6px;
+  border-radius: 9999px;
+  background: #e5e7eb;
+  overflow: hidden;
+}
+.export-progress-fill {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 0;
+  background: #16a34a; /* 绿色进度部分 */
+  transition: width 0.2s ease-out;
 }
 .confirm-message .danger-word {
   color: #c0392b; /* 红色 */
@@ -6270,6 +6499,81 @@ const all = this.sortedFavorites || [];
   font-weight: 800;
   padding: 2px 6px;
   border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.favorites-item .fav-right-meta {
+  flex: 0 0 auto;
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+}
+.favorites-item .fav-right-meta > * + * {
+  margin-left: 16px;
+}
+.favorites-item .fav-date-slot {
+  position: relative;
+  flex: 0 0 42px;
+  width: 42px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.favorites-item .fav-rating-slot {
+  flex: 0 0 var(--fav-rating-slot-width, 56px);
+  width: var(--fav-rating-slot-width, 56px);
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+}
+.favorites-item .fav-date-trigger {
+  border: none;
+  background: transparent;
+  color: #2563eb;
+  border-radius: 0;
+  min-width: 0;
+  height: auto;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  cursor: pointer;
+  flex: 0 0 auto;
+}
+.favorites-item .fav-date-trigger.selected {
+  color: #0f172a;
+}
+.favorites-item .fav-date-icon {
+  width: 16px;
+  height: 16px;
+  fill: currentColor;
+  display: block;
+}
+.favorites-item .fav-date-lines {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  line-height: 1.05;
+}
+.favorites-item .fav-date-year {
+  font-size: 10px;
+  font-weight: 700;
+}
+.favorites-item .fav-date-md {
+  font-size: 11px;
+  font-weight: 800;
+}
+.favorites-item .fav-date-native-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+  border: 0;
+  padding: 0;
 }
 .favorites-item.dragging-shadow {
   box-shadow: 0 10px 24px rgba(0,0,0,0.2);
@@ -6396,7 +6700,7 @@ const all = this.sortedFavorites || [];
 .btn-primary:hover { filter: brightness(0.96); }
 
 /* Confirm dialog close button (top-right X) */
-.confirm-dialog { position: fixed; padding-right: 48px; }
+.confirm-dialog.has-close { position: fixed; padding-right: 48px; }
 .confirm-close {
   position: absolute;
   top: 4px;
@@ -6838,7 +7142,7 @@ const all = this.sortedFavorites || [];
     font-size: 1.25rem;
     font-weight: 500;
     line-height: 1.4;
-    }
+}
 
   /* 景点卡片标题使用装饰性字体 */
   .attraction-name,
@@ -7007,15 +7311,13 @@ const all = this.sortedFavorites || [];
 .mobile-filters-grid {
   display: flex;
   flex-direction: column;
-  gap: 8px; /* 行间距 */
+  gap: 0;
   width: 100%;
 }
 
 .mobile-filter-row {
-  display: grid;
-  grid-template-columns: auto 1fr 1fr; /* 左列自适应，右两列平分 */
+  display: flex;
   align-items: center;
-  gap: 8px; /* 列间距 */
   width: 100%;
   box-sizing: border-box;
 }
@@ -7034,6 +7336,8 @@ const all = this.sortedFavorites || [];
 .mobile-filter-row input[type="search"],
 .mobile-filter-row input[type="number"] {
   width: 100%;
+  flex: 1 1 0;
+  min-width: 0;
   box-sizing: border-box;
   padding: 4px 8px;
   border: 1px solid #ccc;
@@ -7045,6 +7349,10 @@ const all = this.sortedFavorites || [];
   height: 36px; /* 保证输入框、选择框高度一致 */
   display: flex;
   align-items: center;
+}
+
+.mobile-filter-row > * + * {
+  margin-left: 8px;
 }
 
 .mobile-filter-row input[type="number"] {
@@ -7067,8 +7375,16 @@ const all = this.sortedFavorites || [];
 /* 桌面端保持原样 */
 @media (max-width: 768px) {
 
+  .mobile-filters-grid > * + * {
+    margin-top: 8px;
+  }
+
   .pagination-section {
-    gap:4px;
+    gap: 0;
+  }
+
+  .pagination-section {
+    margin-top: 0; /* 原 gap 7px */
   }
 
   .pagination-info {
@@ -7084,6 +7400,14 @@ const all = this.sortedFavorites || [];
     font-size: 0.85rem;
   }
 
+  .page-input-group {
+    gap: 0;
+  }
+
+  .page-input-group > * + * {
+    margin-left: 8px;
+  }
+
   .page-input-group input {
     padding:8px;
     font-size: 0.8rem;
@@ -7097,9 +7421,29 @@ const all = this.sortedFavorites || [];
     border-radius: 12px;
     font-size: 12px;
     font-weight: 750;
+    gap: 0;
+  }
+
+  .pagination-button > * + * {
+    margin-left: 10px;
+  }
+
+  .pagination-controls {
+    gap: 0;
+  }
+
+  .pagination-controls > * {
+    margin-bottom: 4px;
+  }
+
+  .pagination-controls > * + * {
+    margin-left: 16px;
   }
 
   .scroll-content {
+    flex: 1;
+    overflow-y: auto;
+    padding: 20px;
     padding-top: 0;
     padding-bottom: 10px;
   }
@@ -7107,13 +7451,22 @@ const all = this.sortedFavorites || [];
   .back-button {
     padding: 11px 16px;
     font-size: 14px;
+    gap: 0;
+  }
+
+  .back-button > * + * {
+    margin-left: 10px;
   }
 
   .attraction-content-mobile {
     display: flex;
     flex-direction: column;
-    gap: 6px; /* 减少文字和内容间距 */
+    gap: 0;
     padding: 0; /* 缩小卡片内边距 */
+  }
+
+  .attraction-content-mobile > * + * {
+    margin-top: 6px; /* 原 gap 6px */
   }
 
   .attraction-content-mobile .attraction-name {
@@ -7131,9 +7484,11 @@ const all = this.sortedFavorites || [];
   }
 
   .attractions-list {
-    display: grid;
-    grid-template-columns: 1fr 1fr; /* 双列保持 */
-    gap: 12px; /* 缩小列间距 */
+    display: flex;
+    flex-wrap: wrap;
+    align-items: stretch;
+    gap: 0;
+    margin: -6px; /* 使用 margin 替代 gap 间距（原 12px） */
   }
 
   .attraction-item {
@@ -7142,9 +7497,12 @@ const all = this.sortedFavorites || [];
     background: rgba(255, 255, 255, 0.95);
     border-radius: 16px;
     padding: 6px;
-    gap: 8px;
+    gap: 0;
+    margin: 6px;
+    flex: 0 0 calc(50% - 12px);
     border: 1px solid rgba(255, 255, 255, 0.2);
-    max-width: 50vw;
+    max-width: calc(50% - 12px);
+    width: calc(50% - 12px);
     box-sizing: border-box;
     overflow: hidden; 
   }
@@ -7161,9 +7519,13 @@ const all = this.sortedFavorites || [];
   /* 第二行：图片 + 右侧信息 */
   .attraction-info-row {
     display: flex;
-    gap: 12px;
+    gap: 0;
     align-items: stretch; /* 让左右高度一致 */
     align-self:center;
+  }
+
+  .attraction-info-row > * + * {
+    margin-left: 12px;
   }
 
   
@@ -7221,16 +7583,24 @@ const all = this.sortedFavorites || [];
   /* 好评率 */
   .attraction-stats {
     display: flex;
-    gap: 16px;
+    gap: 0;
+  }
+
+  .attraction-stats > * + * {
+    margin-left: 16px;
   }
 
   .stat-item {
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 2px;
+    gap: 0;
     margin: 0; /* 卡片间距尽量小 */
     padding: 0; /* 去掉多余的内边距 */
+  }
+
+  .stat-item > * + * {
+    margin-top: 2px;
   }
 
 
@@ -7251,7 +7621,7 @@ const all = this.sortedFavorites || [];
   }
   
   .page-header {
-    margin-bottom: 7px;
+    margin-bottom: 5px;
   }
 
   .fixed-header {
@@ -7276,7 +7646,6 @@ const all = this.sortedFavorites || [];
 
   .page-title {
     font-size: 1.5rem; /* 缩小标题字体 */
-    margin-bottom: 0.5px;
     text-align: center;
   }
 
@@ -7296,7 +7665,23 @@ const all = this.sortedFavorites || [];
     box-sizing: border-box; /* 确保 padding 包含在宽度内 */
     overflow: visible; /* 让上方绝对定位的收藏按钮可见 */
     display: grid;
-    gap: 8px;
+    gap: 0;
+  }
+
+  .mobile-filters > * + * {
+    margin-top: 8px;
+  }
+
+  .mobile-filters-grid {
+    --mobile-label-width: 88px;
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    width: 100%;
+  }
+
+  .mobile-filters-grid > * + * {
+    margin-top: 8px;
   }
 
   .favorites-button,
@@ -7311,19 +7696,97 @@ const all = this.sortedFavorites || [];
   }
   .label-desktop { display: none; }
   .label-mobile { display: inline; }
-  .mobile-filter-row > .button-pair { display: grid !important; width: 100%; }
+  .mobile-filter-row > .button-pair { display: flex !important; width: 100%; flex: 1 1 0; min-width: 0; }
   .button-pair {
     align-items: stretch; /* 子按钮拉伸至与输入相同高度 */
+    gap: 0;
   }
-  .label-desktop { display: none; }
-  .label-mobile { display: inline; }
-  .mobile-filter-row > .button-pair { display: grid !important; width: 100%; }
+  .button-pair > * {
+    flex: 1 1 0;
+    min-width: 0;
+  }
+  .button-pair > * + * {
+    margin-left: 8px;
+  }
+
+  .mobile-filter-row {
+    display: grid;
+    grid-template-columns: var(--mobile-label-width) minmax(0, 1fr) minmax(0, 1fr);
+    column-gap: 8px;
+    align-items: center;
+  }
+
+  .mobile-filter-row > * + * {
+    margin-left: 0;
+  }
+
+  .mobile-filter-row .filter-label {
+    flex: 0 0 var(--mobile-label-width);
+    width: var(--mobile-label-width);
+  }
 
   .mobile-left-column,
   .mobile-right-column {
     display: flex;
     flex-direction: column;
-    gap: 12px;
+    gap: 0;
+  }
+
+  .mobile-left-column > * + *,
+  .mobile-right-column > * + * {
+    margin-top: 12px;
+  }
+
+  .favorites-actions-row {
+    gap: 0;
+  }
+
+  .favorites-actions-row > * + * {
+    margin-left: 10px;
+  }
+
+  .fav-tabs {
+    gap: 0;
+  }
+
+  .fav-tabs > * + * {
+    margin-left: 12px;
+  }
+
+  .favorites-list {
+    gap: 0;
+  }
+
+  .favorites-list > * + * {
+    margin-top: 8px;
+  }
+
+  .favorites-item {
+    gap: 0;
+  }
+
+  .fav-content {
+    gap: 0;
+  }
+
+  .fav-content > * + * {
+    margin-left: 12px;
+  }
+
+  .favorites-context-menu {
+    gap: 0;
+  }
+
+  .favorites-context-menu > * + * {
+    margin-top: 8px;
+  }
+
+  .confirm-actions {
+    gap: 0;
+  }
+
+  .confirm-actions > * + * {
+    margin-left: 8px;
   }
 
   /* 第一行空白高度和左边行对齐 */
@@ -7398,6 +7861,16 @@ const all = this.sortedFavorites || [];
 .favorites-context-menu .fav-delete,
 .favorites-context-menu .fav-pending {
   width: 100%;
+}
+
+@media (max-width: 768px) {
+  .favorites-context-menu {
+    gap: 0;
+  }
+
+  .favorites-context-menu > * + * {
+    margin-top: 8px;
+  }
 }
 
 </style>

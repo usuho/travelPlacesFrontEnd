@@ -162,14 +162,14 @@ export default {
       const isCustomCountry = String(this.country) === 'custom';
       const fetchCountry = isCustomCountry ? (this.normalsCountry || '') : String(this.country || '');
       const fetchCountryNorm = String(fetchCountry || '').trim().toLowerCase();
-       if (fetchCountryNorm) {
-         try {
-           const didWarm = await this.tryWarmStartAllGeoFromSnapshot(fetchCountryNorm);
-           if (didWarm) {
-             try { this.renderAllInView && this.renderAllInView(); } catch (e) {}
-           }
-         } catch (e) {}
-       }
+      if (fetchCountryNorm) {
+        try {
+          const didWarm = await this.tryWarmStartAllGeoFromSnapshot(fetchCountryNorm);
+          if (didWarm) {
+            try { this.renderAllInView && this.renderAllInView(); } catch (e) {}
+          }
+        } catch (e) {}
+      }
     } catch (e) {}
 
     try { this.fetchAllGeoOnce().then(() => { try { this.renderAllInView && this.renderAllInView(); } catch (e) {} }).catch(() => {}); } catch (e) {}
@@ -718,7 +718,7 @@ export default {
       this._hasRenderedFirst = false;
       this._hasRenderedNormalOnce = false;
       this.showLoading = true;
-      
+
       const isCustomCountry = String(this.country) === 'custom';
       const fetchCountry = isCustomCountry ? (this.normalsCountry || '') : String(this.country || '');
       const fetchCountryNorm = String(fetchCountry || '').trim().toLowerCase();
@@ -919,7 +919,7 @@ export default {
       } catch (e) {}
       this.favorites.sort((a, b) => (a.order || 0) - (b.order || 0));
     },
-    
+
     _favoriteKeyFromMeta(meta) {
       try {
         if (!meta) return '';
@@ -978,7 +978,7 @@ export default {
         }
       } catch (e) {}
     },
-    
+
     _getFavoriteKeysWithChangedLabel(beforeMap, afterMap) {
       const changed = new Set();
       try {
@@ -1225,7 +1225,7 @@ export default {
         });
       } catch (e) {}
     },
-    
+
     initMap() {
       const { center, zoom } = this.getDefaultView();
       this.map = L.map('map', { zoomControl: true, dragging: true, tap: false, touchZoom: true }).setView(center, zoom);
@@ -1370,7 +1370,6 @@ export default {
         germany: { center: [51.0, 10.0], zoom: 5 },
         uk: { center: [55.0, -2.5], zoom: 5 },
         ireland: { center: [53.2, -8.0], zoom: 6 },
-        ireland: { center: [53.2, -8.0], zoom: 6 },
         spain: { center: [40.0, -3.5], zoom: 5 },
         italy: { center: [42.5, 12.5], zoom: 5 },
         portugal: { center: [39.5, -8.0], zoom: 6 },
@@ -1432,7 +1431,6 @@ export default {
         peru: { center: [-9.1, -75.0], zoom: 5 },
         chile: { center: [-35.7, -71.5], zoom: 4 },
         bolivia: { center: [-16.7, -64.6], zoom: 5 },
-        colombia: { center: [4.6, -74.1], zoom: 5 },
         colombia: { center: [4.6, -74.1], zoom: 5 },
         morocco: { center: [31.8, -7.1], zoom: 5 },
         egypt: { center: [26.8, 30.8], zoom: 5 },
@@ -1838,7 +1836,7 @@ export default {
               const needGeocode = !existing || !Number.isFinite(existing.lat) || !Number.isFinite(existing.lng);
               if (!needGeocode) continue;
               const cacheKey = `${String(this.country)}|${idStr}`;
-              // 优化：直接从内存缓存中读取，而不是每次都访问 localStorage
+               // 优化：直接从内存缓存中读取，而不是每次都访问 localStorage
               const cached = geoCache && geoCache[cacheKey];
               if (cached && Number.isFinite(cached.lat) && Number.isFinite(cached.lng)) {
                 const item = {
@@ -2001,7 +1999,7 @@ export default {
                     byId.set(idStr, item);
                   }
                 } else {
-                 // skip: no browser geocode cache; do not log
+                  // skip: no browser geocode cache; do not log
                 }
               }
             }
@@ -2195,7 +2193,7 @@ export default {
         if (this.map && !this._didAutoPanToFirst && !this._hasRenderedNormalOnce && visibleCount === 0 && (favListEmpty || favGeoMissing)) {
           const currentZoom = this.map.getZoom();
           const f = filters;
-          
+
           const bValid = !!(bounds && bounds.isValid && bounds.isValid());
           let bestAny = null, bestAnyScore = -1;
           let bestOutside = null, bestOutsideScore = -1;
@@ -2513,17 +2511,14 @@ export default {
       const trimAddr = String(address || '').trim();
       if (!trimAddr) return null;
 
-      if (!this._geoKeys) {
-        this._geoKeys = await getGeoKeys();
-      }
-      const {
-        amapKey,
-        openCageKey,
-        geoapifyKey,
-        locationIqKey,
-        mapQuestKey,
-        positionstackKey
-      } = this._geoKeys || {};
+      const env = import.meta && import.meta.env ? import.meta.env : {};
+      const amapKey = env.VITE_AMAP_KEY;
+
+      const openCageKey = env.VITE_OPENCAGE_KEY;
+      const geoapifyKey = env.VITE_GEOAPIFY_KEY;
+      const locationIqKey = env.VITE_LOCATIONIQ_KEY;
+      const mapQuestKey = env.VITE_MAPQUEST_KEY;
+      const positionstackKey = env.VITE_POSITIONSTACK_KEY;
 
       const countryKey = String(hintCountry || this.country || '').toLowerCase();
       const preferAmapLast = !!(opts && opts.amapLast);
@@ -2760,7 +2755,7 @@ export default {
         thailand:  { iso2: 'th', viewbox: [97.3, 20.5, 105.6, 5.6], labelEn: 'Thailand' },
         vietnam:   { iso2: 'vn', viewbox: [102.1, 23.5, 109.7, 8.4], labelEn: 'Vietnam' },
         switzerland:{ iso2: 'ch', viewbox: [5.9, 47.9, 10.7, 45.7], labelEn: 'Switzerland' },
-        france:    { iso2: 'fr', viewbox: [-5.5, 51.5, 9.8, 41.0], labelEn: 'France' },
+         france:    { iso2: 'fr', viewbox: [-5.5, 51.5, 9.8, 41.0], labelEn: 'France' },
         germany:   { iso2: 'de', viewbox: [5.8, 55.1, 15.0, 47.2], labelEn: 'Germany' },
         uk:        { iso2: 'gb', viewbox: [-8.6, 59.0, 1.8, 49.9], labelEn: 'United Kingdom' },
         ireland:   { iso2: 'ie', viewbox: [-10.7, 55.5, -5.3, 51.3], labelEn: 'Ireland' },
@@ -3198,6 +3193,9 @@ export default {
       const county = meta.county || '';
       const name = meta.name || '';
       const ratingHtml = isCustom ? '' : `<div class=\"popup-rating\" style=\"background:${color}\">${rating}</div>`;
+      const favoriteDate = this.getFavoriteDateFromMeta(meta);
+      const dateText = this.formatFavoriteDateLine(favoriteDate);
+      const dateHtml = dateText ? `<div class=\"popup-favorite-date\">${this.formatFavoriteDateHtml(dateText)}</div>` : '';
       // ʹ data- ԴΣ򿪺¼
       return `
         <div class="map-popup" data-id="${String(meta.id)}" data-country="${String(meta.country || this.country)}">
@@ -3209,6 +3207,7 @@ export default {
             <div class="popup-name">${this.escapeHtml(name)}</div>
             <div class="popup-meta">${this.escapeHtml(county)}  ${this.escapeHtml(region)}</div>
             ${ratingHtml}
+            ${dateHtml}
           </div>
         </div>
       `;
@@ -3220,7 +3219,6 @@ export default {
         marker.bindPopup(this.buildPopup(meta), { autoPan: false, minWidth: 100});
       } catch (_) {}
     },
-
     attachPopupHandlers(meta) {
       // ???????l.src ????URL???
       //  getAttribute('src') ??????????
@@ -3266,17 +3264,17 @@ export default {
           node.addEventListener('click', async () => {
             // 뿪ͼǰ浱ǰͼͼڴ鷵غָ
             try { this.saveMapView(); } catch (e) {}
+            // 记录当前地图路由，便于详情页使用返回键时能回到地图
+            try {
+              const currentRoute = this.$route && this.$route.fullPath ? this.$route.fullPath : `/map/${this.country}`;
+              sessionStorage.setItem('lastMapRoute', currentRoute);
+            } catch (e) {}
             // ͼʵʹõıɫ飬֤һ
             try {
               const color = this.getRatingColor(meta && meta.rating);
               localStorage.setItem('selectedAttractionRatingColor', color);
             } catch (e) {}
             try { await this.buildDistanceBrowseQueue(meta); } catch (e) {}
-            // 记录当前地图路由，便于详情页使用返回键时能回到地图
-            try {
-              const currentRoute = this.$route && this.$route.fullPath ? this.$route.fullPath : `/map/${this.country}`;
-              sessionStorage.setItem('lastMapRoute', currentRoute);
-            } catch (e) {}
             this.$router.push({ path: `/attraction/${country}/${id}` , query: { from: 'map' } });
           }, { once: true, passive: true });
         }
@@ -3304,6 +3302,49 @@ export default {
       const raw = typeof r === 'number' ? r : parseFloat(String(r || '').replace('%', '').trim());
       const v = Number.isFinite(raw) ? Math.max(0, Math.min(100, raw)) : 0;
       return v.toString();
+    },
+    normalizeFavoriteDate(value) {
+      try {
+        if (value instanceof Date && !Number.isNaN(value.getTime())) {
+          const y = String(value.getFullYear()).padStart(4, '0');
+          const m = String(value.getMonth() + 1).padStart(2, '0');
+          const d = String(value.getDate()).padStart(2, '0');
+          return `${y}-${m}-${d}`;
+        }
+        const raw = String(value || '').trim();
+        const m = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+        if (!m) return '';
+        const y = Number(m[1]);
+        const mo = Number(m[2]);
+        const d = Number(m[3]);
+        if (!Number.isFinite(y) || !Number.isFinite(mo) || !Number.isFinite(d)) return '';
+        const dt = new Date(y, mo - 1, d);
+        if (dt.getFullYear() !== y || (dt.getMonth() + 1) !== mo || dt.getDate() !== d) return '';
+        return `${String(y).padStart(4, '0')}-${String(mo).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+      } catch (e) {
+        return '';
+      }
+    },
+    getFavoriteDateFromMeta(meta) {
+      try {
+        const key = this._favoriteKeyFromMeta(meta);
+        if (!key || !Array.isArray(this.favorites)) return '';
+        for (const fav of this.favorites) {
+          if (this._favoriteKeyFromItem(fav) === key) {
+            return this.normalizeFavoriteDate(fav && fav.favoriteDate);
+          }
+        }
+      } catch (e) {}
+      return '';
+    },
+    formatFavoriteDateLine(value) {
+      const normalized = this.normalizeFavoriteDate(value);
+      if (!normalized) return '';
+      return `${normalized.slice(0, 4)}\u5e74 ${normalized.slice(5, 7)}\u6708${normalized.slice(8, 10)}\u65e5`;
+    },
+    formatFavoriteDateHtml(text) {
+      const safe = this.escapeHtml(text);
+      return safe.replace(/(\d+)/g, '<span class="popup-favorite-date-num">$1</span>');
     },
 
     getRatingColor(rating) {
@@ -3699,10 +3740,9 @@ export default {
         ? String(this.normalsCountry || '').toLowerCase()
         : String(this.country || '').toLowerCase();
       if (Array.isArray(this._allGeoData) && this._allGeoData.length && String(activeCountry) === String(lc)) {
-
         return this._allGeoData;
       }
-      
+
       // Try snapshot first to avoid large network fetch + JSON parse on hot paths (e.g. queue build).
       if (lc && lc !== 'custom') {
         try {
@@ -4081,6 +4121,8 @@ export default {
 }
 :deep(.popup-meta) { color: #64748b; font-size: 12px; }
 :deep(.popup-rating) { color: #fff; font-weight: 800; padding: 2px 6px; font-size: 12px; border-radius: 6px; align-self: start; display: inline-flex; align-items: center; gap: 4px; }
+:deep(.popup-favorite-date) { grid-column: 1 / 3; color: #64748b; font-size: 11px; line-height: 1.25; margin-top: 0px; margin-bottom: -4px; padding-bottom: 0; align-self: end; }
+:deep(.popup-favorite-date-num) { color: #dc2626; font-weight: 700; }
 :deep(.popup-rating-label) { opacity: 0.9; font-weight: 700; }
 :deep(.popup-rating-value) { font-weight: 900; }
 
@@ -4091,6 +4133,7 @@ export default {
   :deep(.map-popup .popup-main) { column-gap: 0; row-gap: 0; }
   :deep(.map-popup .popup-meta),
   :deep(.map-popup .popup-rating) { margin-top: 2px; }
+  :deep(.map-popup .popup-favorite-date) { margin-top: 0px; margin-bottom: -4px; }
   :deep(.map-popup .popup-rating) { margin-left: 8px; gap: 0; }
   :deep(.map-popup .popup-rating > * + *) { margin-left: 4px; }
 }
@@ -4100,12 +4143,12 @@ export default {
   100% { background-position: -200% 0; }
 }
 
-
 /* 景点气泡使用文青衬线字体（覆盖 Leaflet 默认无衬线） */
 :deep(.leaflet-popup-content),
 :deep(.map-popup),
 :deep(.popup-meta),
 :deep(.popup-rating),
+:deep(.popup-favorite-date),
 :deep(.popup-rating-label),
 :deep(.popup-rating-value) {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
@@ -4139,6 +4182,8 @@ export default {
   overscroll-behavior: contain;
 }
 </style>
+
+
 
 
 
