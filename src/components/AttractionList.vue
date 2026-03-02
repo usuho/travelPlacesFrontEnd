@@ -956,6 +956,7 @@
         // 点击穿透保护（关闭收藏菜单后短时间屏蔽卡片点击）
         clickGuard: false,
         clickGuardTimer: null,
+        favoriteDateClickLockUntil: 0,
         renameSaveTimer: null,
         // 页面横向滑动分页
         swipeStartX: 0,
@@ -3688,9 +3689,19 @@ const all = this.sortedFavorites || [];
         if (Array.isArray(ref)) return ref[0] || null;
         return ref || null;
       },
+      isFavoriteDateEvent(evt) {
+        try {
+          const t = evt && evt.target;
+          if (!t || !t.closest) return false;
+          return !!(t.closest('.fav-date-trigger') || t.closest('.fav-date-native-input'));
+        } catch (e) {
+          return false;
+        }
+      },
       openFavoriteDatePicker(item) {
         if (!item) return;
         this.closeFavoritesContextMenu();
+        this.favoriteDateClickLockUntil = Date.now() + 700;
         const input = this.getFavoriteDateInputEl(item);
         if (!input) return;
         const normalized = this.normalizeFavoriteDate(item.favoriteDate);
@@ -4364,19 +4375,24 @@ const all = this.sortedFavorites || [];
       },
       onFavoritesNodeTouchStart(node, evt) {
         if (!node || node.type !== 'item') return;
+        if (this.isFavoriteDateEvent(evt)) return;
         this.startMenuItemPress(node.index, evt);
         this.onFavTouchStart(node.f, node.index, evt);
       },
       onFavoritesNodeTouchMove(node, evt) {
         if (!node || node.type !== 'item') return;
+        if (this.isFavoriteDateEvent(evt)) return;
         this.onFavTouchMove(evt);
       },
       onFavoritesNodeTouchEnd(node, evt) {
         if (!node || node.type !== 'item') return;
+        if (this.isFavoriteDateEvent(evt)) return;
         this.onFavTouchEnd(node.f, node.index, evt);
       },
       onFavoritesNodeClick(node, evt) {
         if (!node || node.type !== 'item') return;
+        if (this.isFavoriteDateEvent(evt)) return;
+        if (Date.now() < Number(this.favoriteDateClickLockUntil || 0)) return;
         if (evt && evt.stopPropagation) evt.stopPropagation();
         this.handleMenuItemClick(node.f, node.index, evt);
       },
