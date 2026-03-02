@@ -1,4 +1,4 @@
-﻿<template>
+<template>
   <div class="container fade-in">
     <!-- 固定顶部区域（标题 + 筛选器） -->
     <div class="fixed-header">
@@ -585,6 +585,36 @@
                   <span class="fav-name">{{ node.f && node.f.name }}</span>
                   <span class="fav-meta">{{ node.f && node.f.region }}</span>
                 </div>
+                <button
+                  v-if="node.f"
+                  type="button"
+                  class="fav-date-trigger"
+                  :class="{ selected: hasFavoriteDate(node.f) }"
+                  @click.stop="openFavoriteDatePicker(node.f)"
+                >
+                  <template v-if="hasFavoriteDate(node.f)">
+                    <span class="fav-date-lines">
+                      <span class="fav-date-year">{{ getFavoriteDateYear(node.f) }}</span>
+                      <span class="fav-date-md">{{ getFavoriteDateMonthDay(node.f) }}</span>
+                    </span>
+                  </template>
+                  <template v-else>
+                    <svg class="fav-date-icon" viewBox="0 0 24 24" aria-hidden="true">
+                      <path d="M7 2a1 1 0 0 1 1 1v1h8V3a1 1 0 1 1 2 0v1h1a3 3 0 0 1 3 3v12a3 3 0 0 1-3 3H5a3 3 0 0 1-3-3V7a3 3 0 0 1 3-3h1V3a1 1 0 0 1 1-1Zm13 8H4v9a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-9ZM5 6a1 1 0 0 0-1 1v1h16V7a1 1 0 0 0-1-1H5Z"></path>
+                    </svg>
+                  </template>
+                </button>
+                <input
+                  v-if="node.f"
+                  :ref="getFavoriteDateInputRefKey(node.f)"
+                  type="date"
+                  class="fav-date-native-input"
+                  :value="normalizeFavoriteDate(node.f.favoriteDate)"
+                  @input="onFavoriteDateNativeInput(node.f, $event)"
+                  @change="onFavoriteDateNativeInput(node.f, $event)"
+                  tabindex="-1"
+                  aria-hidden="true"
+                />
                 <span
                   v-if="node.f && String(node.f.country) !== 'custom' && node.f.rating !== undefined && node.f.rating !== null && node.f.rating !== ''"
                   class="fav-rating"
@@ -1901,9 +1931,11 @@
         for (let i = 0; i < items.length; i++) {
           const it = items[i];
           const pending = !!it.pending;
+          const favoriteDate = this.normalizeFavoriteDate(it && it.favoriteDate);
           if (String(it.country) === 'custom') {
             const full = findCustomAttractionById(it.id) || null;
             const base = { kind: 'custom', pending, data: full };
+            if (favoriteDate) base.favoriteDate = favoriteDate;
             if (includeImages) {
               try {
                 const images = await this.getCustomImageData(it.id, imageBudget);
@@ -1915,7 +1947,7 @@
             }
             result.push(base);
           } else {
-            result.push({
+            const entry = {
               kind: 'ref',
               pending,
               data: {
@@ -1926,7 +1958,9 @@
                 country: it.country,
                 rating: it.rating,
               },
-            });
+            };
+            if (favoriteDate) entry.favoriteDate = favoriteDate;
+            result.push(entry);
           }
           this.exportProgress += 1;
           if (i % 3 === 2) {
@@ -2345,10 +2379,16 @@
                       if (entry.images.sec1) await setCustomImage(`${custom.id}:sec1`, entry.images.sec1);
                     }
                   } catch (e) {}
-                  items.push({ id: custom.id, name: custom.name, region: custom.region, county: custom.county, country: 'custom', pending: !!entry.pending });
+                  const favoriteDate = this.readFavoriteDateFromImportEntry(entry);
+                  const importedCustom = { id: custom.id, name: custom.name, region: custom.region, county: custom.county, country: 'custom', pending: !!entry.pending };
+                  if (favoriteDate) importedCustom.favoriteDate = favoriteDate;
+                  items.push(importedCustom);
                 } else if (entry.kind === 'ref' && entry.data) {
                   const it = entry.data;
-                  items.push({ id: it.id, name: it.name, region: it.region, county: it.county, country: it.country, rating: it.rating, pending: !!entry.pending });
+                  const favoriteDate = this.readFavoriteDateFromImportEntry(entry);
+                  const importedRef = { id: it.id, name: it.name, region: it.region, county: it.county, country: it.country, rating: it.rating, pending: !!entry.pending };
+                  if (favoriteDate) importedRef.favoriteDate = favoriteDate;
+                  items.push(importedRef);
                 }
               }
               items.forEach((it, idx) => (it.order = idx + 1));
@@ -2397,17 +2437,21 @@
                 }
               } catch (e) {}
               // 推入收藏项（自创）
-              items.push({
+              const favoriteDate = this.readFavoriteDateFromImportEntry(entry);
+              const importedCustom = {
                 id: custom.id,
                 name: custom.name,
                 region: custom.region,
                 county: custom.county,
                 country: 'custom',
                 pending: !!entry.pending
-              });
+              };
+              if (favoriteDate) importedCustom.favoriteDate = favoriteDate;
+              items.push(importedCustom);
             } else if (entry.kind === 'ref' && entry.data) {
               const it = entry.data;
-              items.push({
+              const favoriteDate = this.readFavoriteDateFromImportEntry(entry);
+              const importedRef = {
                 id: it.id,
                 name: it.name,
                 region: it.region,
@@ -2415,7 +2459,9 @@
                 country: it.country,
                 rating: it.rating,
                 pending: !!entry.pending
-              });
+              };
+              if (favoriteDate) importedRef.favoriteDate = favoriteDate;
+              items.push(importedRef);
             }
           }
           // 设置顺序
@@ -2470,10 +2516,16 @@
                     if (entry.images.sec1) await setCustomImage(`${custom.id}:sec1`, entry.images.sec1);
                   }
                 } catch (e) {}
-                items.push({ id: custom.id, name: custom.name, region: custom.region, county: custom.county, country: 'custom', pending: !!entry.pending });
+                const favoriteDate = this.readFavoriteDateFromImportEntry(entry);
+                const importedCustom = { id: custom.id, name: custom.name, region: custom.region, county: custom.county, country: 'custom', pending: !!entry.pending };
+                if (favoriteDate) importedCustom.favoriteDate = favoriteDate;
+                items.push(importedCustom);
               } else if (entry.kind === 'ref' && entry.data) {
                 const it = entry.data;
-                items.push({ id: it.id, name: it.name, region: it.region, county: it.county, country: it.country, rating: it.rating, pending: !!entry.pending });
+                const favoriteDate = this.readFavoriteDateFromImportEntry(entry);
+                const importedRef = { id: it.id, name: it.name, region: it.region, county: it.county, country: it.country, rating: it.rating, pending: !!entry.pending };
+                if (favoriteDate) importedRef.favoriteDate = favoriteDate;
+                items.push(importedRef);
               }
             }
             items.forEach((it, idx) => (it.order = idx + 1));
@@ -2516,17 +2568,21 @@
                 if (entry.images.sec1) await setCustomImage(`${custom.id}:sec1`, entry.images.sec1);
               }
             } catch (e) {}
-            items.push({
+            const favoriteDate = this.readFavoriteDateFromImportEntry(entry);
+            const importedCustom = {
               id: custom.id,
               name: custom.name,
               region: custom.region,
               county: custom.county,
               country: 'custom',
               pending: !!entry.pending
-            });
+            };
+            if (favoriteDate) importedCustom.favoriteDate = favoriteDate;
+            items.push(importedCustom);
           } else if (entry.kind === 'ref' && entry.data) {
             const it = entry.data;
-            items.push({
+            const favoriteDate = this.readFavoriteDateFromImportEntry(entry);
+            const importedRef = {
               id: it.id,
               name: it.name,
               region: it.region,
@@ -2534,7 +2590,9 @@
               country: it.country,
               rating: it.rating,
               pending: !!entry.pending
-            });
+            };
+            if (favoriteDate) importedRef.favoriteDate = favoriteDate;
+            items.push(importedRef);
           }
         }
         items.forEach((it, idx) => (it.order = idx + 1));
@@ -3579,6 +3637,93 @@ const all = this.sortedFavorites || [];
           this.$set ? this.$set(this.favThumbs, key, url) : (this.favThumbs[key] = url);
         } catch (e) {}
       },
+      normalizeFavoriteDate(value) {
+        try {
+          if (value instanceof Date && !Number.isNaN(value.getTime())) {
+            const y = String(value.getFullYear()).padStart(4, '0');
+            const m = String(value.getMonth() + 1).padStart(2, '0');
+            const d = String(value.getDate()).padStart(2, '0');
+            return `${y}-${m}-${d}`;
+          }
+          const raw = String(value || '').trim();
+          const m = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+          if (!m) return '';
+          const y = Number(m[1]);
+          const mo = Number(m[2]);
+          const d = Number(m[3]);
+          if (!Number.isFinite(y) || !Number.isFinite(mo) || !Number.isFinite(d)) return '';
+          const dt = new Date(y, mo - 1, d);
+          if (dt.getFullYear() !== y || (dt.getMonth() + 1) !== mo || dt.getDate() !== d) return '';
+          return `${String(y).padStart(4, '0')}-${String(mo).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+        } catch (e) {
+          return '';
+        }
+      },
+      hasFavoriteDate(item) {
+        return !!this.normalizeFavoriteDate(item && item.favoriteDate);
+      },
+      getFavoriteDateYear(item) {
+        const normalized = this.normalizeFavoriteDate(item && item.favoriteDate);
+        return normalized ? normalized.slice(0, 4) : '';
+      },
+      getFavoriteDateMonthDay(item) {
+        const normalized = this.normalizeFavoriteDate(item && item.favoriteDate);
+        if (!normalized) return '';
+        return `${normalized.slice(5, 7)}/${normalized.slice(8, 10)}`;
+      },
+      readFavoriteDateFromImportEntry(entry) {
+        if (!entry || typeof entry !== 'object') return '';
+        const direct = this.normalizeFavoriteDate(entry.favoriteDate);
+        if (direct) return direct;
+        return this.normalizeFavoriteDate(entry.data && entry.data.favoriteDate);
+      },
+      getFavoriteDateInputRefKey(item) {
+        if (!item) return '';
+        return `favDateInput_${String(item.country || '')}_${String(item.id || '')}`;
+      },
+      getFavoriteDateInputEl(item) {
+        const key = this.getFavoriteDateInputRefKey(item);
+        if (!key) return null;
+        const ref = this.$refs[key];
+        if (Array.isArray(ref)) return ref[0] || null;
+        return ref || null;
+      },
+      openFavoriteDatePicker(item) {
+        if (!item) return;
+        this.closeFavoritesContextMenu();
+        const input = this.getFavoriteDateInputEl(item);
+        if (!input) return;
+        const normalized = this.normalizeFavoriteDate(item.favoriteDate);
+        try {
+          if (input.value !== normalized) input.value = normalized;
+        } catch (e) {}
+        try {
+          if (typeof input.showPicker === 'function') {
+            input.showPicker();
+            return;
+          }
+        } catch (e) {}
+        try {
+          input.focus({ preventScroll: true });
+        } catch (e) {
+          try { input.focus(); } catch (_) {}
+        }
+        try {
+          input.click();
+        } catch (e) {}
+      },
+      onFavoriteDateNativeInput(target, evt) {
+        if (!target) return;
+        const normalized = this.normalizeFavoriteDate(evt && evt.target ? evt.target.value : '');
+        if (normalized) {
+          if (this.$set) this.$set(target, 'favoriteDate', normalized);
+          else target.favoriteDate = normalized;
+        } else {
+          if (this.$delete) this.$delete(target, 'favoriteDate');
+          else delete target.favoriteDate;
+        }
+        this.saveFavorites();
+      },
       onOutsideClick(e) {
         // 当确认对话框/导出/创建弹窗打开时，保持收藏菜单不自动关闭
         if (this.itemDeleteConfirmVisible || this.tabDeleteConfirmVisible || this.showCreateModal || this.showExportModal) return;
@@ -3655,8 +3800,8 @@ const all = this.sortedFavorites || [];
           });
           if (!btn) return; // 未找到可见按钮，不定位
           const rect = btn.getBoundingClientRect();
-          const width = 320;
           const vw = window.innerWidth || document.documentElement.clientWidth || 0;
+          const width = Math.min(380, Math.max(340, vw - 24));
           const left = Math.min(Math.max(12, rect.left), Math.max(12, vw - width - 12));
           this.favoritesMenuStyle = {
             top: `${rect.bottom + 6}px`,
@@ -6309,6 +6454,52 @@ const all = this.sortedFavorites || [];
   font-weight: 800;
   padding: 2px 6px;
   border-radius: 6px;
+}
+.favorites-item .fav-date-trigger {
+  border: none;
+  background: transparent;
+  color: #2563eb;
+  border-radius: 0;
+  min-width: 0;
+  height: auto;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex: 0 0 auto;
+}
+.favorites-item .fav-date-trigger.selected {
+  color: #0f172a;
+}
+.favorites-item .fav-date-icon {
+  width: 16px;
+  height: 16px;
+  fill: currentColor;
+  display: block;
+}
+.favorites-item .fav-date-lines {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  line-height: 1.05;
+}
+.favorites-item .fav-date-year {
+  font-size: 10px;
+  font-weight: 700;
+}
+.favorites-item .fav-date-md {
+  font-size: 11px;
+  font-weight: 800;
+}
+.favorites-item .fav-date-native-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+  border: 0;
+  padding: 0;
 }
 .favorites-item.dragging-shadow {
   box-shadow: 0 10px 24px rgba(0,0,0,0.2);
