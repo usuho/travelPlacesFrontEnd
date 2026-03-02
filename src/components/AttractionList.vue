@@ -585,41 +585,45 @@
                   <span class="fav-name">{{ node.f && node.f.name }}</span>
                   <span class="fav-meta">{{ node.f && node.f.region }}</span>
                 </div>
-                <button
-                  v-if="node.f"
-                  type="button"
-                  class="fav-date-trigger"
-                  :class="{ selected: hasFavoriteDate(node.f) }"
-                  @click.stop="openFavoriteDatePicker(node.f)"
-                >
-                  <template v-if="hasFavoriteDate(node.f)">
-                    <span class="fav-date-lines">
-                      <span class="fav-date-year">{{ getFavoriteDateYear(node.f) }}</span>
-                      <span class="fav-date-md">{{ getFavoriteDateMonthDay(node.f) }}</span>
-                    </span>
-                  </template>
-                  <template v-else>
-                    <svg class="fav-date-icon" viewBox="0 0 24 24" aria-hidden="true">
-                      <path d="M7 2a1 1 0 0 1 1 1v1h8V3a1 1 0 1 1 2 0v1h1a3 3 0 0 1 3 3v12a3 3 0 0 1-3 3H5a3 3 0 0 1-3-3V7a3 3 0 0 1 3-3h1V3a1 1 0 0 1 1-1Zm13 8H4v9a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-9ZM5 6a1 1 0 0 0-1 1v1h16V7a1 1 0 0 0-1-1H5Z"></path>
-                    </svg>
-                  </template>
-                </button>
-                <input
-                  v-if="node.f"
-                  :ref="getFavoriteDateInputRefKey(node.f)"
-                  type="date"
-                  class="fav-date-native-input"
-                  :value="normalizeFavoriteDate(node.f.favoriteDate)"
-                  @input="onFavoriteDateNativeInput(node.f, $event)"
-                  @change="onFavoriteDateNativeInput(node.f, $event)"
-                  tabindex="-1"
-                  aria-hidden="true"
-                />
-                <span
-                  v-if="node.f && String(node.f.country) !== 'custom' && node.f.rating !== undefined && node.f.rating !== null && node.f.rating !== ''"
-                  class="fav-rating"
-                  :style="{ backgroundColor: getRatingColor(node.f.rating) }"
-                >{{ node.f && node.f.rating }}</span>
+                <div v-if="node.f" class="fav-right-meta">
+                  <span class="fav-date-slot">
+                    <button
+                      type="button"
+                      class="fav-date-trigger"
+                      :class="{ selected: hasFavoriteDate(node.f) }"
+                      @click.stop="openFavoriteDatePicker(node.f)"
+                    >
+                      <template v-if="hasFavoriteDate(node.f)">
+                        <span class="fav-date-lines">
+                          <span class="fav-date-year">{{ getFavoriteDateYear(node.f) }}</span>
+                          <span class="fav-date-md">{{ getFavoriteDateMonthDay(node.f) }}</span>
+                        </span>
+                      </template>
+                      <template v-else>
+                        <svg class="fav-date-icon" viewBox="0 0 24 24" aria-hidden="true">
+                          <path d="M7 2a1 1 0 0 1 1 1v1h8V3a1 1 0 1 1 2 0v1h1a3 3 0 0 1 3 3v12a3 3 0 0 1-3 3H5a3 3 0 0 1-3-3V7a3 3 0 0 1 3-3h1V3a1 1 0 0 1 1-1Zm13 8H4v9a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-9ZM5 6a1 1 0 0 0-1 1v1h16V7a1 1 0 0 0-1-1H5Z"></path>
+                        </svg>
+                      </template>
+                    </button>
+                    <input
+                      :ref="getFavoriteDateInputRefKey(node.f)"
+                      type="date"
+                      class="fav-date-native-input"
+                      :value="normalizeFavoriteDate(node.f.favoriteDate)"
+                      @input="onFavoriteDateNativeInput(node.f, $event)"
+                      @change="onFavoriteDateNativeInput(node.f, $event)"
+                      tabindex="-1"
+                      aria-hidden="true"
+                    />
+                  </span>
+                  <span class="fav-rating-slot">
+                    <span
+                      v-if="String(node.f.country) !== 'custom' && node.f.rating !== undefined && node.f.rating !== null && node.f.rating !== ''"
+                      class="fav-rating"
+                      :style="{ backgroundColor: getRatingColor(node.f.rating) }"
+                    >{{ node.f && node.f.rating }}</span>
+                  </span>
+                </div>
               </div>
             </template>
           </div>
@@ -1210,6 +1214,7 @@
             ? this.favoritesListStyle
             : {};
         const style = { ...base };
+        style['--fav-rating-slot-width'] = `${this.favoriteRatingSlotWidth}px`;
         if (this.dragging) {
           style.overflowY = 'hidden';
           style.WebkitOverflowScrolling = 'auto';
@@ -1217,6 +1222,30 @@
           style.touchAction = 'none';
         }
         return style;
+      },
+      favoriteRatingSlotWidth() {
+        const fallback = 56;
+        try {
+          const favs = Array.isArray(this.sortedFavorites) ? this.sortedFavorites : [];
+          const texts = favs
+            .filter(f => f && String(f.country) !== 'custom')
+            .map(f => String(f.rating == null ? '' : f.rating).trim())
+            .filter(Boolean);
+          if (!texts.length || typeof document === 'undefined') return fallback;
+          if (!this._favRatingMeasureCanvas) this._favRatingMeasureCanvas = document.createElement('canvas');
+          const ctx = this._favRatingMeasureCanvas.getContext && this._favRatingMeasureCanvas.getContext('2d');
+          if (!ctx) return fallback;
+          ctx.font = "800 12px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Microsoft YaHei', Arial, sans-serif";
+          let maxTextWidth = 0;
+          for (const text of texts) {
+            const w = ctx.measureText(text).width || 0;
+            if (w > maxTextWidth) maxTextWidth = w;
+          }
+          const padded = Math.ceil(maxTextWidth + 12);
+          return Math.max(fallback, padded);
+        } catch (e) {
+          return fallback;
+        }
       },
 
       countryFlagUrl() {
@@ -6470,6 +6499,34 @@ const all = this.sortedFavorites || [];
   font-weight: 800;
   padding: 2px 6px;
   border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.favorites-item .fav-right-meta {
+  flex: 0 0 auto;
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+}
+.favorites-item .fav-right-meta > * + * {
+  margin-left: 16px;
+}
+.favorites-item .fav-date-slot {
+  position: relative;
+  flex: 0 0 42px;
+  width: 42px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.favorites-item .fav-rating-slot {
+  flex: 0 0 var(--fav-rating-slot-width, 56px);
+  width: var(--fav-rating-slot-width, 56px);
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
 }
 .favorites-item .fav-date-trigger {
   border: none;
@@ -6482,6 +6539,7 @@ const all = this.sortedFavorites || [];
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  width: 100%;
   cursor: pointer;
   flex: 0 0 auto;
 }

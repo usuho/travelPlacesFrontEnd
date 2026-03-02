@@ -3195,7 +3195,7 @@ export default {
       const ratingHtml = isCustom ? '' : `<div class=\"popup-rating\" style=\"background:${color}\">${rating}</div>`;
       const favoriteDate = this.getFavoriteDateFromMeta(meta);
       const dateText = this.formatFavoriteDateLine(favoriteDate);
-      const dateHtml = dateText ? `<div class=\"popup-favorite-date\">${this.escapeHtml(dateText)}</div>` : '';
+      const dateHtml = dateText ? `<div class=\"popup-favorite-date\">${this.formatFavoriteDateHtml(dateText)}</div>` : '';
       // ʹ data- ԴΣ򿪺¼
       return `
         <div class="map-popup" data-id="${String(meta.id)}" data-country="${String(meta.country || this.country)}">
@@ -3341,6 +3341,10 @@ export default {
       const normalized = this.normalizeFavoriteDate(value);
       if (!normalized) return '';
       return `${normalized.slice(0, 4)}\u5e74 ${normalized.slice(5, 7)}\u6708${normalized.slice(8, 10)}\u65e5`;
+    },
+    formatFavoriteDateHtml(text) {
+      const safe = this.escapeHtml(text);
+      return safe.replace(/(\d+)/g, '<span class="popup-favorite-date-num">$1</span>');
     },
 
     getRatingColor(rating) {
@@ -4117,7 +4121,8 @@ export default {
 }
 :deep(.popup-meta) { color: #64748b; font-size: 12px; }
 :deep(.popup-rating) { color: #fff; font-weight: 800; padding: 2px 6px; font-size: 12px; border-radius: 6px; align-self: start; display: inline-flex; align-items: center; gap: 4px; }
-:deep(.popup-favorite-date) { grid-column: 1 / 3; color: #64748b; font-size: 11px; line-height: 1.25; margin-top: 6px; margin-bottom: -4px; padding-bottom: 0; align-self: end; }
+:deep(.popup-favorite-date) { grid-column: 1 / 3; color: #64748b; font-size: 11px; line-height: 1.25; margin-top: 0px; margin-bottom: -4px; padding-bottom: 0; align-self: end; }
+:deep(.popup-favorite-date-num) { color: #dc2626; font-weight: 700; }
 :deep(.popup-rating-label) { opacity: 0.9; font-weight: 700; }
 :deep(.popup-rating-value) { font-weight: 900; }
 
