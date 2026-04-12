@@ -590,7 +590,7 @@
                     <button
                       type="button"
                       class="fav-date-trigger"
-                      :class="{ selected: hasFavoriteDate(node.f) }"
+                      :class="{ selected: hasFavoriteDate(node.f), 'date-flashing': isFavoriteDateFlashing(node.f) }"
                       @click.stop="openFavoriteDatePicker(node.f)"
                     >
                       <template v-if="hasFavoriteDate(node.f)">
@@ -963,6 +963,8 @@
         clickGuard: false,
         clickGuardTimer: null,
         favoriteDateClickLockUntil: 0,
+        favoriteDateFlashStates: {},
+        favoriteDateFlashTimers: {},
         renameSaveTimer: null,
         // 页面横向滑动分页
         swipeStartX: 0,
@@ -1610,6 +1612,12 @@
         clearTimeout(this.recentlyMovedTimer);
         this.recentlyMovedTimer = null;
       }
+      Object.keys(this.favoriteDateFlashTimers || {}).forEach((key) => {
+        const timer = this.favoriteDateFlashTimers[key];
+        if (timer) clearTimeout(timer);
+      });
+      this.favoriteDateFlashTimers = {};
+      this.favoriteDateFlashStates = {};
       this.favoritesContextMenuInteractionLock = false;
       try {
         window.removeEventListener('resize', this.updateSwipeEnabled);
@@ -3064,6 +3072,51 @@
         this.stopTabAutoScroll();
         this.detachTabDragListeners();
       },
+
+      getFavoriteDateStateKey(item) {
+        if (!item) return '';
+        return `favDateFlash_${String(item.country || '')}_${String(item.id || '')}`;
+      },
+      isFavoriteDateFlashing(item) {
+        const key = this.getFavoriteDateStateKey(item);
+        return !!(key && this.favoriteDateFlashStates && this.favoriteDateFlashStates[key]);
+      },
+      clearFavoriteDateFlashByKey(key) {
+        if (!key) return;
+        const timer = this.favoriteDateFlashTimers && this.favoriteDateFlashTimers[key];
+        if (timer) clearTimeout(timer);
+        if (this.favoriteDateFlashTimers && Object.prototype.hasOwnProperty.call(this.favoriteDateFlashTimers, key)) {
+          if (this.$delete) this.$delete(this.favoriteDateFlashTimers, key);
+          else delete this.favoriteDateFlashTimers[key];
+        }
+        if (this.favoriteDateFlashStates && Object.prototype.hasOwnProperty.call(this.favoriteDateFlashStates, key)) {
+          if (this.$delete) this.$delete(this.favoriteDateFlashStates, key);
+          else delete this.favoriteDateFlashStates[key];
+        }
+      },
+      triggerFavoriteDateFlash(item) {
+        const key = this.getFavoriteDateStateKey(item);
+        if (!key) return;
+        this.clearFavoriteDateFlashByKey(key);
+        this.$nextTick(() => {
+          const token = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+          if (this.$set) this.$set(this.favoriteDateFlashStates, key, token);
+          else this.favoriteDateFlashStates[key] = token;
+          const timer = window.setTimeout(() => {
+            if (this.favoriteDateFlashStates && this.favoriteDateFlashStates[key] === token) {
+              if (this.$delete) this.$delete(this.favoriteDateFlashStates, key);
+              else delete this.favoriteDateFlashStates[key];
+            }
+            if (this.favoriteDateFlashTimers && this.favoriteDateFlashTimers[key] === timer) {
+              if (this.$delete) this.$delete(this.favoriteDateFlashTimers, key);
+              else delete this.favoriteDateFlashTimers[key];
+            }
+          }, 760);
+          if (this.$set) this.$set(this.favoriteDateFlashTimers, key, timer);
+          else this.favoriteDateFlashTimers[key] = timer;
+        });
+      },
+
       maybeTabAutoScroll(point, mode = 'tab') {
         const tabs = this.$refs.favTabs;
         if (!tabs) { this.stopTabAutoScroll(); return; }
@@ -3741,14 +3794,18 @@ const all = this.sortedFavorites || [];
       onFavoriteDateNativeInput(target, evt) {
         if (!target) return;
         const normalized = this.normalizeFavoriteDate(evt && evt.target ? evt.target.value : '');
-        if (normalized) {
-          if (this.$set) this.$set(target, 'favoriteDate', normalized);
-          else target.favoriteDate = normalized;
+        const nextValue = this.normalizeFavoriteDate(normalized);
+        const prevValue = this.normalizeFavoriteDate(target.favoriteDate);
+        if (nextValue === prevValue) return;
+        if (nextValue) {
+          if (this.$set) this.$set(target, 'favoriteDate', nextValue);
+          else target.favoriteDate = nextValue;
         } else {
           if (this.$delete) this.$delete(target, 'favoriteDate');
           else delete target.favoriteDate;
         }
         this.saveFavorites();
+        this.triggerFavoriteDateFlash(target);
       },
       onOutsideClick(e) {
         // 当确认对话框/导出/创建弹窗打开时，保持收藏菜单不自动关闭
@@ -6528,9 +6585,33 @@ const all = this.sortedFavorites || [];
   width: 100%;
   cursor: pointer;
   flex: 0 0 auto;
+  position: relative;
+  isolation: isolate;
+  transition: color 0.18s ease;
 }
 .favorites-item .fav-date-trigger.selected {
   color: #0f172a;
+}
+.favorites-item .fav-date-trigger.date-flashing::after {
+  content: '';
+  position: absolute;
+  inset: 3px;
+  border-radius: 12px;
+  background:
+    radial-gradient(circle at center,
+      rgba(255, 255, 255, 0.98) 0%,
+      rgba(253, 224, 71, 0.82) 28%,
+      rgba(96, 165, 250, 0.24) 62%,
+      rgba(96, 165, 250, 0) 100%);
+  pointer-events: none;
+  z-index: 0;
+  animation: fav-date-flash-glow 760ms ease-out forwards;
+}
+.favorites-item .fav-date-trigger.date-flashing .fav-date-icon,
+.favorites-item .fav-date-trigger.date-flashing .fav-date-lines {
+  position: relative;
+  z-index: 1;
+  animation: fav-date-flash-content 760ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 .favorites-item .fav-date-icon {
   width: 16px;
@@ -6566,6 +6647,38 @@ const all = this.sortedFavorites || [];
   pointer-events: none;
   border: 0;
   padding: 0;
+}
+@keyframes fav-date-flash-glow {
+  0% {
+    opacity: 0;
+    transform: scale(0.7);
+  }
+  28% {
+    opacity: 1;
+    transform: scale(1.08);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.32);
+  }
+}
+@keyframes fav-date-flash-content {
+  0% {
+    transform: scale(0.92);
+    filter: brightness(1);
+  }
+  22% {
+    transform: scale(1.12);
+    filter: brightness(1.5) drop-shadow(0 0 8px rgba(253, 224, 71, 0.78));
+  }
+  52% {
+    transform: scale(1.03);
+    filter: brightness(1.18) drop-shadow(0 0 5px rgba(147, 197, 253, 0.55));
+  }
+  100% {
+    transform: scale(1);
+    filter: brightness(1);
+  }
 }
 .favorites-item.dragging-shadow {
   box-shadow: 0 10px 24px rgba(0,0,0,0.2);
