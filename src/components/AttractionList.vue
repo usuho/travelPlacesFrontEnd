@@ -607,15 +607,16 @@
                       </template>
                     </button>
                     <input
+                      v-if="!useCustomFavoriteDatePicker"
                       :ref="getFavoriteDateInputRefKey(node.f)"
                       type="date"
                       class="fav-date-native-input"
                       :value="normalizeFavoriteDate(node.f.favoriteDate)"
                       @click.stop
+                      @touchstart.stop
                       @input="onFavoriteDateNativeInput(node.f, $event)"
                       @change="onFavoriteDateNativeInput(node.f, $event)"
                       tabindex="-1"
-                      aria-hidden="true"
                     />
                   </span>
                   <span class="fav-rating-slot">
@@ -687,6 +688,47 @@
     <CreateAttractionModal v-model="showCreateModal" :county-label="translateCounty(country)" @created="onCustomCreated" />
 
     <!-- 导出回退弹窗（适配部分移动端浏览器如锤子浏览器） -->
+    <teleport to="body">
+      <div v-if="showFavoriteDateModal" class="confirm-backdrop favorite-date-backdrop" @click="closeFavoriteDateModal">
+        <div class="confirm-dialog favorite-date-dialog" @click.stop>
+          <div class="favorite-date-header">
+            <div class="favorite-date-title">选择日期</div>
+          </div>
+          <div class="favorite-date-toolbar">
+            <button type="button" class="favorite-date-nav-btn" @click="shiftFavoriteDateModalMonth(-1)">&#x2039;</button>
+            <div class="favorite-date-selects">
+              <select v-model.number="favoriteDateModalYear" class="favorite-date-select">
+                <option v-for="year in favoriteDateYearOptions" :key="year" :value="year">{{ year }} 年</option>
+              </select>
+              <select v-model.number="favoriteDateModalMonth" class="favorite-date-select">
+                <option v-for="month in 12" :key="month" :value="month">{{ month }} 月</option>
+              </select>
+            </div>
+            <button type="button" class="favorite-date-nav-btn" @click="shiftFavoriteDateModalMonth(1)">&#x203A;</button>
+          </div>
+          <div class="favorite-date-weekdays">
+            <span v-for="label in favoriteDateWeekdayHeaders" :key="label">{{ label }}</span>
+          </div>
+          <div class="favorite-date-grid">
+            <button
+              v-for="cell in favoriteDateCalendarCells"
+              :key="cell.key"
+              type="button"
+              class="favorite-date-day"
+              :class="{ muted: !cell.currentMonth, selected: cell.selected, today: cell.today }"
+              @click="selectFavoriteDateCalendarCell(cell)"
+            >
+              {{ cell.day }}
+            </button>
+          </div>
+          <div class="favorite-date-actions">
+            <button type="button" class="favorite-date-action-link clear" @click="clearFavoriteDateModal">清除</button>
+            <button type="button" class="favorite-date-action-link today" @click="setFavoriteDateModalToday">今天</button>
+          </div>
+        </div>
+      </div>
+    </teleport>
+
     <teleport to="body">
       <div v-if="showExportModal" class="confirm-backdrop" @click="closeExportFallback">
         <div class="confirm-dialog" @click.stop>
@@ -964,6 +1006,11 @@
         clickGuard: false,
         clickGuardTimer: null,
         favoriteDateClickLockUntil: 0,
+        showFavoriteDateModal: false,
+        favoriteDateModalTarget: null,
+        favoriteDateModalValue: '',
+        favoriteDateModalYear: 0,
+        favoriteDateModalMonth: 0,
         renameSaveTimer: null,
         // 页面横向滑动分页
         swipeStartX: 0,
@@ -1170,6 +1217,74 @@
       },
       totalPages() {
         return Math.ceil(this.total / this.limit);
+      },
+      useCustomFavoriteDatePicker() {
+        if (typeof navigator === 'undefined') return false;
+        const ua = String(navigator.userAgent || '');
+        const platform = String(navigator.platform || '');
+        const maxTouchPoints = Number(navigator.maxTouchPoints || 0);
+        return /iPhone|iPad|iPod/i.test(ua) || (platform === 'MacIntel' && maxTouchPoints > 1);
+      },
+      favoriteDateWeekdayHeaders() {
+        return ['\u65e5', '\u4e00', '\u4e8c', '\u4e09', '\u56db', '\u4e94', '\u516d'];
+      },
+      favoriteDateYearOptions() {
+        const currentYear = new Date().getFullYear();
+        const selectedYear = Number(this.favoriteDateModalYear || currentYear);
+        const start = Math.min(1900, selectedYear);
+        const end = Math.max(currentYear + 30, selectedYear);
+        const years = [];
+        for (let year = start; year <= end; year += 1) years.push(year);
+        return years;
+      },
+      favoriteDateCalendarCells() {
+        const year = Number(this.favoriteDateModalYear || 0);
+        const month = Number(this.favoriteDateModalMonth || 0);
+        if (!Number.isFinite(year) || !Number.isFinite(month) || month < 1 || month > 12) return [];
+
+        const firstWeekday = new Date(year, month - 1, 1).getDay();
+        const daysInMonth = new Date(year, month, 0).getDate();
+        const prevMonthDate = new Date(year, month - 2, 1);
+        const prevYear = prevMonthDate.getFullYear();
+        const prevMonth = prevMonthDate.getMonth() + 1;
+        const prevDaysInMonth = new Date(prevYear, prevMonth, 0).getDate();
+        const nextMonthDate = new Date(year, month, 1);
+        const nextYear = nextMonthDate.getFullYear();
+        const nextMonth = nextMonthDate.getMonth() + 1;
+        const selected = this.normalizeFavoriteDate(this.favoriteDateModalValue);
+        const today = this.normalizeFavoriteDate(new Date());
+        const cells = [];
+
+        for (let index = 0; index < 42; index += 1) {
+          let cellYear = year;
+          let cellMonth = month;
+          let cellDay = index - firstWeekday + 1;
+          let currentMonth = true;
+
+          if (cellDay <= 0) {
+            cellYear = prevYear;
+            cellMonth = prevMonth;
+            cellDay = prevDaysInMonth + cellDay;
+            currentMonth = false;
+          } else if (cellDay > daysInMonth) {
+            cellYear = nextYear;
+            cellMonth = nextMonth;
+            cellDay -= daysInMonth;
+            currentMonth = false;
+          }
+
+          const value = this.createFavoriteDateValue(cellYear, cellMonth, cellDay);
+          cells.push({
+            key: `${value || `${cellYear}-${cellMonth}-${cellDay}`}-${index}`,
+            value,
+            day: cellDay,
+            currentMonth,
+            selected: !!value && value === selected,
+            today: !!value && value === today,
+          });
+        }
+
+        return cells;
       },
       sortedTabs() {
         return [...this.favoriteTabs].sort((a, b) => (a.order || 0) - (b.order || 0));
@@ -1580,11 +1695,12 @@
           this.favRightActionId = null;
           this.favRightSwipeItemId = null;
           this.favRightSwipeOffsetX = 0;
-        this.favListTouchScrolling = false;
-        this.setClickGuard();
-        try {
-          document.removeEventListener('mousedown', this.onOutsideClick, { capture: true });
-          document.removeEventListener('touchstart', this.onOutsideClick, { capture: true });
+          this.closeFavoriteDateModal();
+          this.favListTouchScrolling = false;
+          this.setClickGuard();
+          try {
+            document.removeEventListener('mousedown', this.onOutsideClick, { capture: true });
+            document.removeEventListener('touchstart', this.onOutsideClick, { capture: true });
             window.removeEventListener('resize', this.updateFavoritesMenuPosition);
             window.removeEventListener('scroll', this.updateFavoritesMenuPosition);
           } catch (e) {}
@@ -1598,6 +1714,7 @@
       this.activeFetchToken += 1;
       this.clearSwipeResetTimer();
       this.closeFavoritesContextMenu();
+      this.closeFavoriteDateModal();
       this.unlockPageTouchScroll();
       if (this.clickGuardTimer) {
         clearTimeout(this.clickGuardTimer);
@@ -3694,6 +3811,77 @@ const all = this.sortedFavorites || [];
         if (direct) return direct;
         return this.normalizeFavoriteDate(entry.data && entry.data.favoriteDate);
       },
+      createFavoriteDateValue(year, month, day) {
+        const y = Number(year);
+        const m = Number(month);
+        const d = Number(day);
+        if (!Number.isFinite(y) || !Number.isFinite(m) || !Number.isFinite(d)) return '';
+        return this.normalizeFavoriteDate(
+          `${String(y).padStart(4, '0')}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`
+        );
+      },
+      applyFavoriteDateValue(target, normalized) {
+        if (!target) return;
+        if (normalized) {
+          if (this.$set) this.$set(target, 'favoriteDate', normalized);
+          else target.favoriteDate = normalized;
+        } else {
+          if (this.$delete) this.$delete(target, 'favoriteDate');
+          else delete target.favoriteDate;
+        }
+        this.saveFavorites();
+      },
+      syncFavoriteDateModalView(value) {
+        const normalized = this.normalizeFavoriteDate(value) || this.normalizeFavoriteDate(new Date());
+        if (!normalized) return;
+        this.favoriteDateModalYear = Number(normalized.slice(0, 4));
+        this.favoriteDateModalMonth = Number(normalized.slice(5, 7));
+      },
+      openFavoriteDateModal(item) {
+        if (!item) return;
+        const normalized = this.normalizeFavoriteDate(item.favoriteDate);
+        this.favoriteDateModalTarget = item;
+        this.favoriteDateModalValue = normalized;
+        this.syncFavoriteDateModalView(normalized);
+        this.showFavoriteDateModal = true;
+      },
+      closeFavoriteDateModal() {
+        this.showFavoriteDateModal = false;
+        this.favoriteDateModalTarget = null;
+        this.favoriteDateModalValue = '';
+        this.favoriteDateModalYear = 0;
+        this.favoriteDateModalMonth = 0;
+      },
+      shiftFavoriteDateModalMonth(offset) {
+        const year = Number(this.favoriteDateModalYear || 0);
+        const month = Number(this.favoriteDateModalMonth || 0);
+        if (!Number.isFinite(year) || !Number.isFinite(month) || month < 1 || month > 12) {
+          this.syncFavoriteDateModalView(this.favoriteDateModalValue);
+          return;
+        }
+        const nextDate = new Date(year, month - 1 + Number(offset || 0), 1);
+        this.favoriteDateModalYear = nextDate.getFullYear();
+        this.favoriteDateModalMonth = nextDate.getMonth() + 1;
+      },
+      selectFavoriteDateCalendarCell(cell) {
+        if (!cell || !cell.value) return;
+        this.favoriteDateModalValue = cell.value;
+        this.favoriteDateModalYear = Number(cell.value.slice(0, 4));
+        this.favoriteDateModalMonth = Number(cell.value.slice(5, 7));
+        this.applyFavoriteDateValue(this.favoriteDateModalTarget, cell.value);
+        this.closeFavoriteDateModal();
+      },
+      setFavoriteDateModalToday() {
+        const today = this.normalizeFavoriteDate(new Date());
+        this.favoriteDateModalValue = today;
+        this.syncFavoriteDateModalView(today);
+        this.applyFavoriteDateValue(this.favoriteDateModalTarget, today);
+        this.closeFavoriteDateModal();
+      },
+      clearFavoriteDateModal() {
+        this.applyFavoriteDateValue(this.favoriteDateModalTarget, '');
+        this.closeFavoriteDateModal();
+      },
       getFavoriteDateInputRefKey(item) {
         if (!item) return '';
         return `favDateInput_${String(item.country || '')}_${String(item.id || '')}`;
@@ -3718,6 +3906,10 @@ const all = this.sortedFavorites || [];
         if (!item) return;
         this.closeFavoritesContextMenu();
         this.favoriteDateClickLockUntil = Date.now() + 700;
+        if (this.useCustomFavoriteDatePicker) {
+          this.openFavoriteDateModal(item);
+          return;
+        }
         const input = this.getFavoriteDateInputEl(item);
         if (!input) return;
         const normalized = this.normalizeFavoriteDate(item.favoriteDate);
@@ -3742,18 +3934,11 @@ const all = this.sortedFavorites || [];
       onFavoriteDateNativeInput(target, evt) {
         if (!target) return;
         const normalized = this.normalizeFavoriteDate(evt && evt.target ? evt.target.value : '');
-        if (normalized) {
-          if (this.$set) this.$set(target, 'favoriteDate', normalized);
-          else target.favoriteDate = normalized;
-        } else {
-          if (this.$delete) this.$delete(target, 'favoriteDate');
-          else delete target.favoriteDate;
-        }
-        this.saveFavorites();
+        this.applyFavoriteDateValue(target, normalized);
       },
       onOutsideClick(e) {
         // 当确认对话框/导出/创建弹窗打开时，保持收藏菜单不自动关闭
-        if (this.itemDeleteConfirmVisible || this.tabDeleteConfirmVisible || this.showCreateModal || this.showExportModal) return;
+        if (this.itemDeleteConfirmVisible || this.tabDeleteConfirmVisible || this.showCreateModal || this.showExportModal || this.showFavoriteDateModal) return;
         // 当创建自创景点弹窗打开时，保持收藏菜单不自动关闭
         if (this.showCreateModal) return;
         const menu = this.$refs.favoritesMenu;
@@ -6369,6 +6554,126 @@ const all = this.sortedFavorites || [];
   justify-content: flex-end;
   gap: 8px;
 }
+.favorite-date-backdrop {
+  z-index: 1200;
+}
+.favorite-date-dialog {
+  width: min(340px, calc(100vw - 24px));
+  min-width: 0;
+  padding: 18px;
+}
+.favorite-date-header {
+  margin-bottom: 12px;
+}
+.favorite-date-title {
+  font-size: 18px;
+  font-weight: 800;
+  color: #0f172a;
+}
+.favorite-date-toolbar {
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr) 40px;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.favorite-date-nav-btn {
+  width: 40px;
+  height: 40px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid #d7deea;
+  border-radius: 12px;
+  background: #f8fafc;
+  color: #0f172a;
+  font-size: 24px;
+  line-height: 1;
+  text-align: center;
+  cursor: pointer;
+}
+.favorite-date-selects {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 8px;
+}
+.favorite-date-select {
+  width: 100%;
+  min-width: 0;
+  border: 1px solid #d7deea;
+  border-radius: 10px;
+  background: #fff;
+  color: #0f172a;
+  padding: 9px 10px;
+  font-size: 14px;
+  font-weight: 700;
+}
+.favorite-date-weekdays {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 6px;
+  margin-bottom: 8px;
+}
+.favorite-date-weekdays span {
+  text-align: center;
+  font-size: 12px;
+  font-weight: 700;
+  color: #64748b;
+}
+.favorite-date-grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 6px;
+}
+.favorite-date-day {
+  min-width: 0;
+  aspect-ratio: 1 / 1;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  background: #fff;
+  color: #0f172a;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.favorite-date-day.muted {
+  color: #94a3b8;
+  background: #f8fafc;
+}
+.favorite-date-day.today {
+  border-color: #2563eb;
+  color: #2563eb;
+}
+.favorite-date-day.selected {
+  background: #2563eb;
+  border-color: #2563eb;
+  color: #fff;
+}
+.favorite-date-day.selected.today {
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.18);
+}
+.favorite-date-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 14px;
+}
+.favorite-date-action-link {
+  border: none;
+  background: transparent;
+  padding: 10px 8px;
+  margin: -6px -8px;
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1.2;
+  cursor: pointer;
+}
+.favorite-date-action-link.clear {
+  color: #dc2626;
+}
+.favorite-date-action-link.today {
+  color: #2563eb;
+}
 .btn-cancel {
   background: #27ae60; /* 绿色 */
   color: #fff;
@@ -6569,15 +6874,23 @@ const all = this.sortedFavorites || [];
   height: 100%;
   opacity: 0;
   pointer-events: auto;
+  background: transparent;
   border: 0;
   margin: 0;
   padding: 0;
+  color: transparent;
+  caret-color: transparent;
   cursor: pointer;
   z-index: 1;
 }
 @media (hover: hover) and (pointer: fine) {
   .favorites-item .fav-date-native-input {
     pointer-events: none;
+  }
+}
+@media (hover: none), (pointer: coarse) {
+  .favorites-item .fav-date-native-input {
+    opacity: 0.015;
   }
 }
 .favorites-item.dragging-shadow {
