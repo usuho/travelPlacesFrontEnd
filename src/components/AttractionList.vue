@@ -611,6 +611,7 @@
                       type="date"
                       class="fav-date-native-input"
                       :value="normalizeFavoriteDate(node.f.favoriteDate)"
+                      @click.stop
                       @input="onFavoriteDateNativeInput(node.f, $event)"
                       @change="onFavoriteDateNativeInput(node.f, $event)"
                       tabindex="-1"
@@ -6503,6 +6504,7 @@ const all = this.sortedFavorites || [];
   position: relative;
   flex: 0 0 42px;
   width: 42px;
+  height: 42px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -6520,7 +6522,7 @@ const all = this.sortedFavorites || [];
   color: #2563eb;
   border-radius: 0;
   min-width: 0;
-  height: auto;
+  height: 100%;
   padding: 0;
   display: inline-flex;
   align-items: center;
@@ -6537,6 +6539,7 @@ const all = this.sortedFavorites || [];
   height: 16px;
   fill: currentColor;
   display: block;
+  pointer-events: none;
 }
 .favorites-item .fav-date-lines {
   display: inline-flex;
@@ -6544,6 +6547,7 @@ const all = this.sortedFavorites || [];
   align-items: center;
   line-height: 1.05;
   gap: 1px;
+  pointer-events: none;
 }
 .favorites-item .fav-date-year {
   font-size: 10px;
@@ -6560,12 +6564,21 @@ const all = this.sortedFavorites || [];
 }
 .favorites-item .fav-date-native-input {
   position: absolute;
-  width: 1px;
-  height: 1px;
+  inset: 0;
+  width: 100%;
+  height: 100%;
   opacity: 0;
-  pointer-events: none;
+  pointer-events: auto;
   border: 0;
+  margin: 0;
   padding: 0;
+  cursor: pointer;
+  z-index: 1;
+}
+@media (hover: hover) and (pointer: fine) {
+  .favorites-item .fav-date-native-input {
+    pointer-events: none;
+  }
 }
 .favorites-item.dragging-shadow {
   box-shadow: 0 10px 24px rgba(0,0,0,0.2);
