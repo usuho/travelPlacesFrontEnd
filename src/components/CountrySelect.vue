@@ -1536,4 +1536,113 @@ export default {
     margin-bottom: 16px;
   }
 }
+
+@media (max-width: 390px) {
+  .container {
+    padding: 16px 12px 0.01px;
+  }
+
+  .hero-logo {
+    width: 104px;
+    height: 104px;
+  }
+
+  .title-text-group {
+    margin-top: 8px;
+    margin-bottom: 20px;
+  }
+
+  .hero-title {
+    font-size: 1.85rem;
+    line-height: 1.08;
+  }
+
+  .title-english {
+    font-size: 0.82rem;
+    line-height: 1.15;
+  }
+
+  .search-bar {
+    margin-top: 10px;
+  }
+
+  .search-input {
+    padding: 11px 40px 11px 12px;
+    font-size: 0.92rem;
+    border-radius: 14px;
+  }
+
+  .search-placeholder {
+    padding: 0 46px;
+    font-size: 0.88rem;
+  }
+
+  .search-icon {
+    right: 12px;
+    width: 20px;
+    height: 20px;
+  }
+
+  .continent-nav {
+    margin-top: 8px;
+  }
+
+  .continent-nav-btn {
+    min-height: 28px;
+    padding: 5px 8px;
+    margin: 0 6px 6px 0;
+    border-radius: 20px;
+  }
+
+  .continent-nav-btn-text {
+    font-size: 0.72rem;
+  }
+
+  .continent-title {
+    font-size: 0.95rem;
+    margin-bottom: 14px;
+  }
+
+  .countries-grid {
+    gap: 10px;
+  }
+
+  .country-card {
+    padding: 8px 10px 10px;
+  }
+
+  .country-flag-name {
+    gap: 6px;
+    font-size: 2rem;
+  }
+
+  .country-flag-mobile {
+    line-height: 42px;
+    font-size: 1.9rem;
+  }
+
+  .country-text-group-mobile {
+    min-width: 0;
+    line-height: 1;
+  }
+
+  .country-name-mobile {
+    font-size: 0.92rem;
+    margin-bottom: 4px;
+    line-height: 1.18;
+  }
+
+  .country-name-mobile-english {
+    font-size: 0.54rem;
+    letter-spacing: 0.03em;
+    line-height: 1.1;
+  }
+
+  .country-description {
+    margin-top: 4px;
+    font-size: 0.72rem;
+    line-height: 1.35;
+    word-break: break-word;
+  }
+}
 </style>

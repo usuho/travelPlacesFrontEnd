@@ -2518,12 +2518,17 @@
     flex-direction: row;
     gap: 16px;
   }
+
+  .bottom-back-button {
+    padding: 12px 18px;
+    font-size: 13px;
+  }
   
   .nav-button {
     min-width: auto;
-    padding: 14px 14px;
+    padding: 12px 12px;
     border-radius: 12px;
-    font-size: 12px;
+    font-size: 11px;
     font-weight: 750;
   }
 }
@@ -2566,6 +2571,33 @@
   border-radius: 8px;
   user-select: none;
   pointer-events: none;
+}
+
+@media (max-width: 390px) {
+  .navigation-controls {
+    width: fit-content;
+    max-width: 100%;
+    flex-wrap: nowrap;
+    justify-content: center;
+    gap: 16px;
+    margin: 0 auto;
+  }
+
+  .bottom-back-button,
+  .nav-button {
+    flex: 0 0 auto;
+    white-space: nowrap;
+  }
+
+  .bottom-back-button {
+    padding: 11px 16px;
+    font-size: 12px;
+  }
+
+  .nav-button {
+    padding: 11px 10px;
+    font-size: 10.5px;
+  }
 }
 
 </style>

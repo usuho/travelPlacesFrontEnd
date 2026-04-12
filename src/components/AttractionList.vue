@@ -7878,6 +7878,168 @@ const all = this.sortedFavorites || [];
   }
 }
 
+@media (max-width: 390px) {
+  .fixed-header {
+    padding: 10px 12px 0;
+  }
+
+  .scroll-content {
+    padding: 16px 12px 10px;
+    padding-top: 0;
+  }
+
+  .page-title {
+    font-size: 1.35rem;
+    line-height: 1.15;
+  }
+
+  .title-english {
+    font-size: 0.66rem;
+    letter-spacing: 0.04em;
+  }
+
+  .page-subtitle {
+    font-size: 0.76rem;
+  }
+
+  .filters-section.card.mobile-filters {
+    padding: 8px 6px;
+    margin: 0 auto 12px;
+  }
+
+  .mobile-filters-grid {
+    --mobile-label-width: 72px;
+  }
+
+  .mobile-filters-grid > * + * {
+    margin-top: 6px;
+  }
+
+  .mobile-filter-row {
+    column-gap: 6px;
+  }
+
+  .mobile-filter-row .filter-label {
+    width: var(--mobile-label-width);
+    flex-basis: var(--mobile-label-width);
+    font-size: 0.76rem;
+  }
+
+  .mobile-filter-row select,
+  .mobile-filter-row input[type="search"],
+  .mobile-filter-row input[type="number"] {
+    padding: 4px 6px;
+    font-size: 0.76rem;
+    border-radius: 10px;
+  }
+
+  .map-button,
+  .favorites-button {
+    padding: 0 8px;
+    font-size: 11px;
+  }
+
+  .button-pair > * + * {
+    margin-left: 6px;
+  }
+
+  .attractions-list {
+    margin: -4px;
+  }
+
+  .attraction-item {
+    margin: 4px;
+    flex: 0 0 calc(50% - 8px);
+    max-width: calc(50% - 8px);
+    width: calc(50% - 8px);
+    padding: 8px;
+    border-radius: 14px;
+  }
+
+  .attraction-content-mobile > * + * {
+    margin-top: 4px;
+  }
+
+  .attraction-header-mobile {
+    gap: 4px;
+    align-items: flex-start;
+  }
+
+  .attraction-header-mobile .attraction-name,
+  .attraction-content-mobile .attraction-name {
+    flex: 1 1 auto;
+    min-width: 0;
+    font-size: 0.9rem;
+    line-height: 1.28;
+  }
+
+  .attraction-header-mobile .attraction-location,
+  .attraction-location {
+    gap: 2px;
+    font-size: 0.6rem;
+  }
+
+  .location-icon {
+    font-size: 0.68rem;
+  }
+
+  .location-text {
+    max-width: 100%;
+  }
+
+  .attraction-info-row {
+    align-self: stretch;
+  }
+
+  .attraction-info-row > * + * {
+    margin-left: 8px;
+  }
+
+  .attraction-image-wrapper {
+    width: 72px;
+    height: 52px;
+    border-radius: 10px;
+  }
+
+  .stat-number {
+    font-size: 0.9rem;
+  }
+
+  .stat-label {
+    font-size: 0.52rem;
+    letter-spacing: 0.04em;
+  }
+
+  .pagination-controls {
+    flex-wrap: nowrap;
+    gap: 8px;
+    justify-content: flex-start;
+  }
+
+  .pagination-controls > * {
+    margin-bottom: 0;
+  }
+
+  .pagination-controls > * + * {
+    margin-left: 0;
+  }
+
+  .page-input-group {
+    gap: 6px;
+    flex: 0 0 auto;
+    min-width: 0;
+  }
+
+  .page-input-group > * + * {
+    margin-left: 0;
+  }
+
+  .page-input-group label {
+    font-size: 0.78rem;
+    white-space: nowrap;
+  }
+}
+
 </style>
 /* 文案显示：桌面显示完整，移动显示简写 */
 .label-desktop { display: inline; }
