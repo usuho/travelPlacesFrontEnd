@@ -21,6 +21,7 @@ import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { findCustomAttractionById, getAllCustomAttractions } from '../utils/customAttractions.js';
 import { getImageUrl as getCustomImageUrl } from '../utils/customImageStore.js';
+import { formatFavoriteDateLine as formatFavoriteDateLineValue, getFavoriteDateWeekdayLabel, normalizeFavoriteDate as normalizeFavoriteDateValue } from '../utils/favoriteDate.js';
 import { fetchAttractionsGeo, fetchAttractionsGeoByIds, fetchAttractionsPositions, fetchAttractionsPositionsByIds, getLastApiBase, withBackendApiKey } from '../utils/geoApi.js';
 import { getAttractionsGeoSnapshot, putAttractionsGeoSnapshot } from '../utils/attractionsGeoSnapshotStore.js';
 import { getCountrySlugByIso, isSupportedCountrySlug } from '../utils/countryCatalog.js';
@@ -3195,7 +3196,8 @@ export default {
       const ratingHtml = isCustom ? '' : `<div class=\"popup-rating\" style=\"background:${color}\">${rating}</div>`;
       const favoriteDate = this.getFavoriteDateFromMeta(meta);
       const dateText = this.formatFavoriteDateLine(favoriteDate);
-      const dateHtml = dateText ? `<div class=\"popup-favorite-date\">${this.formatFavoriteDateHtml(dateText)}</div>` : '';
+      const weekdayText = this.getFavoriteDateWeekday(favoriteDate);
+      const dateHtml = dateText ? `<div class=\"popup-favorite-date\">${this.formatFavoriteDateHtml(dateText, weekdayText)}</div>` : '';
       // ʹ data- ԴΣ򿪺¼
       return `
         <div class="map-popup" data-id="${String(meta.id)}" data-country="${String(meta.country || this.country)}">
@@ -3304,26 +3306,7 @@ export default {
       return v.toString();
     },
     normalizeFavoriteDate(value) {
-      try {
-        if (value instanceof Date && !Number.isNaN(value.getTime())) {
-          const y = String(value.getFullYear()).padStart(4, '0');
-          const m = String(value.getMonth() + 1).padStart(2, '0');
-          const d = String(value.getDate()).padStart(2, '0');
-          return `${y}-${m}-${d}`;
-        }
-        const raw = String(value || '').trim();
-        const m = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-        if (!m) return '';
-        const y = Number(m[1]);
-        const mo = Number(m[2]);
-        const d = Number(m[3]);
-        if (!Number.isFinite(y) || !Number.isFinite(mo) || !Number.isFinite(d)) return '';
-        const dt = new Date(y, mo - 1, d);
-        if (dt.getFullYear() !== y || (dt.getMonth() + 1) !== mo || dt.getDate() !== d) return '';
-        return `${String(y).padStart(4, '0')}-${String(mo).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-      } catch (e) {
-        return '';
-      }
+      return normalizeFavoriteDateValue(value);
     },
     getFavoriteDateFromMeta(meta) {
       try {
@@ -3338,13 +3321,16 @@ export default {
       return '';
     },
     formatFavoriteDateLine(value) {
-      const normalized = this.normalizeFavoriteDate(value);
-      if (!normalized) return '';
-      return `${normalized.slice(0, 4)}\u5e74 ${normalized.slice(5, 7)}\u6708${normalized.slice(8, 10)}\u65e5`;
+      return formatFavoriteDateLineValue(value);
     },
-    formatFavoriteDateHtml(text) {
+    getFavoriteDateWeekday(value) {
+      return getFavoriteDateWeekdayLabel(value);
+    },
+    formatFavoriteDateHtml(text, weekday) {
       const safe = this.escapeHtml(text);
-      return safe.replace(/(\d+)/g, '<span class="popup-favorite-date-num">$1</span>');
+      const highlightedDate = safe.replace(/(\d+)/g, '<span class="popup-favorite-date-num">$1</span>');
+      if (!weekday) return highlightedDate;
+      return `${highlightedDate} <span class="popup-favorite-weekday">${this.escapeHtml(weekday)}</span>`;
     },
 
     getRatingColor(rating) {
@@ -4123,6 +4109,7 @@ export default {
 :deep(.popup-rating) { color: #fff; font-weight: 800; padding: 2px 6px; font-size: 12px; border-radius: 6px; align-self: start; display: inline-flex; align-items: center; gap: 4px; }
 :deep(.popup-favorite-date) { grid-column: 1 / 3; color: #64748b; font-size: 11px; line-height: 1.25; margin-top: 0px; margin-bottom: -4px; padding-bottom: 0; align-self: end; }
 :deep(.popup-favorite-date-num) { color: #dc2626; font-weight: 700; }
+:deep(.popup-favorite-weekday) { color: #dc2626; font-weight: 800; }
 :deep(.popup-rating-label) { opacity: 0.9; font-weight: 700; }
 :deep(.popup-rating-value) { font-weight: 900; }
 
