@@ -597,6 +597,7 @@
                         <span class="fav-date-lines">
                           <span class="fav-date-year">{{ getFavoriteDateYear(node.f) }}</span>
                           <span class="fav-date-md">{{ getFavoriteDateMonthDay(node.f) }}</span>
+                          <span class="fav-date-weekday">{{ getFavoriteDateWeekday(node.f) }}</span>
                         </span>
                       </template>
                       <template v-else>
@@ -832,6 +833,7 @@
   import { findCustomAttractionById, deleteCustomAttraction, saveAllCustomAttractions } from '../utils/customAttractions.js'
   import { getImageUrl as getCustomImageUrl, deleteImagesForId as deleteCustomImagesForId, setImage as setCustomImage } from '../utils/customImageStore.js'
   import { withBackendApiKey, fetchAttractionsPositionsByIds } from '../utils/geoApi.js';
+  import { normalizeFavoriteDate as normalizeFavoriteDateValue, getFavoriteDateWeekdayLabel } from '../utils/favoriteDate.js'
   import { ensureUserDataHydrated, queueUserDataSync, deleteCustomImages } from '../stores/userDataSync.js'
   import { invalidateAttractionMapCache } from '../stores/attractionMapCache.js'
   import { Capacitor } from '@capacitor/core';
@@ -3668,26 +3670,7 @@ const all = this.sortedFavorites || [];
         } catch (e) {}
       },
       normalizeFavoriteDate(value) {
-        try {
-          if (value instanceof Date && !Number.isNaN(value.getTime())) {
-            const y = String(value.getFullYear()).padStart(4, '0');
-            const m = String(value.getMonth() + 1).padStart(2, '0');
-            const d = String(value.getDate()).padStart(2, '0');
-            return `${y}-${m}-${d}`;
-          }
-          const raw = String(value || '').trim();
-          const m = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-          if (!m) return '';
-          const y = Number(m[1]);
-          const mo = Number(m[2]);
-          const d = Number(m[3]);
-          if (!Number.isFinite(y) || !Number.isFinite(mo) || !Number.isFinite(d)) return '';
-          const dt = new Date(y, mo - 1, d);
-          if (dt.getFullYear() !== y || (dt.getMonth() + 1) !== mo || dt.getDate() !== d) return '';
-          return `${String(y).padStart(4, '0')}-${String(mo).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-        } catch (e) {
-          return '';
-        }
+        return normalizeFavoriteDateValue(value);
       },
       hasFavoriteDate(item) {
         return !!this.normalizeFavoriteDate(item && item.favoriteDate);
@@ -3700,6 +3683,9 @@ const all = this.sortedFavorites || [];
         const normalized = this.normalizeFavoriteDate(item && item.favoriteDate);
         if (!normalized) return '';
         return `${normalized.slice(5, 7)}/${normalized.slice(8, 10)}`;
+      },
+      getFavoriteDateWeekday(item) {
+        return getFavoriteDateWeekdayLabel(item && item.favoriteDate);
       },
       readFavoriteDateFromImportEntry(entry) {
         if (!entry || typeof entry !== 'object') return '';
@@ -6557,6 +6543,7 @@ const all = this.sortedFavorites || [];
   flex-direction: column;
   align-items: center;
   line-height: 1.05;
+  gap: 1px;
 }
 .favorites-item .fav-date-year {
   font-size: 10px;
@@ -6565,6 +6552,11 @@ const all = this.sortedFavorites || [];
 .favorites-item .fav-date-md {
   font-size: 11px;
   font-weight: 800;
+}
+.favorites-item .fav-date-weekday {
+  font-size: 10px;
+  font-weight: 800;
+  color: #dc2626;
 }
 .favorites-item .fav-date-native-input {
   position: absolute;
