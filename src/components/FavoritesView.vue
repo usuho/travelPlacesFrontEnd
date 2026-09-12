@@ -10,7 +10,7 @@
     </header>
 
     <!-- 主体内容：与景点列表页面的收藏列表菜单功能完全一致，但填充满整个屏幕 -->
-    <main class="favorites-full-menu card" ref="favoritesMenu">
+    <main class="favorites-full-menu" ref="favoritesMenu">
       <!-- 收藏多选项卡（Tabs） -->
       <div class="fav-tabs-wrap" ref="favTabsWrap">
         <div
@@ -63,13 +63,21 @@
       </div>
 
       <!-- Tab 拖拽镜像 -->
-      <div
-        v-if="tabDragging && tabDragItem"
-        class="tab-ghost"
-        :style="{ position: 'fixed', top: (tabGhostTop) + 'px', left: (tabGhostLeft) + 'px', width: (tabGhostWidth || 40) + 'px' }"
-      >
-        {{ tabDragItem.name }}
-      </div>
+      <teleport to="body">
+        <div
+          v-if="tabDragging && tabDragItem"
+          class="tab-ghost"
+          :style="{
+            position: 'fixed',
+            top: (tabGhostTop) + 'px',
+            left: (tabGhostLeft) + 'px',
+            width: (tabGhostWidth || 40) + 'px',
+            height: (tabGhostHeight || 32) + 'px'
+          }"
+        >
+          {{ tabDragItem.name }}
+        </div>
+      </teleport>
 
       <!-- 收藏列表项容器 -->
       <transition-group
@@ -203,29 +211,31 @@
       </transition-group>
 
       <!-- 拖拽中的浮动项镜像 -->
-      <div
-        v-if="dragging && dragItem"
-        :style="{
-          position: 'fixed',
-          top: (dragY - dragOffsetY) + 'px',
-          left: (dragLeft) + 'px',
-          width: (dragWidth) + 'px',
-          pointerEvents: 'none',
-          zIndex: 1001,
-        }"
-      >
-        <div class="favorites-item dragging-shadow">
-          <div class="fav-main">
-            <span class="fav-name">{{ dragItem.name }}</span>
-            <span class="fav-meta">{{ dragItem.region }}</span>
+      <teleport to="body">
+        <div
+          v-if="dragging && dragItem"
+          :style="{
+            position: 'fixed',
+            top: (dragY - dragOffsetY) + 'px',
+            left: (dragLeft) + 'px',
+            width: (dragWidth) + 'px',
+            pointerEvents: 'none',
+            zIndex: 1001,
+          }"
+        >
+          <div class="favorites-item dragging-shadow">
+            <div class="fav-main">
+              <span class="fav-name">{{ dragItem.name }}</span>
+              <span class="fav-meta">{{ dragItem.region }}</span>
+            </div>
+            <span
+              v-if="String(dragItem.country) !== 'custom' && dragItem && dragItem.rating !== undefined && dragItem.rating !== null && dragItem.rating !== ''"
+              class="fav-rating"
+              :style="{ backgroundColor: getRatingColor(dragItem.rating) }"
+            >{{ dragItem.rating }}</span>
           </div>
-          <span
-            v-if="String(dragItem.country) !== 'custom' && dragItem && dragItem.rating !== undefined && dragItem.rating !== null && dragItem.rating !== ''"
-            class="fav-rating"
-            :style="{ backgroundColor: getRatingColor(dragItem.rating) }"
-          >{{ dragItem.rating }}</span>
         </div>
-      </div>
+      </teleport>
     </main>
 
     <!-- 页面左下角固定返回按钮：点击返回国家列表页面 -->
@@ -443,6 +453,7 @@ export default {
       tabDragX: 0,
       tabDragY: 0,
       tabOffsetX: 0,
+      tabOffsetY: 0,
       tabPlaceholderIndex: null,
       tabPlaceholderWidth: 0,
       tabFixedWidths: [],
@@ -1025,20 +1036,14 @@ export default {
       this.tabDragX = startX;
       this.tabDragY = startY;
       this.tabOffsetX = rect ? (startX - rect.left) : 0;
+      this.tabOffsetY = rect ? (startY - rect.top) : 0;
       this.tabDragItem = this.sortedTabs[index];
       this.tabPlaceholderIndex = index;
       this.tabPlaceholderWidth = rect ? rect.width : (this.tabFixedWidths[index] || 40);
-      this.tabGhostTop = rect ? rect.top : 0;
-      this.tabGhostLeft = rect ? rect.left : 0;
-      this.tabGhostHeight = rect ? rect.height : 24;
-      try {
-        const measured = dragEl ? Math.ceil(dragEl.scrollWidth || rect.width || 0) : (rect ? rect.width : 0);
-        const extra = 16;
-        const max = Math.min(window.innerWidth || 600, 480);
-        this.tabGhostWidth = Math.max(40, Math.min(measured + extra, max));
-      } catch (e) {
-        this.tabGhostWidth = rect ? rect.width : 80;
-      }
+      this.tabGhostTop = rect ? rect.top : (startY - 14);
+      this.tabGhostLeft = rect ? rect.left : (startX - 30);
+      this.tabGhostHeight = rect ? rect.height : 28;
+      this.tabGhostWidth = rect ? Math.round(rect.width) : (this.tabFixedWidths[index] || 60);
       this.attachTabDragListeners();
       this.$nextTick(() => {
         try { if (this.$refs.favTabs) this.$refs.favTabs.scrollLeft = this.tabStartScrollLeft; } catch(e) {}
@@ -1075,6 +1080,7 @@ export default {
       this.tabDragX = p.clientX;
       this.tabDragY = p.clientY;
       this.tabGhostLeft = p.clientX - this.tabOffsetX;
+      this.tabGhostTop = p.clientY - this.tabOffsetY;
       const tabs = this.$refs.favTabs;
       const tabEls = tabs ? Array.from(tabs.querySelectorAll('.fav-tab')) : [];
       const rects = tabEls.map(el => el.getBoundingClientRect());
@@ -1113,18 +1119,24 @@ export default {
           }
         }
       } else {
+        // reorder
         let to = this.tabPlaceholderIndex;
-        if (to > this.sortedTabs.length - 1) to = this.sortedTabs.length - 1;
-        if (from !== to && from >= 0 && to >= 0) {
-          const ordered = [...this.sortedTabs];
-          const [mvd] = ordered.splice(from, 1);
-          ordered.splice(to, 0, mvd);
-          ordered.forEach((t, i) => {
-            const real = this.favoriteTabs.find(x => x.id === t.id);
-            if (real) real.order = i + 1;
-          });
-          this.normalizeTabsOrder();
-          this.saveFavorites();
+        if (to != null && from != null && from >= 0) {
+          // 当向右拖拽时，由于原位置元素被移除，后面的元素索引前移1位，插入位需 -1 才是黄色虚线框对应的真实位置
+          if (to > from) {
+            to -= 1;
+          }
+          if (from !== to && to >= 0 && to < this.sortedTabs.length) {
+            const ordered = [...this.sortedTabs];
+            const [mvd] = ordered.splice(from, 1);
+            ordered.splice(to, 0, mvd);
+            ordered.forEach((t, i) => {
+              const real = this.favoriteTabs.find(x => x.id === t.id);
+              if (real) real.order = i + 1;
+            });
+            this.normalizeTabsOrder();
+            this.saveFavorites();
+          }
         }
       }
       this.tabDragging = false;
@@ -1135,6 +1147,9 @@ export default {
       this.tabFixedWidths = [];
       this.tabGhostTop = 0;
       this.tabGhostLeft = 0;
+      this.tabOffsetX = 0;
+      this.tabOffsetY = 0;
+      this.tabDragX = 0;
       this.tabDragY = 0;
       this.stopTabAutoScroll();
       this.detachTabDragListeners();
@@ -2751,6 +2766,7 @@ export default {
   user-select: none;
   -webkit-user-select: none;
   -webkit-touch-callout: none;
+  transform: none !important;
 }
 
 /* 选项卡：固定在菜单上方，不随列表滚动 */
@@ -2805,6 +2821,10 @@ export default {
   background: rgba(0, 122, 255, 0.08);
 }
 
+.fav-tab.dragging {
+  opacity: 0.3;
+}
+
 .tab-editable {
   outline: none;
   border-bottom: 2px solid #007aff;
@@ -2845,14 +2865,22 @@ export default {
 
 .tab-ghost {
   pointer-events: none;
-  color: #1d1d1f;
+  color: #007aff;
   font-weight: 700;
-  z-index: 1001;
+  font-size: 16px;
+  line-height: 1.2;
+  z-index: 2000;
   background: #fff;
-  padding: 4px 8px;
-  border-radius: 6px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  padding: 6px 12px;
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.16);
   white-space: nowrap;
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  border: 1px solid rgba(0, 122, 255, 0.15);
 }
 
 /* 列表容器：唯一纵向滚动区域（仅景点列表项及以下部分滚动） */

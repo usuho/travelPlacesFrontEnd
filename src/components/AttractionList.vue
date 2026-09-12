@@ -527,10 +527,21 @@
           </div>
         </div>
         <!-- Tab drag ghost -->
-        <div v-if="tabDragging && tabDragItem" class="tab-ghost"
-             :style="{ position: 'fixed', top: (tabGhostTop) + 'px', left: (tabGhostLeft) + 'px', width: (tabGhostWidth || 40) + 'px' }">
-          {{ tabDragItem.name }}
-        </div>
+        <teleport to="body">
+          <div
+            v-if="tabDragging && tabDragItem"
+            class="tab-ghost"
+            :style="{
+              position: 'fixed',
+              top: (tabGhostTop) + 'px',
+              left: (tabGhostLeft) + 'px',
+              width: (tabGhostWidth || 40) + 'px',
+              height: (tabGhostHeight || 28) + 'px'
+            }"
+          >
+            {{ tabDragItem.name }}
+          </div>
+        </teleport>
         <transition-group
           ref="favoritesList"
           name="fav-move"
@@ -904,6 +915,7 @@
           tabDragX: 0,
           tabDragY: 0,
           tabOffsetX: 0,
+          tabOffsetY: 0,
           tabPlaceholderIndex: null,
           tabPlaceholderWidth: 0,
           tabFixedWidths: [],
@@ -3057,29 +3069,31 @@
         const tabs = this.$refs.favTabs;
         const tabEls = tabs ? Array.from(tabs.querySelectorAll('.fav-tab')) : [];
         this.tabStartScrollLeft = tabs ? tabs.scrollLeft : 0;
-        // capture widths to prevent jitter
-        this.tabFixedWidths = tabEls.map(el => Math.max(10, Math.round(el.getBoundingClientRect().width)));
+        // capture widths to prevent jitter, using ceil + 2 to prevent wrapping with numbers
+        this.tabFixedWidths = tabEls.map(el => Math.max(10, Math.ceil(el.getBoundingClientRect().width) + 2));
         const dragEl = tabEls[index];
         const rect = dragEl ? dragEl.getBoundingClientRect() : null;
         this.tabDragX = startX;
         this.tabDragY = startY;
-        this.tabOffsetX = rect ? (startX - rect.left) : 0;
+
+        // 与 FavoritesView 一致的浮动镜像尺寸与内外边距计算
+        const padH = 24; // 对应 padding 5px 12px 的水平内边距
+        const padV = 10; // 对应垂直内边距
+        const baseW = rect ? Math.ceil(rect.width) : (this.tabFixedWidths[index] || 40);
+        const baseH = rect ? Math.ceil(rect.height) : 20;
+        this.tabGhostWidth = baseW + padH;
+        this.tabGhostHeight = baseH + padV;
+
+        // 初始位置：使 ghost 中的文字完全重合在原 tab 文字上
+        this.tabGhostLeft = rect ? (rect.left - padH / 2) : (startX - 30);
+        this.tabGhostTop = rect ? (rect.top - padV / 2) : (startY - 14);
+        this.tabOffsetX = startX - this.tabGhostLeft;
+        this.tabOffsetY = startY - this.tabGhostTop;
+
         this.tabDragItem = this.sortedTabs[index];
         this.tabPlaceholderIndex = index;
         this.tabPlaceholderWidth = rect ? rect.width : (this.tabFixedWidths[index] || 40);
-        this.tabGhostTop = rect ? rect.top : 0;
-        this.tabGhostLeft = rect ? rect.left : 0;
-        this.tabGhostHeight = rect ? rect.height : 24;
-        // measure ghost width a bit larger than original, without wrapping
-        try {
-          const measured = dragEl ? Math.ceil(dragEl.scrollWidth || rect.width || 0) : (rect ? rect.width : 0);
-          // add some breathing room
-          const extra = 16;
-          const max = Math.min(window.innerWidth || 600, 480);
-          this.tabGhostWidth = Math.max(40, Math.min(measured + extra, max));
-        } catch (e) {
-          this.tabGhostWidth = rect ? rect.width : 80;
-        }
+
         // attach move/up
         this.attachTabDragListeners();
         // restore scrollLeft after DOM updates to prevent jumping to the left
@@ -3122,6 +3136,7 @@
         this.tabDragX = p.clientX;
         this.tabDragY = p.clientY;
         this.tabGhostLeft = p.clientX - this.tabOffsetX;
+        this.tabGhostTop = p.clientY - this.tabOffsetY;
         // update placeholder index by comparing midpoints
         const tabs = this.$refs.favTabs;
         const tabEls = tabs ? Array.from(tabs.querySelectorAll('.fav-tab')) : [];
@@ -3165,17 +3180,22 @@
         } else {
           // reorder
           let to = this.tabPlaceholderIndex;
-          if (to > this.sortedTabs.length - 1) to = this.sortedTabs.length - 1;
-          if (from !== to && from >= 0 && to >= 0) {
-            const ordered = [...this.sortedTabs];
-            const [mvd] = ordered.splice(from, 1);
-            ordered.splice(to, 0, mvd);
-            ordered.forEach((t, i) => {
-              const real = this.favoriteTabs.find(x => x.id === t.id);
-              if (real) real.order = i + 1;
-            });
-            this.normalizeTabsOrder();
-            this.saveFavorites();
+          if (to != null && from != null && from >= 0) {
+            // 当向右拖拽时，由于原位置元素被移除，后面的元素索引前移1位，插入位需 -1 才是黄色虚线框对应的真实位置
+            if (to > from) {
+              to -= 1;
+            }
+            if (from !== to && to >= 0 && to < this.sortedTabs.length) {
+              const ordered = [...this.sortedTabs];
+              const [mvd] = ordered.splice(from, 1);
+              ordered.splice(to, 0, mvd);
+              ordered.forEach((t, i) => {
+                const real = this.favoriteTabs.find(x => x.id === t.id);
+                if (real) real.order = i + 1;
+              });
+              this.normalizeTabsOrder();
+              this.saveFavorites();
+            }
           }
         }
         this.tabDragging = false;
@@ -3186,6 +3206,9 @@
         this.tabFixedWidths = [];
         this.tabGhostTop = 0;
         this.tabGhostLeft = 0;
+        this.tabOffsetX = 0;
+        this.tabOffsetY = 0;
+        this.tabDragX = 0;
         this.tabDragY = 0;
         this.stopTabAutoScroll();
         this.detachTabDragListeners();
@@ -6487,8 +6510,12 @@ const all = this.sortedFavorites || [];
   user-select: none;
   -webkit-user-select: none;
   color: #1d1d1f;
+  white-space: nowrap;
 }
 .fav-tab.active { font-weight: 700; }
+.fav-tab.dragging {
+  opacity: 0.3;
+}
 .tab-editable {
   outline: none;
   border: none;
@@ -6521,23 +6548,30 @@ const all = this.sortedFavorites || [];
 .tab-plus:hover { background: #e9ecef; }
 .tab-placeholder {
   display: inline-block;
-  height: 1.2em;
-  border: 2px dashed #ffcd00; /* 黄色虚线框 */
-  background: transparent;    /* 不要填充色 */
-  border-radius: 4px;
-  flex: 0 0 auto; /* 避免被压缩到0宽 */
+  height: 1.4em;
+  border: 2px dashed #ffb700;
+  background: transparent;
+  border-radius: 6px;
+  flex: 0 0 auto;
 }
 .tab-ghost {
   pointer-events: none;
-  color: #1d1d1f;
+  color: #007aff;
   font-weight: 700;
-  z-index: 1001;
-  background: #fff; /* 白色底 */
-  padding: 2px 6px;
-  border-radius: 4px;
-  white-space: nowrap; /* 不换行 */
-  box-sizing: border-box; /* 宽度包含内边距 */
-  display: inline-block;
+  font-size: 15px;
+  line-height: 1.2;
+  z-index: 2000;
+  background: #fff;
+  padding: 5px 12px;
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.16);
+  white-space: nowrap;
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  border: 1px solid rgba(0, 122, 255, 0.15);
 }
 
 /* Confirm dialog styles */
