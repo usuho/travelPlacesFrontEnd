@@ -1662,8 +1662,8 @@ export default {
 /* 右下角圆形浮动收藏按钮 */
 .country-floating-fav-btn {
   position: fixed;
-  right: 28px;
-  bottom: calc(28px + env(safe-area-inset-bottom, 0px));
+  right: 80px;
+  bottom: calc(80px + env(safe-area-inset-bottom, 0px));
   width: 60px;
   height: 60px;
   border-radius: 50%;
@@ -1695,8 +1695,8 @@ export default {
 
 @media (max-width: 768px) {
   .country-floating-fav-btn {
-    right: 20px;
-    bottom: calc(20px + env(safe-area-inset-bottom, 0px));
+    right: 48px;
+    bottom: calc(48px + env(safe-area-inset-bottom, 0px));
     width: 52px;
     height: 52px;
     font-size: 15px;

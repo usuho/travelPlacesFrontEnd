@@ -417,6 +417,7 @@ import { getImageUrl as getCustomImageUrl, deleteImagesForId as deleteCustomImag
 import { normalizeFavoriteDate as normalizeFavoriteDateValue, getFavoriteDateWeekdayLabel } from '../utils/favoriteDate.js';
 import { ensureUserDataHydrated, queueUserDataSync, deleteCustomImages } from '../stores/userDataSync.js';
 import { invalidateAttractionMapCache } from '../stores/attractionMapCache.js';
+import { withBackendApiKey } from '../utils/geoApi.js';
 import { Capacitor } from '@capacitor/core';
 import { Filesystem, Directory, Encoding } from '@capacitor/filesystem';
 
@@ -638,6 +639,16 @@ export default {
       this.$nextTick(() => {
         try { this.sortedFavorites.forEach(f => this.ensureFavThumb(f)); } catch (e) {}
       });
+    },
+    sortedFavorites: {
+      handler(list) {
+        if (Array.isArray(list)) {
+          this.$nextTick(() => {
+            try { list.forEach(f => this.ensureFavThumb(f)); } catch (e) {}
+          });
+        }
+      },
+      immediate: true
     }
   },
   async mounted() {
@@ -665,6 +676,13 @@ export default {
     if (this._onHardwareBack) {
       try { window.removeEventListener('hardware-back', this._onHardwareBack); } catch (e) {}
     }
+    try {
+      Object.values(this.favThumbs || {}).forEach(url => {
+        if (typeof url === 'string' && url.startsWith('blob:')) {
+          try { URL.revokeObjectURL(url); } catch (e) {}
+        }
+      });
+    } catch (e) {}
   },
   methods: {
     goBack() {
@@ -677,7 +695,16 @@ export default {
       return f ? `${String(f.country || '')}_${String(f.id)}` : '';
     },
     thumbKey(f) {
-      return f ? `${String(f.country || '')}-${String(f.id)}` : '';
+      if (!f) return '';
+      const base = `${String(f.country || '')}-${String(f.id)}`;
+      if (String(f.country) !== 'custom') return base;
+      try {
+        const a = findCustomAttractionById(f.id);
+        const mainRef = a && a.images && a.images.main;
+        return `${base}-${mainRef || 'none'}`;
+      } catch (e) {
+        return base;
+      }
     },
     getFavoritesStorageKey() {
       return 'favoriteTabs_all';
@@ -771,23 +798,38 @@ export default {
       if (!f || !f.id) return;
       const key = this.thumbKey(f);
       if (this.favThumbs[key]) return;
-      const isCustom = String(f.country) === 'custom';
-      if (isCustom) {
-        try {
-          const ca = findCustomAttractionById(f.id);
-          const imageKey = ca && ca.images && ca.images.main ? `${f.id}:main` : '';
+      try {
+        if (String(f.country) === 'custom') {
+          const a = findCustomAttractionById(f.id);
           let url = '';
-          if (imageKey) url = await getCustomImageUrl(imageKey);
-          if (!url) url = await getCustomImageUrl(`${f.id}:main`);
-          if (url) {
-            this.favThumbs[key] = url;
-            return;
+          if (a && a.images && a.images.main) {
+            const imageKey = a.images.main;
+            url = await getCustomImageUrl(imageKey);
+            if (!url) {
+              try {
+                if (!imageKey.includes('/')) {
+                  if (a && a.hasImage1) {
+                    url = await getCustomImageUrl(`${f.id}:main`);
+                  }
+                }
+              } catch (e) {}
+            }
+          } else if (a && a.hasImage1) {
+            url = await getCustomImageUrl(`${f.id}:main`);
           }
-        } catch (e) {}
-      }
-      if (f.image1) {
-        this.favThumbs[key] = f.image1;
-      }
+          if (url) {
+            this.favThumbs = { ...this.favThumbs, [key]: url };
+          }
+          return;
+        }
+        // 非自创景点：从后端API获取图片（附带后端API鉴权Header）
+        const imageUrl = `https://juseaxerf.com/api/attraction-image/${f.country}/${f.id}/1`;
+        const res = await fetch(imageUrl, withBackendApiKey());
+        if (!res.ok) return;
+        const blob = await res.blob();
+        const url = URL.createObjectURL(blob);
+        this.favThumbs = { ...this.favThumbs, [key]: url };
+      } catch (e) {}
     },
 
     // 选项卡操作
@@ -1718,22 +1760,29 @@ export default {
 
 <style scoped>
 .favorites-page-container {
-  min-height: 100vh;
+  height: 100vh;
+  height: 100dvh;
+  overflow: hidden;
   display: flex;
   flex-direction: column;
-  padding: 24px 32px 100px;
+  padding: 24px 32px 20px;
   box-sizing: border-box;
   background-color: #f5f5f7;
   width: 100%;
 }
 
 .page-header {
+  flex: 0 0 auto;
   text-align: center;
-  margin-bottom: 24px;
+  margin-bottom: 16px;
+  width: 100%;
+  max-width: 520px;
+  margin-left: auto;
+  margin-right: auto;
 }
 
 .header-content {
-  max-width: 900px;
+  width: 100%;
   margin: 0 auto;
 }
 
@@ -1752,26 +1801,30 @@ export default {
   color: #1d1d1f;
 }
 
-/* 填充满整个屏幕的主体收藏菜单 */
+/* 填充满整个屏幕的主体收藏菜单：桌面端限制宽度在520px并居中 */
 .favorites-full-menu {
   flex: 1 1 auto;
+  min-height: 0;
   width: 100%;
+  max-width: 520px;
+  margin: 0 auto;
   background: #fff;
   border-radius: 18px;
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
-  padding: 20px 24px 28px;
+  padding: 18px 24px 0;
   box-sizing: border-box;
   display: flex;
   flex-direction: column;
-  overflow: visible;
+  overflow: hidden;
   user-select: none;
   -webkit-user-select: none;
   -webkit-touch-callout: none;
 }
 
-/* 选项卡 */
+/* 选项卡：固定在菜单上方，不随列表滚动 */
 .fav-tabs-wrap {
-  margin: 0 0 16px;
+  flex: 0 0 auto;
+  margin: 0 0 12px;
   overflow: hidden;
   border-bottom: 1px solid #f0f0f2;
   padding-bottom: 8px;
@@ -1870,12 +1923,32 @@ export default {
   white-space: nowrap;
 }
 
-/* 列表容器 */
+/* 列表容器：唯一纵向滚动区域（仅景点列表项及以下部分滚动） */
 .favorites-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
   display: flex;
   flex-direction: column;
   gap: 10px;
   width: 100%;
+  padding: 4px 6px 90px 4px;
+  box-sizing: border-box;
+}
+
+.favorites-list::-webkit-scrollbar {
+  width: 6px;
+}
+
+.favorites-list::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.15);
+  border-radius: 3px;
+}
+
+.favorites-list::-webkit-scrollbar-track {
+  background: transparent;
 }
 
 /* 收藏项 */
@@ -2235,11 +2308,61 @@ export default {
   background: rgba(255, 59, 48, 0.12);
 }
 
+/* 返回按钮样式：与景点列表页面完全一致 */
+.back-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 24px;
+  background: linear-gradient(135deg, #007aff 0%, #0056cc 100%);
+  color: white;
+  border: none;
+  border-radius: 25px;
+  font-size: 16px;
+  font-weight: 600;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+  cursor: pointer;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0 4px 15px rgba(0, 122, 255, 0.3);
+  position: relative;
+  overflow: hidden;
+  margin-bottom: 0;
+  clip-path: polygon(20px 0, 100% 0, 100% 100%, 20px 100%, 0 50%);
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.back-button::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
+  transition: left 0.5s;
+}
+
+.back-button:hover::before {
+  left: 100%;
+}
+
+.back-button:hover {
+  background: linear-gradient(135deg, #0056cc 0%, #004bb5 100%);
+  transform: translateY(-3px) scale(1.02);
+  box-shadow: 0 8px 25px rgba(0, 122, 255, 0.4);
+}
+
+.back-button:active {
+  transform: translateY(-1px) scale(0.98);
+  box-shadow: 0 4px 15px rgba(0, 122, 255, 0.3);
+}
+
 /* 左下角固定返回按钮 */
 .bottom-left-back-btn {
   position: fixed;
-  left: 24px;
-  bottom: calc(24px + env(safe-area-inset-bottom, 0px));
+  left: 48px;
+  bottom: calc(48px + env(safe-area-inset-bottom, 0px));
   z-index: 1000;
 }
 
@@ -2524,31 +2647,52 @@ export default {
 /* 响应式样式 */
 @media (max-width: 768px) {
   .favorites-page-container {
-    padding: 16px 14px 90px;
+    padding: calc(36px + env(safe-area-inset-top, 0px)) 14px calc(16px + env(safe-area-inset-bottom, 0px));
+    height: 100vh;
+    height: 100dvh;
+    overflow: hidden;
+  }
+  .page-header {
+    margin-bottom: 16px;
+    max-width: 100%;
   }
   .page-title {
-    font-size: 1.5rem;
+    font-size: 2.25rem;
+    line-height: 1.2;
   }
   .favorites-full-menu {
-    border-radius: 14px;
-    padding: 14px 14px 20px;
+    max-width: 100%;
+    border-radius: 16px;
+    padding: 14px 14px 0;
+    min-height: 0;
+  }
+  .fav-tabs-wrap {
+    margin-bottom: 10px;
+  }
+  .favorites-list {
+    padding-bottom: 80px;
+  }
+  .back-button {
+    padding: 11px 16px;
+    font-size: 14px;
+    gap: 0;
   }
   .bottom-left-back-btn {
-    left: 18px;
-    bottom: calc(18px + env(safe-area-inset-bottom, 0px));
+    left: 20px;
+    bottom: calc(20px + env(safe-area-inset-bottom, 0px));
   }
 }
 
 @media (max-width: 480px) {
-  .page-title {
-    font-size: 1.35rem;
-    line-height: 1.15;
-  }
   .favorites-page-container {
-    padding: 12px 10px 84px;
+    padding: calc(32px + env(safe-area-inset-top, 0px)) 10px calc(14px + env(safe-area-inset-bottom, 0px));
+  }
+  .page-title {
+    font-size: 2.05rem;
+    line-height: 1.2;
   }
   .favorites-full-menu {
-    padding: 12px 10px 18px;
+    padding: 12px 10px 0;
   }
 }
 </style>
