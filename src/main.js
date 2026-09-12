@@ -9,6 +9,7 @@ import CountrySelect from './components/CountrySelect.vue'
 import AttractionList from './components/AttractionList.vue'
 import AttractionDetails from './components/AttractionDetails.vue'
 import AttractionMap from './components/AttractionMap.vue'
+import FavoritesView from './components/FavoritesView.vue'
 import { getAuthUser, isAuthenticated, getAuthToken, hasPersistedSessionToken, clearAuthSession } from './stores/auth.js'
 import { ensureUserDataHydrated, setSyncUsername } from './stores/userDataSync.js'
 
@@ -25,6 +26,7 @@ const routes = [
   { path: '/userlogin', redirect: '/login' },
   { path: '/userRegister', redirect: '/register' },
   { path: '/', component: CountrySelect, meta: { requiresAuth: true } },
+  { path: '/favorites', component: FavoritesView, meta: { requiresAuth: true } },
   { path: '/attractions/:country', component: AttractionList, meta: { requiresAuth: true } },
   { path: '/attraction/:country/:id', component: AttractionDetails, meta: { requiresAuth: true } },
   { path: '/map/:country', component: AttractionMap, meta: { requiresAuth: true } }
