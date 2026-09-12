@@ -30,6 +30,17 @@
             <input v-model.trim="form.position" :disabled="isImported" />
           </label>
 
+          <div class="full location-picker-row" v-if="!isImported">
+            <button type="button" class="location-pick-btn" @click="openLocationPicker">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="10" r="4"/><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z"/></svg>
+              选择位置
+            </button>
+            <span v-if="form.userLat !== null && form.userLng !== null" class="location-picked-hint">
+              已选择：{{ form.userLat.toFixed(5) }}, {{ form.userLng.toFixed(5) }}
+              <button type="button" class="location-clear-btn" @click="clearPickedLocation" title="清除已选坐标">×</button>
+            </span>
+          </div>
+
           <label>
             <span class="label-text">建议游览时间</span>
             <input v-model.trim="form.duration" :disabled="isImported" />
@@ -87,12 +98,33 @@
       <div v-if="loading" class="modal-loading-overlay">
         <div class="modal-loading-spinner"></div>
       </div>
+
+      <!-- 地图位置选择叠加层 -->
+      <div v-if="showLocationPicker" class="location-picker-overlay" @click.stop>
+        <!-- 地图区域 + 中心锚点（包在 wrap 里以便 z-index 正确隔离 Leaflet 内部层） -->
+        <div class="location-picker-map-wrap">
+          <div id="location-picker-map" class="location-picker-map"></div>
+          <div class="location-picker-anchor" aria-hidden="true">
+            <svg width="36" height="50" viewBox="0 0 36 50" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path d="M18 49 C18 49 4 32 4 18 A14 14 0 1 1 32 18 C32 32 18 49 18 49Z" fill="#3b82f6" stroke="#fff" stroke-width="2"/>
+              <circle cx="18" cy="18" r="6" fill="#fff"/>
+            </svg>
+          </div>
+        </div>
+        <!-- 底部按钮：使用 flex 流排列，绝不会被地图覆盖 -->
+        <div class="location-picker-footer">
+          <button class="ghost" type="button" @click="cancelLocationPick">取消</button>
+          <button class="primary" type="button" @click="confirmLocationPick">确定</button>
+        </div>
+      </div>
     </div>
   </div>
   <div v-else class="hidden-backdrop" @click="close"></div>
 </template>
 
 <script>
+  import L from 'leaflet'
+  import 'leaflet/dist/leaflet.css'
   import { addCustomAttraction, updateCustomAttraction } from '../utils/customAttractions.js'
   import { getImageUrl as getCustomImageUrl, setImage as setCustomImage, deleteImage as deleteCustomImage, deleteImagesForId as deleteCustomImagesForId } from '../utils/customImageStore.js'
   import { getGeoKeys } from '../utils/geoKeys.js'
@@ -114,6 +146,7 @@ export default {
     return {
       geoKeys: null,
       loading: false,
+      showLocationPicker: false,
       form: {
         name: '',
         region: '',
@@ -122,7 +155,9 @@ export default {
         duration: '',
         details: '',
         overview: '',
-        images: { main: '', secondary: ['', ''] }
+        images: { main: '', secondary: ['', ''] },
+        userLat: null,
+        userLng: null
       },
       mainCleared: false,
       secondaryCleared: [false, false]
@@ -148,6 +183,77 @@ export default {
   },
   methods: {
     close() { this.$emit('update:modelValue', false) },
+
+    // ── 地图位置选择 ──────────────────────────────────────────────────
+    openLocationPicker() {
+      this.showLocationPicker = true
+      this.$nextTick(() => {
+        try {
+          // 如已存在地图实例则先销毁
+          if (this._pickerMap) {
+            try { this._pickerMap.remove() } catch (_) {}
+            this._pickerMap = null
+          }
+          const container = document.getElementById('location-picker-map')
+          if (!container) return
+          // 确定初始中心
+          let initLat = 20, initLng = 0, initZoom = 2
+          if (Number.isFinite(this.form.userLat) && Number.isFinite(this.form.userLng)) {
+            initLat = this.form.userLat; initLng = this.form.userLng; initZoom = 14
+          } else {
+            try {
+              const id = this.initial && this.initial.id ? String(this.initial.id) : null
+              if (id) {
+                const raw = localStorage.getItem('geoCache_v1')
+                const geo = raw ? JSON.parse(raw) : {}
+                const cached = geo && geo[`custom|${id}`]
+                if (cached && Number.isFinite(cached.lat) && Number.isFinite(cached.lng)) {
+                  initLat = cached.lat; initLng = cached.lng; initZoom = 14
+                }
+              }
+            } catch (_) {}
+          }
+          const map = L.map(container, { zoomControl: true, attributionControl: false }).setView([initLat, initLng], initZoom)
+          L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            maxZoom: 19,
+            attribution: '&copy; OpenStreetMap contributors'
+          }).addTo(map)
+          this._pickerMap = map
+          // 稍后触发尺寸刷新，避免 Leaflet 渲染不完整
+          setTimeout(() => { try { map.invalidateSize() } catch (_) {} }, 120)
+        } catch (e) {
+          try { console.error('[LocationPicker] init error', e) } catch (_) {}
+        }
+      })
+    },
+    confirmLocationPick() {
+      try {
+        if (this._pickerMap) {
+          const center = this._pickerMap.getCenter()
+          if (center && Number.isFinite(center.lat) && Number.isFinite(center.lng)) {
+            this.form.userLat = center.lat
+            this.form.userLng = center.lng
+          }
+        }
+      } catch (_) {}
+      this._destroyPickerMap()
+      this.showLocationPicker = false
+    },
+    cancelLocationPick() {
+      this._destroyPickerMap()
+      this.showLocationPicker = false
+    },
+    clearPickedLocation() {
+      this.form.userLat = null
+      this.form.userLng = null
+    },
+    _destroyPickerMap() {
+      if (this._pickerMap) {
+        try { this._pickerMap.remove() } catch (_) {}
+        this._pickerMap = null
+      }
+    },
+    // ─────────────────────────────────────────────────────────────────
     async loadFromInitialWithSpinner() {
       this.mainCleared = false
       this.secondaryCleared = [false, false]
@@ -158,6 +264,8 @@ export default {
       this.form.duration = this.initial.duration || ''
       this.form.details = this.initial.details || ''
       this.form.overview = this.initial.overview || ''
+      this.form.userLat = (this.initial.userLat !== undefined && this.initial.userLat !== null && Number.isFinite(Number(this.initial.userLat))) ? Number(this.initial.userLat) : null
+      this.form.userLng = (this.initial.userLng !== undefined && this.initial.userLng !== null && Number.isFinite(Number(this.initial.userLng))) ? Number(this.initial.userLng) : null
       const id = this.initial.id
       const tasks = []
       if (this.initial.hasImage1 && !this.form.images.main) {
@@ -203,6 +311,8 @@ export default {
         this.form.duration = this.initial.duration || ''
         this.form.details = this.initial.details || ''
         this.form.overview = this.initial.overview || ''
+        this.form.userLat = (this.initial.userLat !== undefined && this.initial.userLat !== null && Number.isFinite(Number(this.initial.userLat))) ? Number(this.initial.userLat) : null
+        this.form.userLng = (this.initial.userLng !== undefined && this.initial.userLng !== null && Number.isFinite(Number(this.initial.userLng))) ? Number(this.initial.userLng) : null
         // 图片：仅在当前未选择时加载已有缓存，避免覆盖用户刚刚选择的图
         const id = this.initial.id
         if (this.initial.hasImage1 && !this.form.images.main) {
@@ -518,6 +628,7 @@ export default {
         }
       } catch (e) {}
 
+      const hasUserLatLng = Number.isFinite(this.form.userLat) && Number.isFinite(this.form.userLng)
       const attraction = {
         id,
         country: 'custom',
@@ -535,7 +646,18 @@ export default {
           main: imageRefs.main || '',
           secondary: [imageRefs.secondary[0] || '', imageRefs.secondary[1] || '']
         },
-        createdAt: new Date().toISOString()
+        createdAt: new Date().toISOString(),
+        ...(hasUserLatLng ? { userLat: this.form.userLat, userLng: this.form.userLng } : {})
+      }
+      // 若有用户手动选择的坐标，同步写入地理编码缓存（最高优先级）
+      if (hasUserLatLng) {
+        try {
+          const storeKey = 'geoCache_v1'
+          let geo = {}
+          try { geo = JSON.parse(localStorage.getItem(storeKey) || '{}') || {} } catch (_) {}
+          geo[`custom|${id}`] = { lat: this.form.userLat, lng: this.form.userLng, ts: Date.now(), userSelected: true }
+          localStorage.setItem(storeKey, JSON.stringify(geo))
+        } catch (_) {}
       }
       // 删除被替换或清除的远端图片
       try {
@@ -768,5 +890,111 @@ label.full { grid-column: 1 / -1; }
 
 @media (min-width: 1024px) {
   .img-block { flex-direction: row; }
+}
+
+/* ── 位置选择按钮行 ─────────────────────────────────── */
+.location-picker-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.location-pick-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 12px;
+  border-radius: 8px;
+  border: 1px solid #93c5fd;
+  background: #eff6ff;
+  color: #1d4ed8;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.location-pick-btn:hover { background: #dbeafe; }
+.location-pick-btn:active { transform: translateY(1px); }
+
+.location-picked-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: #047857;
+  background: #d1fae5;
+  border: 1px solid #6ee7b7;
+  border-radius: 6px;
+  padding: 3px 8px;
+}
+.location-clear-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: #64748b;
+  font-size: 14px;
+  line-height: 1;
+  padding: 0 2px;
+}
+.location-clear-btn:hover { color: #ef4444; }
+
+/* ── 地图叠加层 ─────────────────────────────────────── */
+.location-picker-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  background: #fff;
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+/*
+ * map-wrap 是地图和锚点的容器。
+ * 关键：position + z-index 让 wrap 自身成为一个独立的堆叠上下文，
+ * Leaflet 内部各 pane（tile-pane z-index:200 等）被限制在这个上下文内部，
+ * 不会影响 overlay 层级里的其他兄弟元素（如 footer）。
+ */
+.location-picker-map-wrap {
+  flex: 1 1 0;
+  min-height: 0;
+  position: relative;
+  z-index: 1;          /* 创建独立堆叠上下文，隔离 Leaflet 内部层级 */
+  overflow: hidden;
+}
+
+/* Leaflet 地图容器，填满 wrap */
+.location-picker-map {
+  position: absolute;
+  inset: 0;
+}
+
+/*
+ * 锚点：在 map-wrap 内部，z-index 必须高于 Leaflet 最高 pane（overlay/popup 约 700）。
+ * 居中定位：top/left 50% + translate(-50%, -100%) 使 SVG 底部尖端对准中心点。
+ */
+.location-picker-anchor {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -100%);
+  pointer-events: none;
+  z-index: 1000;
+  filter: drop-shadow(0 2px 5px rgba(0,0,0,0.35));
+}
+
+/*
+ * 底部按钮栏：使用 flex 流布局（非 absolute），
+ * 始终显示在地图下方，绝不会被地图层覆盖。
+ */
+.location-picker-footer {
+  flex: 0 0 auto;
+  padding: 10px 16px;
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  background: #fff;
+  border-top: 1px solid #eef0f3;
 }
 </style>

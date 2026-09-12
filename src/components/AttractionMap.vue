@@ -1,4 +1,4 @@
-﻿<template>
+<template>
   <div class="map-page">
     <div id="map" class="map-container"></div>
     <div v-if="showLoading" class="map-loading-overlay"><div class="spinner"></div></div>
@@ -1547,7 +1547,19 @@ export default {
             country: 'custom',
           };
           let latlng = null;
-          if (ca && Number.isFinite(ca.lat) && Number.isFinite(ca.lng)) {
+          // ① 优先使用用户手动选择的坐标
+          if (ca && Number.isFinite(Number(ca.userLat)) && Number.isFinite(Number(ca.userLng))) {
+            try { console.info('[Geo] use user-selected latlng (isCustomFav)', { id: String(fav.id), lat: Number(ca.userLat), lng: Number(ca.userLng) }); } catch(_) {}
+            latlng = [Number(ca.userLat), Number(ca.userLng)];
+            this._geoPut(`custom|${String(fav.id)}`, latlng[0], latlng[1]);
+            renderOne(latlng, meta);
+            if (this.fromDetails && String(this.focusId) === String(fav.id)) {
+              try { this.map.setView(latlng, 14); } catch (e) {}
+              this._didAutoPanToFirst = true;
+              this._hasRenderedFirst = true;
+              this.showLoading = false;
+            }
+          } else if (ca && Number.isFinite(ca.lat) && Number.isFinite(ca.lng)) {
             try { console.info('[Geo] use direct custom latlng', { id: String(fav.id), lat: Number(ca.lat), lng: Number(ca.lng) }); } catch(_) {}
             latlng = [Number(ca.lat), Number(ca.lng)];
             renderOne(latlng, meta);
@@ -1699,6 +1711,14 @@ export default {
                 try {
                   const caMaybe = findCustomAttractionById(String(fav.id));
                   if (caMaybe) {
+                    // 优先使用用户手动选择的坐标（无需地理编码）
+                    if (Number.isFinite(Number(caMaybe.userLat)) && Number.isFinite(Number(caMaybe.userLng))) {
+                      const uLat = Number(caMaybe.userLat), uLng = Number(caMaybe.userLng);
+                      try { console.info('[Geo] use user-selected latlng (favorite)', { id: String(fav.id), lat: uLat, lng: uLng }); } catch(_) {}
+                      this._geoPut(`custom|${String(fav.id)}`, uLat, uLng);
+                      const metaU = { id: String(fav.id), name: caMaybe.name || '', region: caMaybe.region || '', county: caMaybe.county || '', rating: Number.isFinite(fav.rating) ? fav.rating : 0, country: 'custom', hasImage: !!(caMaybe.hasImage1 || caMaybe.hasImage2 || caMaybe.hasImage3) };
+                      renderOne([uLat, uLng], metaU);
+                    } else {
                     this._favGeoPending++;
                     const task2 = (async () => {
                       try {
@@ -1729,8 +1749,9 @@ export default {
                           this._didInitCenter = true;
                         }
                       }
-                    })();
-                    pendingTasks.push(task2);
+                     })();
+                     pendingTasks.push(task2);
+                    } // end else (no user-selected coords)
                   } else {
                     // From list: geocode normal favorite as in details-focus flow
                     this._favGeoPending++;
@@ -2338,7 +2359,11 @@ export default {
 
       if (String(this.country) === 'custom') {
         const ca = findCustomAttractionById(id);
-        if (ca && Number.isFinite(ca.lat) && Number.isFinite(ca.lng)) {
+        // 优先使用用户手动选择的坐标
+        if (ca && Number.isFinite(Number(ca.userLat)) && Number.isFinite(Number(ca.userLng))) {
+          try { console.info('[Geo] use user-selected latlng (focus)', { id, lat: Number(ca.userLat), lng: Number(ca.userLng) }); } catch(_) {}
+          latlng = [Number(ca.userLat), Number(ca.userLng)];
+        } else if (ca && Number.isFinite(ca.lat) && Number.isFinite(ca.lng)) {
           try { console.info('[Geo] use direct custom latlng (focus)', { id, lat: Number(ca.lat), lng: Number(ca.lng) }); } catch(_) {}
           latlng = [Number(ca.lat), Number(ca.lng)];
         } else if (ca) {
