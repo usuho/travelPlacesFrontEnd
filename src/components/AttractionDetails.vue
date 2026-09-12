@@ -345,6 +345,9 @@
         // 路由变化（国家或ID或query）都更新并重载详情
         this.country = to.params.country;
         this.id = to.params.id;
+        this.fromMap = to.query && to.query.from === 'map';
+        this.fromSearch = to.query && to.query.from === 'search';
+        this.fromFavorites = to.query && to.query.from === 'favorites';
         this.reloadFavState();
         this.updateIsFavorited();
         this.resetDetailSwipeState(true);
@@ -429,6 +432,11 @@
         const distanceMode = this.isDistanceMode();
         // 距离模式下完全依赖距离队列（ids / listPage / hasNextPage），忽略 allAttractionIds
         if (distanceMode) {
+          if (String(this.country) === 'custom') {
+            const q = this.getDistanceQueueSnapshot();
+            const totalLen = q ? (Array.isArray(q.items) ? q.items.length : (Array.isArray(q.ids) ? q.ids.length : 0)) : 0;
+            return totalLen === 0;
+          }
           if (Array.isArray(this.ids) && this.ids.length && this.index < this.ids.length - 1) return false;
           return !this.hasNextPage;
         }
@@ -445,6 +453,13 @@
         const distanceMode = this.isDistanceMode();
         // 距离模式下完全依赖距离队列（ids / listPage），忽略 allAttractionIds
         if (distanceMode) {
+          if (String(this.country) === 'custom') {
+            return true;
+          }
+          const q = this.getDistanceQueueSnapshot();
+          if (q && q.isCustomBase && this.listPage <= 1 && this.index <= 0) {
+            return false;
+          }
           if (this.index > 0) return false;
           return this.listPage <= 1;
         }
@@ -839,6 +854,11 @@
       canSwipeDetail(direction) {
         if (this.fromSearch) return false;
         if (!this.attraction || this.loading) return false;
+        if (this.isDistanceMode()) {
+          if (direction === 'left') return !this.nextDisabled;
+          if (direction === 'right') return !this.prevDisabled;
+          return false;
+        }
         if (this.isFavoritesMode && this.favNav.length > 0) {
           if (direction === 'left') return this.favIndex < this.favNav.length - 1;
           if (direction === 'right') return this.favIndex > 0;
@@ -1013,7 +1033,14 @@
           const raw = localStorage.getItem('distanceBrowseQueue');
           if (!raw) return null;
           const obj = JSON.parse(raw);
-          if (!obj || String(obj.country || '') !== String(this.country)) return null;
+          if (!obj) return null;
+          if (String(this.country) === 'custom') {
+            if (obj.isCustomBase && String(obj.customBaseId || obj.baseId || '') === String(this.id)) {
+              return obj;
+            }
+            return null;
+          }
+          if (String(obj.country || '') !== String(this.country)) return null;
           const hasItems = Array.isArray(obj.items) && obj.items.length > 0;
           const hasIds = Array.isArray(obj.ids) && obj.ids.length > 0;
           if (!hasItems && !hasIds) return null;
@@ -1046,6 +1073,23 @@
           return;
         }
         const currentIdStr = String(this.id);
+        if (String(this.country) === 'custom' && queue.isCustomBase && String(queue.customBaseId || queue.baseId || '') === currentIdStr) {
+          this.listPage = 1;
+          this.index = -1;
+          const slice = Array.isArray(queue.items) ? queue.items.slice(0, this.listPageLimit) : [];
+          this.ids = slice.map(it => it && it.id).filter(Boolean);
+          if (!this.ids.length && Array.isArray(queue.ids)) {
+            this.ids = queue.ids.slice(0, this.listPageLimit).filter(Boolean);
+          }
+          const totalLen = Array.isArray(queue.items) ? queue.items.length : (Array.isArray(queue.ids) ? queue.ids.length : 0);
+          this.hasNextPage = totalLen > 0;
+          try {
+            localStorage.setItem('ids', this.ids.join(','));
+            localStorage.setItem('attractionIndex', '-1');
+            localStorage.setItem('attractionsPage', '1');
+          } catch (e) {}
+          return;
+        }
         let hitIndex = -1;
         if (Array.isArray(queue.items)) {
           hitIndex = queue.items.findIndex(it => String(it && it.id) === currentIdStr);
@@ -1135,8 +1179,10 @@
       },
       async ensureDistanceQueueForMapEntry() {
         if (!this.fromMap) return;
+        if (String(this.country) === 'custom') return;
         const currentIdStr = String(this.id);
         const existing = this.getDistanceQueueSnapshot();
+        if (existing && existing.isCustomBase) return;
         if (existing && String(existing.country || '') === String(this.country)) {
           if (Array.isArray(existing.items) && existing.items.some(it => String(it && it.id) === currentIdStr)) return;
           if (Array.isArray(existing.ids) && existing.ids.some(id => String(id) === currentIdStr)) return;
@@ -1321,7 +1367,9 @@
             return;
           }
         } catch (e) {}
-        try { localStorage.setItem('lastAttractionsRoute', `/attractions/${this.country}?page=${targetPage}`); } catch (e) {}
+        const q = this.getDistanceQueueSnapshot();
+        const country = (String(this.country) === 'custom' && q && q.country) ? q.country : (this.country === 'custom' ? 'japan' : this.country);
+        try { localStorage.setItem('lastAttractionsRoute', `/attractions/${country}?page=${targetPage}`); } catch (e) {}
       },
       buildListQueryParams(pageNumber) {
         const params = new URLSearchParams();
@@ -1394,7 +1442,8 @@
         this.attraction = null;
         for (let i = 1; i <=3; i++) this[`image${i}`] = null;
         this.loading = true;
-        this.$router.push(`${targetId}`);
+        const query = (this.$route && this.$route.query) ? { ...this.$route.query } : {};
+        this.$router.push({ path: `/attraction/${this.country}/${targetId}`, query });
       },
 
       async nextPage() {
@@ -1410,8 +1459,45 @@
         }
         if (this.fromSearch) return;
 
+        // 距离模式
+        if (this.isDistanceMode()) {
+          const q = this.getDistanceQueueSnapshot();
+          if (String(this.country) === 'custom') {
+            if (q) {
+              const firstItem = (Array.isArray(q.items) && q.items[0]) || (Array.isArray(q.ids) && q.ids[0]);
+              const firstId = firstItem && typeof firstItem === 'object' ? firstItem.id : firstItem;
+              if (firstId) {
+                this.attraction = null;
+                for (let i = 1; i <= 3; i++) this[`image${i}`] = null;
+                this.loading = true;
+                try {
+                  localStorage.setItem('attractionsPage', '1');
+                  localStorage.setItem('attractionIndex', '0');
+                  const slice = Array.isArray(q.items) ? q.items.slice(0, this.listPageLimit) : [];
+                  const ids = slice.map(it => it && it.id).filter(Boolean);
+                  if (ids.length) localStorage.setItem('ids', ids.join(','));
+                } catch (e) {}
+                const query = (this.$route && this.$route.query) ? { ...this.$route.query } : {};
+                this.$router.push({ path: `/attraction/${q.country}/${firstId}`, query });
+                return;
+              }
+            }
+            return;
+          }
+          if (Array.isArray(this.ids) && this.ids.length && this.index < this.ids.length - 1) {
+            this.goToListIndex(this.index + 1);
+            return;
+          }
+          const nextListPage = this.listPage + 1;
+          const loaded = await this.loadListPage(nextListPage);
+          if (loaded) {
+            this.goToListIndex(0);
+          }
+          return;
+        }
+
         // 优先使用多请求合并模式的所有ID列表（如果存在，且当前不是距离模式）
-        if (!this.isDistanceMode() && Array.isArray(this.allAttractionIds) && this.allAttractionIds.length > 0 && this.attractionGlobalIndex >= 0) {
+        if (Array.isArray(this.allAttractionIds) && this.allAttractionIds.length > 0 && this.attractionGlobalIndex >= 0) {
           const nextGlobalIndex = this.attractionGlobalIndex + 1;
           if (nextGlobalIndex < this.allAttractionIds.length) {
             const nextId = this.allAttractionIds[nextGlobalIndex];
@@ -1437,7 +1523,8 @@
             this.attraction = null;
             for (let i = 1; i <= 3; i++) this[`image${i}`] = null;
             this.loading = true;
-            this.$router.push(`/attraction/${this.country}/${nextId}`);
+            const query = (this.$route && this.$route.query) ? { ...this.$route.query } : {};
+            this.$router.push({ path: `/attraction/${this.country}/${nextId}`, query });
             return;
           }
         }
@@ -1466,9 +1553,46 @@
           return;
         }
         if (this.fromSearch) return;
+
+        // 距离模式
+        if (this.isDistanceMode()) {
+          if (String(this.country) === 'custom') {
+            return;
+          }
+          const q = this.getDistanceQueueSnapshot();
+          if (q && q.isCustomBase && this.listPage <= 1 && this.index <= 0) {
+            // 返回自创景点
+            const customId = q.customBaseId || q.baseId;
+            if (customId) {
+              this.attraction = null;
+              for (let i = 1; i <= 3; i++) this[`image${i}`] = null;
+              this.loading = true;
+              try {
+                localStorage.setItem('attractionsPage', '1');
+                localStorage.setItem('attractionIndex', '-1');
+              } catch (e) {}
+              const query = (this.$route && this.$route.query) ? { ...this.$route.query } : {};
+              this.$router.push({ path: `/attraction/custom/${customId}`, query });
+              return;
+            }
+          }
+          if (this.index > 0) {
+            this.goToListIndex(this.index - 1);
+            return;
+          }
+          if (this.listPage > 1) {
+            const prevListPage = this.listPage - 1;
+            const loaded = await this.loadListPage(prevListPage);
+            if (loaded && Array.isArray(this.ids) && this.ids.length) {
+              this.goToListIndex(this.ids.length - 1);
+              this.hasNextPage = true;
+            }
+          }
+          return;
+        }
         
         // 优先使用多请求合并模式的所有ID列表（如果存在，且当前不是距离模式）
-        if (!this.isDistanceMode() && Array.isArray(this.allAttractionIds) && this.allAttractionIds.length > 0 && this.attractionGlobalIndex >= 0) {
+        if (Array.isArray(this.allAttractionIds) && this.allAttractionIds.length > 0 && this.attractionGlobalIndex >= 0) {
           const prevGlobalIndex = this.attractionGlobalIndex - 1;
           if (prevGlobalIndex >= 0) {
             const prevId = this.allAttractionIds[prevGlobalIndex];
@@ -1493,7 +1617,8 @@
             this.attraction = null;
             for (let i = 1; i <= 3; i++) this[`image${i}`] = null;
             this.loading = true;
-            this.$router.push(`/attraction/${this.country}/${prevId}`);
+            const query = (this.$route && this.$route.query) ? { ...this.$route.query } : {};
+            this.$router.push({ path: `/attraction/${this.country}/${prevId}`, query });
             return;
           }
         }
@@ -1516,12 +1641,22 @@
       goBack() {
         if (this.fullscreenImage) { this.closeFullscreen(); return; }
         // 来自地图：返回上一页（地图）
-        if (this.fromMap) { this.$router.back(); return; }
+        if (this.fromMap) {
+          const mapRoute = sessionStorage.getItem('lastMapRoute');
+          if (mapRoute) {
+            this.$router.push(mapRoute);
+            return;
+          }
+          this.$router.back();
+          return;
+        }
         // 默认：回到列表
         const last = localStorage.getItem('lastAttractionsRoute');
         if (last) { this.$router.push(last); return; }
         const page = localStorage.getItem('attractionsPage') || 1;
-        this.$router.push(`/attractions/${this.country}?page=${page}`);
+        const q = this.getDistanceQueueSnapshot();
+        const country = (String(this.country) === 'custom' && q && q.country) ? q.country : (this.country === 'custom' ? 'japan' : this.country);
+        this.$router.push(`/attractions/${country}?page=${page}`);
       },
 
       openFullscreen(imageData) {

@@ -3660,17 +3660,37 @@ export default {
         if (!Array.isArray(dataset)) dataset = [];
         const currentIdStr = String(meta && meta.id);
         if (!currentIdStr) return;
+
+        const metaCountry = String((meta && meta.country) || '').toLowerCase();
+        const isCustom = metaCountry === 'custom' || !!findCustomAttractionById(currentIdStr);
+        let isCustomBase = false;
         let baseLat = Number(meta && meta.lat);
         let baseLng = Number(meta && meta.lng);
-        if (!Number.isFinite(baseLat) || !Number.isFinite(baseLng)) {
-          const fallback = dataset.find(item => String(item && item.id) === currentIdStr && Number.isFinite(item && item.lat) && Number.isFinite(item && item.lng));
-          if (fallback) {
-            baseLat = Number(fallback.lat);
-            baseLng = Number(fallback.lng);
-            meta = { ...(meta || {}), lat: baseLat, lng: baseLng };
+
+        if (isCustom) {
+          const ca = findCustomAttractionById(currentIdStr);
+          const uLat = Number(ca && ca.userLat);
+          const uLng = Number(ca && ca.userLng);
+          if (Number.isFinite(uLat) && Number.isFinite(uLng)) {
+            baseLat = uLat;
+            baseLng = uLng;
+            isCustomBase = true;
+          } else {
+            // 自创景点若未设置自定义位置，不参与按最近距离排序
+            return;
           }
+        } else {
+          if (!Number.isFinite(baseLat) || !Number.isFinite(baseLng)) {
+            const fallback = dataset.find(item => String(item && item.id) === currentIdStr && Number.isFinite(item && item.lat) && Number.isFinite(item && item.lng));
+            if (fallback) {
+              baseLat = Number(fallback.lat);
+              baseLng = Number(fallback.lng);
+              meta = { ...(meta || {}), lat: baseLat, lng: baseLng };
+            }
+          }
+          if (!Number.isFinite(baseLat) || !Number.isFinite(baseLng)) return;
         }
-        if (!Number.isFinite(baseLat) || !Number.isFinite(baseLng)) return;
+
         const filters = this.getActiveFilters ? this.getActiveFilters() : { minReviews: 0, region: '', county: '' };
         try {
           const extra = await this.fetchNonGeoQueueCandidates(listCountry, filters);
@@ -3719,13 +3739,7 @@ export default {
           if (hasGeo) withCoords.push(norm); else withoutCoords.push(norm);
         }
         if (!withCoords.length && !withoutCoords.length) return;
-        const currentCandidate =
-          withCoords.find(i => String(i.id) === currentIdStr) ||
-          withoutCoords.find(i => String(i.id) === currentIdStr) ||
-          normalizeItem({ ...meta, country: listCountry, lat: baseLat, lng: baseLng, hasImage: meta && meta.hasImage });
-        if (currentCandidate && Number.isFinite(baseLat) && Number.isFinite(baseLng) && Number.isFinite(currentCandidate.lat) && Number.isFinite(currentCandidate.lng)) {
-          currentCandidate.distance = this.computeDistanceKm(baseLat, baseLng, currentCandidate.lat, currentCandidate.lng);
-        }
+
         const restWith = withCoords
           .filter(i => String(i.id) !== currentIdStr)
           .sort((a, b) => (a.distance || Infinity) - (b.distance || Infinity));
@@ -3736,9 +3750,26 @@ export default {
           (isZeroDistance(item) ? zeroDistance : nonZeroWith).push(item);
         }
         const restWithout = withoutCoords.filter(i => String(i.id) !== currentIdStr);
-        const queue = [currentCandidate, ...zeroDistance, ...nonZeroWith, ...restWithout].filter(Boolean);
-        const hitIndex = queue.findIndex(i => String(i && i.id) === currentIdStr);
-        const currentPage = hitIndex >= 0 ? (Math.floor(hitIndex / pageSize) + 1) : 1;
+
+        let queue = [];
+        let currentPage = 1;
+        if (isCustomBase) {
+          // 自创景点自身不在列表中，队列由普通景点从近到远排序组成
+          queue = [...zeroDistance, ...nonZeroWith, ...restWithout].filter(Boolean);
+          currentPage = 1;
+        } else {
+          const currentCandidate =
+            withCoords.find(i => String(i.id) === currentIdStr) ||
+            withoutCoords.find(i => String(i.id) === currentIdStr) ||
+            normalizeItem({ ...meta, country: listCountry, lat: baseLat, lng: baseLng, hasImage: meta && meta.hasImage });
+          if (currentCandidate && Number.isFinite(baseLat) && Number.isFinite(baseLng) && Number.isFinite(currentCandidate.lat) && Number.isFinite(currentCandidate.lng)) {
+            currentCandidate.distance = this.computeDistanceKm(baseLat, baseLng, currentCandidate.lat, currentCandidate.lng);
+          }
+          queue = [currentCandidate, ...zeroDistance, ...nonZeroWith, ...restWithout].filter(Boolean);
+          const hitIndex = queue.findIndex(i => String(i && i.id) === currentIdStr);
+          currentPage = hitIndex >= 0 ? (Math.floor(hitIndex / pageSize) + 1) : 1;
+        }
+
         const storageItems = queue.map(item => ({
           id: item && item.id,
           name: (item && item.name) || '',
@@ -3759,6 +3790,7 @@ export default {
           baseId: currentIdStr,
           generatedAt: Date.now(),
           items: storageItems,
+          ...(isCustomBase ? { isCustomBase: true, customBaseId: currentIdStr } : {})
         };
         const saved = this._safeSetItem('distanceBrowseQueue', JSON.stringify(payload));
         if (!saved) {
@@ -3770,6 +3802,7 @@ export default {
         }
         this._safeSetItem('attractionsOrder', 'distance_near');
         this._safeSetItem('attractionsPage', String(currentPage));
+        this._safeSetItem('lastAttractionsCountry', listCountry);
       } catch (e) {
         try { console.warn('[DistanceQueue] generate failed', e); } catch (_) {}
       }
@@ -3777,11 +3810,17 @@ export default {
     resolveListCountryForQueue(meta) {
       const current = String(this.country || '').toLowerCase();
       const metaCountry = String((meta && meta.country) || current || '').toLowerCase();
-      const listCountry = current === 'custom'
-        ? String(this.normalsCountry || this.getListCountryFromQuery() || '').toLowerCase()
+      let listCountry = current === 'custom'
+        ? String(this.normalsCountry || this.determineNormalsCountry() || '').toLowerCase()
         : current;
-      if (!listCountry || listCountry === 'custom') return '';
-      if (metaCountry && metaCountry !== listCountry) return '';
+      if (!listCountry || listCountry === 'custom') {
+        try {
+          const fb = localStorage.getItem('lastNonCustomCountry') || localStorage.getItem('lastAttractionsCountry') || '';
+          if (fb && fb.toLowerCase() !== 'custom') listCountry = fb.toLowerCase();
+        } catch (_) {}
+      }
+      if (!listCountry || listCountry === 'custom') listCountry = 'japan';
+      if (metaCountry && metaCountry !== 'custom' && metaCountry !== listCountry) return '';
       return listCountry;
     },
     async obtainGeoDatasetForQueue(listCountry) {
