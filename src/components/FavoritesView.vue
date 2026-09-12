@@ -10,7 +10,7 @@
     </header>
 
     <!-- 主体内容：与景点列表页面的收藏列表菜单功能完全一致，但填充满整个屏幕 -->
-    <main class="favorites-full-menu card">
+    <main class="favorites-full-menu card" ref="favoritesMenu">
       <!-- 收藏多选项卡（Tabs） -->
       <div class="fav-tabs-wrap" ref="favTabsWrap">
         <div
@@ -435,47 +435,79 @@ export default {
       editingTabId: null,
       editingTabName: '',
       tabEditingComposing: false,
+      tabLongPressThreshold: 300,
+      tabPressTimer: null,
       tabDragging: false,
-      tabDragIndex: -1,
-      tabPlaceholderIndex: -1,
+      tabDragIndex: null,
       tabDragItem: null,
+      tabDragX: 0,
+      tabDragY: 0,
       tabOffsetX: 0,
-      tabGhostLeft: 0,
+      tabPlaceholderIndex: null,
+      tabPlaceholderWidth: 0,
+      tabFixedWidths: [],
+      tabMoveListener: null,
+      tabUpListener: null,
       tabGhostTop: 0,
+      tabGhostLeft: 0,
       tabGhostWidth: 0,
       tabGhostHeight: 0,
-      tabFixedWidths: [],
       tabAutoScrollFrame: null,
+      tabAutoScrollVelocity: 0,
+      tabAutoScrollMode: null,
+      tabStartScrollLeft: 0,
 
-      // 列表拖拽重排
+      // 列表拖拽重排与跨选项卡
+      longPressThreshold: 500,
       dragging: false,
-      dragIndex: -1,
-      placeholderIndex: -1,
+      dragIndex: null,
       dragItem: null,
       dragY: 0,
+      dragX: 0,
       dragOffsetY: 0,
       dragLeft: 20,
       dragWidth: 320,
+      dragListRect: null,
+      dragBoundaries: [],
+      placeholderStyle: {},
+      placeholderIndex: null,
+      dragSourceTabId: null,
+      dragHoverTabIndex: null,
+      tabHoverTimer: null,
+      tabHoverDelay: 500,
+      moveListener: null,
+      upListener: null,
+      autoScrollFrame: null,
+      autoScrollVelocity: 0,
+      dragHysteresis: 6,
+      dragTouchTolerance: 8,
+      pageScrollLocked: false,
+      bodyOverflowBackup: null,
+      bodyTouchActionBackup: null,
       recentlyMovedId: null,
       recentlyMovedTimer: null,
-      itemTops: [],
-      dragListRect: null,
-      tabHoverTimer: null,
-      tabHoverCandidateId: null,
 
-      // 滑动操作（左滑删除，右滑待定）
-      favTouchTracking: false,
-      favTouchStartX: 0,
-      favTouchStartY: 0,
-      favTouchIdentifier: null,
+      // 滑动操作（左滑待定，右滑移除/删除）
       favSwipeActive: false,
       favSwipeItemId: null,
+      favSwipeStartX: 0,
+      favSwipeStartY: 0,
       favSwipeOffsetX: 0,
+      favSwipeThreshold: 24,
+      favSwipeMaxReveal: 56,
       favActionId: null,
       favRightActionId: null,
       favRightSwipeItemId: null,
       favRightSwipeOffsetX: 0,
-      swipeResetTimer: null,
+      favRightSwipeThreshold: 24,
+      favRightSwipeMaxReveal: 56,
+
+      // 收藏列表触摸滚动检测
+      favListTouchStartX: 0,
+      favListTouchStartY: 0,
+      favListScrollStartTop: 0,
+      favListTouchScrolling: false,
+      favListTouchTolerance: 8,
 
       // 日期选择
       useCustomFavoriteDatePicker: true,
@@ -530,36 +562,21 @@ export default {
       return [...this.favorites].sort((a, b) => (a.order || 0) - (b.order || 0));
     },
     favoritesMoveNodes() {
-      const items = this.sortedFavorites;
-      if (!this.dragging) {
-        return items.map((f, index) => ({
-          type: 'item',
-          f,
-          index,
-          key: this.makeFavoriteKey(f)
-        }));
-      }
       const nodes = [];
-      const len = items.length;
-      const target = Math.max(0, Math.min(this.placeholderIndex, len));
-      for (let i = 0; i <= len; i++) {
-        if (i === target) {
-          nodes.push({ type: 'placeholder', key: '__placeholder__' });
+      const favs = this.sortedFavorites || [];
+      let insertedPlaceholder = false;
+      for (let i = 0; i < favs.length; i++) {
+        if (!insertedPlaceholder && this.dragging && this.placeholderIndex === i && this.dragIndex !== i) {
+          insertedPlaceholder = true;
+          nodes.push({ type: 'placeholder', key: 'fav-ph' });
         }
-        if (i < len) {
-          const f = items[i];
-          nodes.push({
-            type: 'item',
-            f,
-            index: i,
-            key: this.makeFavoriteKey(f)
-          });
-        }
+        const f = favs[i];
+        nodes.push({ type: 'item', key: `fav-item-${f.country}-${f.id}`, f, index: i });
+      }
+      if (!insertedPlaceholder && this.dragging && this.placeholderIndex === favs.length) {
+        nodes.push({ type: 'placeholder', key: 'fav-ph' });
       }
       return nodes;
-    },
-    placeholderStyle() {
-      return { height: '62px' };
     },
     favoriteDateYearOptions() {
       const currentYear = new Date().getFullYear();
@@ -672,6 +689,13 @@ export default {
     this.closeFavoriteDateModal();
     if (this.clickGuardTimer) clearTimeout(this.clickGuardTimer);
     if (this.recentlyMovedTimer) clearTimeout(this.recentlyMovedTimer);
+    if (this.tabPressTimer) clearTimeout(this.tabPressTimer);
+    this.clearTabHoverTimer();
+    this.stopAutoScroll();
+    this.stopTabAutoScroll();
+    this.detachDragListeners();
+    this.detachTabDragListeners();
+    this.unlockPageTouchScroll();
     if (this.favoritesContextMenuLockTimer) clearTimeout(this.favoritesContextMenuLockTimer);
     if (this._onHardwareBack) {
       try { window.removeEventListener('hardware-back', this._onHardwareBack); } catch (e) {}
@@ -924,114 +948,359 @@ export default {
       this.scrollActiveTabIntoCenter();
     },
 
-    // 选项卡拖拽
+    // 页面与列表触摸滚动锁定/解锁
+    lockPageTouchScroll() {
+      if (this.pageScrollLocked) return;
+      this.pageScrollLocked = true;
+      try {
+        const body = (typeof document !== 'undefined') ? document.body : null;
+        if (!body) return;
+        this.bodyOverflowBackup = body.style.overflow || '';
+        this.bodyTouchActionBackup = body.style.touchAction || '';
+        body.style.overflow = 'hidden';
+        body.style.touchAction = 'none';
+      } catch (e) {}
+    },
+    unlockPageTouchScroll() {
+      if (!this.pageScrollLocked) return;
+      this.pageScrollLocked = false;
+      try {
+        const body = (typeof document !== 'undefined') ? document.body : null;
+        if (body) {
+          body.style.overflow = this.bodyOverflowBackup != null ? this.bodyOverflowBackup : '';
+          body.style.touchAction = this.bodyTouchActionBackup != null ? this.bodyTouchActionBackup : '';
+        }
+      } catch (e) {}
+      this.bodyOverflowBackup = null;
+      this.bodyTouchActionBackup = null;
+    },
+
+    // 获取收藏列表 DOM 元素
+    favoritesListEl() {
+      const ref = this.$refs.favoritesList;
+      if (!ref) return null;
+      return ref.$el ? ref.$el : ref;
+    },
+
+    // 选项卡长按拖拽
     onTabPressStart(index, evt) {
-      if (evt && typeof evt.button === 'number' && evt.button !== 0) return;
       if (this.editingTabId) return;
-      const e = evt.touches ? evt.touches[0] : evt;
-      const startX = e.clientX;
-      const startY = e.clientY;
-      let triggered = false;
-      const timer = setTimeout(() => {
-        triggered = true;
-        this.beginTabDrag(index, startX, startY);
-      }, 350);
+      const isTouch = !!(evt && evt.touches && evt.touches[0]);
+      const tp = isTouch ? evt.touches[0] : evt;
+      const startX = tp.clientX;
+      const startY = tp.clientY;
       const cancel = () => {
-        clearTimeout(timer);
+        if (this.tabPressTimer) { clearTimeout(this.tabPressTimer); this.tabPressTimer = null; }
         window.removeEventListener('mouseup', cancel, true);
         window.removeEventListener('touchend', cancel, true);
-        window.removeEventListener('mousemove', onMove, true);
-        window.removeEventListener('touchmove', onMove, true);
+        window.removeEventListener('touchmove', onMove, { passive: false });
       };
-      const onMove = (ev) => {
-        const p = ev.touches ? ev.touches[0] : ev;
+      const onMove = (e) => {
+        const p = e.touches ? e.touches[0] : e;
         if (!p) return;
         const dx = Math.abs(p.clientX - startX);
         const dy = Math.abs(p.clientY - startY);
-        if (dx > 10 || dy > 10) cancel();
+        if (dx > 6 || dy > 6) {
+          cancel();
+        }
       };
+      this.tabPressTimer = setTimeout(() => {
+        this.beginTabDrag(index, startX, startY);
+        cancel();
+      }, this.tabLongPressThreshold);
       window.addEventListener('mouseup', cancel, true);
       window.addEventListener('touchend', cancel, true);
-      window.addEventListener('mousemove', onMove, true);
-      window.addEventListener('touchmove', onMove, true);
+      window.addEventListener('touchmove', onMove, { passive: false });
     },
     beginTabDrag(index, startX, startY) {
       this.tabDragging = true;
       this.tabDragIndex = index;
-      this.tabPlaceholderIndex = index;
-      this.tabDragItem = this.sortedTabs[index];
       const tabs = this.$refs.favTabs;
       const tabEls = tabs ? Array.from(tabs.querySelectorAll('.fav-tab')) : [];
-      this.tabFixedWidths = tabEls.map(el => Math.round(el.getBoundingClientRect().width));
+      this.tabStartScrollLeft = tabs ? tabs.scrollLeft : 0;
+      this.tabFixedWidths = tabEls.map(el => Math.max(10, Math.round(el.getBoundingClientRect().width)));
       const dragEl = tabEls[index];
       const rect = dragEl ? dragEl.getBoundingClientRect() : null;
+      this.tabDragX = startX;
+      this.tabDragY = startY;
       this.tabOffsetX = rect ? (startX - rect.left) : 0;
-      this.tabGhostLeft = startX - this.tabOffsetX;
-      this.tabGhostTop = rect ? rect.top : startY - 14;
-      this.tabGhostWidth = rect ? rect.width : 50;
-      this.tabGhostHeight = rect ? rect.height : 28;
+      this.tabDragItem = this.sortedTabs[index];
+      this.tabPlaceholderIndex = index;
+      this.tabPlaceholderWidth = rect ? rect.width : (this.tabFixedWidths[index] || 40);
+      this.tabGhostTop = rect ? rect.top : 0;
+      this.tabGhostLeft = rect ? rect.left : 0;
+      this.tabGhostHeight = rect ? rect.height : 24;
+      try {
+        const measured = dragEl ? Math.ceil(dragEl.scrollWidth || rect.width || 0) : (rect ? rect.width : 0);
+        const extra = 16;
+        const max = Math.min(window.innerWidth || 600, 480);
+        this.tabGhostWidth = Math.max(40, Math.min(measured + extra, max));
+      } catch (e) {
+        this.tabGhostWidth = rect ? rect.width : 80;
+      }
       this.attachTabDragListeners();
+      this.$nextTick(() => {
+        try { if (this.$refs.favTabs) this.$refs.favTabs.scrollLeft = this.tabStartScrollLeft; } catch(e) {}
+        this.maybeTabAutoScroll({ clientX: startX, clientY: startY });
+      });
     },
     attachTabDragListeners() {
-      window.addEventListener('mousemove', this.onTabDragMove, true);
-      window.addEventListener('mouseup', this.finishTabDrag, true);
-      window.addEventListener('touchmove', this.onTabDragMove, { passive: false, capture: true });
-      window.addEventListener('touchend', this.finishTabDrag, true);
+      this.tabMoveListener = (e) => this.onTabDragMove(e);
+      this.tabUpListener = (e) => this.finishTabDrag(e);
+      window.addEventListener('mousemove', this.tabMoveListener, true);
+      window.addEventListener('mouseup', this.tabUpListener, true);
+      window.addEventListener('touchmove', this.tabMoveListener, { passive: false, capture: true });
+      window.addEventListener('touchend', this.tabUpListener, true);
     },
     detachTabDragListeners() {
-      window.removeEventListener('mousemove', this.onTabDragMove, true);
-      window.removeEventListener('mouseup', this.finishTabDrag, true);
-      window.removeEventListener('touchmove', this.onTabDragMove, { capture: true });
-      window.removeEventListener('touchend', this.finishTabDrag, true);
+      try {
+        window.removeEventListener('mousemove', this.tabMoveListener, true);
+        window.removeEventListener('mouseup', this.tabUpListener, true);
+        window.removeEventListener('touchmove', this.tabMoveListener, { capture: true });
+        window.removeEventListener('touchend', this.tabUpListener, true);
+      } catch (e) {}
+      this.tabMoveListener = null;
+      this.tabUpListener = null;
     },
     onTabDragMove(evt) {
       if (!this.tabDragging) return;
-      if (evt.cancelable) evt.preventDefault();
+      try {
+        if (evt && typeof evt.preventDefault === 'function' && evt.cancelable) {
+          evt.preventDefault();
+        }
+      } catch (e) {}
       const p = evt.touches ? evt.touches[0] : evt;
       if (!p) return;
+      this.tabDragX = p.clientX;
+      this.tabDragY = p.clientY;
       this.tabGhostLeft = p.clientX - this.tabOffsetX;
       const tabs = this.$refs.favTabs;
-      if (!tabs) return;
-      const tabEls = Array.from(tabs.querySelectorAll('.fav-tab'));
-      let target = this.sortedTabs.length;
-      for (let i = 0; i < tabEls.length; i++) {
-        const r = tabEls[i].getBoundingClientRect();
-        if (p.clientX < r.left + r.width / 2) {
-          target = i;
-          break;
-        }
+      const tabEls = tabs ? Array.from(tabs.querySelectorAll('.fav-tab')) : [];
+      const rects = tabEls.map(el => el.getBoundingClientRect());
+      const centers = rects.map(r => (r.left + r.right) / 2);
+      let target = centers.length;
+      for (let i = 0; i < centers.length; i++) {
+        if (this.tabDragX < centers[i]) { target = i; break; }
       }
-      this.tabPlaceholderIndex = target;
+      this.tabPlaceholderIndex = Math.max(0, Math.min(target, this.sortedTabs.length));
+      this.maybeTabAutoScroll(p);
     },
     finishTabDrag(evt) {
-      if (!this.tabDragging) return;
-      this.detachTabDragListeners();
+      const p = evt.changedTouches ? evt.changedTouches[0] : evt;
+      const menu = this.$refs.favoritesMenu;
       const from = this.tabDragIndex;
-      let to = this.tabPlaceholderIndex;
-      if (from !== -1 && to !== -1) {
-        if (from < to) to -= 1;
-        if (from !== to) {
+      let deleteOutside = false;
+      if (menu) {
+        const r = menu.getBoundingClientRect();
+        const gLeft = this.tabGhostLeft;
+        const gTop = this.tabGhostTop;
+        const gRight = gLeft + (this.tabGhostWidth || 40);
+        const gBottom = gTop + (this.tabGhostHeight || 24);
+        const noIntersect = (gRight < r.left) || (gLeft > r.right) || (gBottom < r.top) || (gTop > r.bottom);
+        deleteOutside = noIntersect;
+      }
+      if (deleteOutside) {
+        const del = this.sortedTabs[from];
+        if (del) {
+          const tab = this.favoriteTabs.find(t => t.id === del.id);
+          const count = tab && Array.isArray(tab.items) ? tab.items.length : 0;
+          if (count === 0) {
+            this.tabDeleteTargetId = del.id;
+            this.performDeleteTab();
+          } else {
+            this.confirmDeleteTab(del.id);
+          }
+        }
+      } else {
+        let to = this.tabPlaceholderIndex;
+        if (to > this.sortedTabs.length - 1) to = this.sortedTabs.length - 1;
+        if (from !== to && from >= 0 && to >= 0) {
           const ordered = [...this.sortedTabs];
-          const [moved] = ordered.splice(from, 1);
-          ordered.splice(to, 0, moved);
-          ordered.forEach((t, i) => (t.order = i + 1));
-          this.favoriteTabs = ordered;
+          const [mvd] = ordered.splice(from, 1);
+          ordered.splice(to, 0, mvd);
+          ordered.forEach((t, i) => {
+            const real = this.favoriteTabs.find(x => x.id === t.id);
+            if (real) real.order = i + 1;
+          });
+          this.normalizeTabsOrder();
           this.saveFavorites();
         }
       }
       this.tabDragging = false;
-      this.tabDragIndex = -1;
-      this.tabPlaceholderIndex = -1;
+      this.tabDragIndex = null;
       this.tabDragItem = null;
+      this.tabPlaceholderIndex = null;
+      this.tabPlaceholderWidth = 0;
+      this.tabFixedWidths = [];
+      this.tabGhostTop = 0;
+      this.tabGhostLeft = 0;
+      this.tabDragY = 0;
+      this.stopTabAutoScroll();
+      this.detachTabDragListeners();
     },
-    getDraggedTabWidth() {
-      return (this.tabFixedWidths && this.tabFixedWidths[this.tabDragIndex]) || 60;
+    maybeTabAutoScroll(point, mode = 'tab') {
+      const tabs = this.$refs.favTabs;
+      if (!tabs) { this.stopTabAutoScroll(); return; }
+
+      const r = tabs.getBoundingClientRect();
+      const x = point.clientX;
+      const y = point.clientY;
+
+      // 只在“靠近选项卡行”的纵向带状区域内才允许自动滚动
+      if (mode === 'item') {
+        const margin = 120;
+        const bandTop = r.top;
+        const bandBottom = r.bottom + margin;
+
+        if (typeof y === 'number' && (y < bandTop || y > bandBottom)) {
+          if (this.tabAutoScrollMode === mode) this.stopTabAutoScroll();
+          return;
+        }
+      }
+
+      const threshold = Math.min(80, r.width / 3);
+      let velocity = 0;
+
+      if (x < r.left + threshold) {
+        const dist = x - (r.left + threshold);
+        velocity = Math.max(-12, (dist / threshold) * 12);
+      } else if (x > r.right - threshold) {
+        const dist = x - (r.right - threshold);
+        velocity = Math.min(12, (dist / threshold) * 12);
+      }
+
+      if (velocity !== 0) {
+        this.tabAutoScrollMode = mode;
+        this.tabAutoScrollVelocity = velocity;
+        if (!this.tabAutoScrollFrame) this.runTabAutoScrollLoop();
+      } else if (this.tabAutoScrollMode === mode) {
+        this.stopTabAutoScroll();
+      }
+    },
+    runTabAutoScrollLoop() {
+      if (this.tabAutoScrollFrame) {
+        window.cancelAnimationFrame(this.tabAutoScrollFrame);
+      }
+      const step = () => {
+        const mode = this.tabAutoScrollMode;
+        const usingTabDrag = mode === 'tab' && this.tabDragging;
+        const usingItemDrag = mode === 'item' && this.dragging;
+
+        if (!usingTabDrag && !usingItemDrag) { this.stopTabAutoScroll(); return; }
+
+        const tabs = this.$refs.favTabs;
+        if (!tabs) { this.stopTabAutoScroll(); return; }
+
+        const r = tabs.getBoundingClientRect();
+        const x = usingTabDrag ? this.tabDragX : this.dragX;
+        const y = usingTabDrag ? this.tabDragY : this.dragY;
+
+        if (usingItemDrag) {
+          const margin = 120;
+          const bandTop = r.top;
+          const bandBottom = r.bottom + margin;
+          if (typeof y === 'number' && (y < bandTop || y > bandBottom)) {
+            this.stopTabAutoScroll();
+            return;
+          }
+        }
+
+        const threshold = Math.min(100, r.width / 3);
+        let v = 0;
+        if (x < r.left + threshold) {
+          const dist = x - (r.left + threshold);
+          v = Math.max(-14, (dist / threshold) * 14);
+        } else if (x > r.right - threshold) {
+          const dist = x - (r.right - threshold);
+          v = Math.min(14, (dist / threshold) * 14);
+        }
+        this.tabAutoScrollVelocity = v;
+
+        if (Math.abs(this.tabAutoScrollVelocity) < 0.5) {
+          this.stopTabAutoScroll();
+          return;
+        }
+
+        const maxScroll = tabs.scrollWidth - tabs.clientWidth;
+        let next = tabs.scrollLeft + this.tabAutoScrollVelocity;
+        if (next < 0) next = 0;
+        if (next > maxScroll) next = maxScroll;
+
+        if (next !== tabs.scrollLeft) {
+          tabs.scrollLeft = next;
+
+          if (usingTabDrag) {
+            const tabEls = Array.from(tabs.querySelectorAll('.fav-tab'));
+            const rects = tabEls.map(el => el.getBoundingClientRect());
+            const centers = rects.map(r => (r.left + r.right) / 2);
+            let target = centers.length;
+            for (let i = 0; i < centers.length; i++) {
+              if (this.tabDragX < centers[i]) { target = i; break; }
+            }
+            this.tabPlaceholderIndex = Math.max(0, Math.min(target, this.sortedTabs.length));
+          } else if (usingItemDrag) {
+            this.handleTabHoverDuringItemDrag({ clientX: x, clientY: this.dragY });
+          }
+        } else {
+          this.stopTabAutoScroll();
+          return;
+        }
+
+        this.tabAutoScrollFrame = window.requestAnimationFrame(step);
+      };
+      this.tabAutoScrollFrame = window.requestAnimationFrame(step);
+    },
+    stopTabAutoScroll() {
+      if (this.tabAutoScrollFrame) {
+        window.cancelAnimationFrame(this.tabAutoScrollFrame);
+        this.tabAutoScrollFrame = null;
+      }
+      this.tabAutoScrollVelocity = 0;
+      this.tabAutoScrollMode = null;
     },
     onTabsWheel(evt) {
-      const tabs = this.$refs.favTabs;
-      if (tabs) tabs.scrollLeft += evt.deltaY || evt.deltaX;
+      try {
+        const tabs = this.$refs.favTabs;
+        if (!tabs) return;
+        const dx = Math.abs(evt.deltaY) > Math.abs(evt.deltaX) ? evt.deltaY : evt.deltaX;
+        if (!dx) return;
+        const max = tabs.scrollWidth - tabs.clientWidth;
+        let next = tabs.scrollLeft + dx;
+        if (next < 0) next = 0;
+        if (next > max) next = max;
+        if (next !== tabs.scrollLeft) {
+          tabs.scrollLeft = next;
+          if (this.tabDragging) {
+            const tabEls = Array.from(tabs.querySelectorAll('.fav-tab'));
+            const rects = tabEls.map(el => el.getBoundingClientRect());
+            const centers = rects.map(r => (r.left + r.right) / 2);
+            let target = centers.length;
+            for (let i = 0; i < centers.length; i++) {
+              if (this.tabDragX < centers[i]) { target = i; break; }
+            }
+            this.tabPlaceholderIndex = Math.max(0, Math.min(target, this.sortedTabs.length));
+          }
+        }
+      } catch (e) {}
     },
-    onTabsTouchMove() {},
+    onTabsTouchMove(evt) {
+      if (this.tabDragging) {
+        try {
+          if (evt && typeof evt.preventDefault === 'function' && evt.cancelable) {
+            evt.preventDefault();
+          }
+        } catch (e) {}
+      }
+    },
+    getDraggedTabWidth() {
+      try {
+        const tabs = this.$refs.favTabs;
+        const els = tabs ? Array.from(tabs.querySelectorAll('.fav-tab')) : [];
+        const el = (typeof this.tabDragIndex === 'number' && els[this.tabDragIndex]) ? els[this.tabDragIndex] : null;
+        if (el) return Math.max(28, Math.round(el.getBoundingClientRect().width));
+      } catch (e) {}
+      return (this.tabFixedWidths && this.tabFixedWidths[this.tabDragIndex]) || 60;
+    },
 
     // 删除选项卡
     confirmDeleteTab(id) {
@@ -1108,233 +1377,799 @@ export default {
       }, 400);
     },
 
+    // 收藏列表触摸滚动检测（用于禁止右滑删除）
+    onFavoritesListTouchStart(evt) {
+      const list = this.favoritesListEl();
+      const t = evt && evt.touches && evt.touches[0];
+      this.favListTouchStartX = t ? t.clientX : 0;
+      this.favListTouchStartY = t ? t.clientY : 0;
+      this.favListScrollStartTop = list ? list.scrollTop : 0;
+      this.favListTouchScrolling = false;
+    },
+    onFavoritesListTouchMove(evt) {
+      const list = this.favoritesListEl();
+      const t = evt && evt.touches && evt.touches[0];
+      if (!t) return;
+      const dx = t.clientX - this.favListTouchStartX;
+      const dy = t.clientY - this.favListTouchStartY;
+      const movedY = Math.abs(dy) > Math.abs(dx) && Math.abs(dy) > this.favListTouchTolerance;
+      const scrolled = list && Math.abs((list.scrollTop || 0) - (this.favListScrollStartTop || 0)) > 0;
+      if (movedY || scrolled) {
+        this.favListTouchScrolling = true;
+        if (this.favActionId || this.favSwipeOffsetX || this.favRightActionId || this.favRightSwipeOffsetX) {
+          this.favActionId = null;
+          this.favSwipeOffsetX = 0;
+          this.favRightActionId = null;
+          this.favRightSwipeOffsetX = 0;
+        }
+        this.favSwipeActive = false;
+        this.favSwipeItemId = null;
+        this.favRightSwipeItemId = null;
+      }
+    },
+    onFavoritesListTouchEnd() {
+      setTimeout(() => { this.favListTouchScrolling = false; }, 50);
+    },
+
     // 收藏项触摸与滑动操作
     onFavTouchStart(f, idx, evt) {
-      if (!evt || !evt.touches || !evt.touches[0]) return;
-      const t = evt.touches[0];
-      this.favTouchTracking = true;
-      this.favTouchStartX = t.clientX;
-      this.favTouchStartY = t.clientY;
-      this.favTouchIdentifier = t.identifier;
-      this.favSwipeItemId = String(f.id);
-      this.favRightSwipeItemId = String(f.id);
+      if (this.dragging || this.favListTouchScrolling) return;
+      if (evt && evt.touches && evt.touches[0]) {
+        const t = evt.touches[0];
+        this.favSwipeStartX = t.clientX;
+        this.favSwipeStartY = t.clientY;
+        this.favSwipeActive = true;
+        this.favSwipeItemId = f.id;
+        this.favRightSwipeItemId = f.id;
+      }
     },
     onFavTouchMove(evt) {
-      if (!this.favTouchTracking || !evt.touches) return;
-      const t = Array.from(evt.touches).find(x => x.identifier === this.favTouchIdentifier);
-      if (!t) return;
-      const dx = t.clientX - this.favTouchStartX;
-      const dy = t.clientY - this.favTouchStartY;
-      if (Math.abs(dx) > Math.abs(dy) * 1.5 && Math.abs(dx) > 10) {
+      if (this.dragging || this.favListTouchScrolling) return;
+      if (!this.favSwipeActive || !evt || !evt.touches || !evt.touches[0]) return;
+      const t = evt.touches[0];
+      const dx = t.clientX - this.favSwipeStartX;
+      const dy = t.clientY - this.favSwipeStartY;
+      if (Math.abs(dx) > Math.abs(dy)) {
         if (dx > 0) {
-          // 右滑待定
-          this.favSwipeOffsetX = Math.min(60, dx);
-          this.favRightActionId = this.favSwipeItemId;
-        } else {
-          // 左滑删除
-          this.favSwipeOffsetX = Math.max(-60, dx);
-          this.favActionId = this.favSwipeItemId;
+          if (this.favRightActionId && this.favRightActionId === this.favRightSwipeItemId) {
+            const base = -this.favRightSwipeMaxReveal;
+            const offset = Math.min(0, base + dx);
+            this.favRightSwipeOffsetX = offset;
+            this.favActionId = null;
+            this.favSwipeOffsetX = 0;
+            if (evt.cancelable) evt.preventDefault();
+          } else {
+            this.favRightActionId = null;
+            this.favRightSwipeOffsetX = 0;
+            const offset = Math.max(0, Math.min(this.favSwipeMaxReveal, dx));
+            this.favSwipeOffsetX = offset;
+            if (evt.cancelable) evt.preventDefault();
+          }
+        } else if (dx < 0) {
+          if (this.favActionId && this.favActionId === this.favSwipeItemId) {
+            const base = this.favSwipeMaxReveal;
+            const offset = Math.max(0, base + dx);
+            this.favSwipeOffsetX = offset;
+            this.favRightActionId = null;
+            this.favRightSwipeOffsetX = 0;
+            if (evt.cancelable) evt.preventDefault();
+          } else {
+            this.favActionId = null;
+            this.favSwipeOffsetX = 0;
+            const offset = Math.min(0, Math.max(-this.favRightSwipeMaxReveal, dx));
+            this.favRightSwipeOffsetX = offset;
+            if (evt.cancelable) evt.preventDefault();
+          }
         }
       }
     },
     onFavTouchEnd(f, idx, evt) {
-      this.favTouchTracking = false;
-      if (this.favSwipeOffsetX > 35) {
-        this.favRightActionId = String(f.id);
-        this.favActionId = null;
-      } else if (this.favSwipeOffsetX < -35) {
-        this.favActionId = String(f.id);
+      if (this.dragging || this.favListTouchScrolling) { this.favSwipeActive = false; return; }
+      const keepRight = Math.abs(this.favRightSwipeOffsetX || 0) >= this.favRightSwipeThreshold;
+      const keepLeft = (this.favSwipeOffsetX || 0) >= this.favSwipeThreshold;
+      if (keepLeft) {
+        this.favActionId = this.favSwipeItemId;
+        this.favSwipeOffsetX = this.favSwipeMaxReveal;
         this.favRightActionId = null;
+        this.favRightSwipeOffsetX = 0;
       } else {
         this.favActionId = null;
-        this.favRightActionId = null;
         this.favSwipeOffsetX = 0;
       }
+      if (keepRight) {
+        this.favRightActionId = this.favRightSwipeItemId;
+        this.favRightSwipeOffsetX = -this.favRightSwipeMaxReveal;
+        this.favActionId = null;
+        this.favSwipeOffsetX = 0;
+      } else if (!keepLeft) {
+        this.favRightActionId = null;
+        this.favRightSwipeOffsetX = 0;
+      }
+      this.favSwipeActive = false;
+      this.favSwipeItemId = null;
+      this.favRightSwipeItemId = null;
     },
     isFavActionsVisible(f) {
-      return f && this.favActionId === String(f.id);
+      if (!f) return false;
+      if (this.favActionId === f.id) return true;
+      if (this.favSwipeItemId === f.id && (this.favSwipeOffsetX || 0) > 0) return true;
+      return false;
     },
     isFavRightActionsVisible(f) {
-      return f && this.favRightActionId === String(f.id);
+      if (!f) return false;
+      if (this.favRightActionId === f.id) return true;
+      if (this.favRightSwipeItemId === f.id && (this.favRightSwipeOffsetX || 0) < 0) return true;
+      return false;
     },
     getFavSwipeOffset(f) {
-      if (!f) return 0;
-      const id = String(f.id);
-      if (this.favSwipeItemId === id && this.favTouchTracking) return this.favSwipeOffsetX;
-      if (this.favRightActionId === id) return 56;
-      if (this.favActionId === id) return -56;
+      if (this.favSwipeItemId === f.id && (this.favSwipeOffsetX || 0) !== 0) return this.favSwipeOffsetX || 0;
+      if (this.favActionId === f.id) return this.favSwipeMaxReveal;
+      if (this.favRightSwipeItemId === f.id && (this.favRightSwipeOffsetX || 0) !== 0) return this.favRightSwipeOffsetX || 0;
+      if (this.favRightActionId === f.id) return -this.favRightSwipeMaxReveal;
       return 0;
     },
     togglePending(f) {
+      if (!f) return;
+      this.closeFavoritesContextMenu();
       f.pending = !f.pending;
-      this.favRightActionId = null;
+      this.favActionId = null;
       this.favSwipeOffsetX = 0;
+      this.favRightActionId = null;
+      this.favRightSwipeOffsetX = 0;
       this.normalizeFavoritesOrder();
       this.saveFavorites();
     },
     removeFavorite(f) {
-      this.itemDeleteTarget = f;
+      if (!f) return;
+      this.closeFavoritesContextMenu();
+      this.itemDeleteTarget = { ...f };
       this.itemDeleteConfirmVisible = true;
     },
     cancelDeleteItem() {
-      this.itemDeleteTarget = null;
       this.itemDeleteConfirmVisible = false;
+      this.itemDeleteTarget = null;
+      if (this.favActionId) this.favActionId = null;
+      this.favSwipeOffsetX = 0;
+      if (this.favRightActionId) this.favRightActionId = null;
+      this.favRightSwipeOffsetX = 0;
     },
     performDeleteItem() {
-      const f = this.itemDeleteTarget;
-      if (!f) return;
-      const idx = this.favorites.findIndex(it => String(it.id) === String(f.id) && String(it.country || '') === String(f.country || ''));
-      if (idx >= 0) {
-        this.favorites.splice(idx, 1);
-        this.normalizeFavoritesOrder();
-        this.saveFavorites();
-        if (String(f.country) === 'custom') {
-          try {
-            deleteCustomAttraction(f.id);
-            deleteCustomImagesForId(f.id);
-          } catch (e) {}
+      const t = this.itemDeleteTarget;
+      if (!t) return;
+      try {
+        const activeTab = this.favoriteTabs.find(tab => tab.id === this.activeTabId);
+        if (activeTab && Array.isArray(activeTab.items)) {
+          const idx = activeTab.items.findIndex(x => String(x.id) === String(t.id) && String(x.country || '') === String(t.country || ''));
+          if (idx >= 0) {
+            activeTab.items.splice(idx, 1);
+            this.favorites = activeTab.items;
+            this.normalizeFavoritesOrder();
+            this.saveFavorites();
+          }
         }
+      } catch (e) {}
+      if (String(t.country) === 'custom') {
+        let keysToDelete = [];
+        try {
+          const custom = findCustomAttractionById(t.id);
+          const isImported = custom && custom.isImported === true;
+          if (!isImported) {
+            const imgs = custom && custom.images ? custom.images : {};
+            const sec = Array.isArray(imgs.secondary) ? imgs.secondary : [];
+            if (imgs.main) keysToDelete.push(imgs.main);
+            if (sec[0]) keysToDelete.push(sec[0]);
+            if (sec[1]) keysToDelete.push(sec[1]);
+          }
+        } catch (e) {}
+        try { deleteCustomAttraction(t.id); } catch (e) {}
+        try { deleteCustomImagesForId(t.id); } catch (e) {}
+        try { if (keysToDelete.length) deleteCustomImages(keysToDelete); } catch (e) {}
       }
+      const key = this.thumbKey(t);
+      if (this.favThumbs[key]) {
+        try { URL.revokeObjectURL(this.favThumbs[key]); } catch(e) {}
+        const nextThumbs = { ...this.favThumbs };
+        delete nextThumbs[key];
+        this.favThumbs = nextThumbs;
+      }
+      this.itemDeleteConfirmVisible = false;
+      this.itemDeleteTarget = null;
       this.favActionId = null;
       this.favSwipeOffsetX = 0;
-      this.cancelDeleteItem();
+      this.favRightActionId = null;
+      this.favRightSwipeOffsetX = 0;
     },
 
-    // 拖拽重排
+    // 收藏项拖拽重排与跨选项卡
     onFavoritesNodeMouseDown(node, evt) {
-      if (node.type !== 'item') return;
+      if (!node || node.type !== 'item') return;
+      if (evt && typeof evt.button === 'number' && evt.button !== 0) return;
+      if (evt && evt.preventDefault) evt.preventDefault();
       this.startMenuItemPress(node.index, evt);
     },
     onFavoritesNodeTouchStart(node, evt) {
-      if (node.type !== 'item') return;
-      this.onFavTouchStart(node.f, node.index, evt);
+      if (!node || node.type !== 'item') return;
+      if (this.isFavoriteDateEvent(evt)) return;
       this.startMenuItemPress(node.index, evt);
+      this.onFavTouchStart(node.f, node.index, evt);
     },
     onFavoritesNodeTouchMove(node, evt) {
-      if (node.type !== 'item') return;
+      if (!node || node.type !== 'item') return;
+      if (this.isFavoriteDateEvent(evt)) return;
       this.onFavTouchMove(evt);
     },
     onFavoritesNodeTouchEnd(node, evt) {
-      if (node.type !== 'item') return;
+      if (!node || node.type !== 'item') return;
+      if (this.isFavoriteDateEvent(evt)) return;
       this.onFavTouchEnd(node.f, node.index, evt);
     },
     onFavoritesNodeClick(node, evt) {
-      if (node.type !== 'item') return;
+      if (!node || node.type !== 'item') return;
       if (this.isFavoriteDateEvent(evt)) return;
       if (Date.now() < Number(this.favoriteDateClickLockUntil || 0)) return;
+      if (evt && evt.stopPropagation) evt.stopPropagation();
       this.handleMenuItemClick(node.f, node.index, evt);
     },
     onFavoritesNodeContextMenu(node, evt) {
-      if (node.type !== 'item') return;
+      if (!node || node.type !== 'item') return;
       if (evt && evt.preventDefault) evt.preventDefault();
+      if (evt && evt.stopPropagation) evt.stopPropagation();
       this.onFavoriteContextMenu(node.f, node.index, evt);
     },
     startMenuItemPress(index, evt) {
       if (evt && typeof evt.button === 'number' && evt.button !== 0) return;
+      this.closeFavoritesContextMenu();
       const e = evt.touches ? evt.touches[0] : evt;
       const startX = e.clientX;
       const startY = e.clientY;
-      const el = evt.currentTarget;
-      const rect = el ? el.getBoundingClientRect() : null;
+      const touchId = evt.touches ? evt.touches[0].identifier : null;
+      const originEl = (evt.currentTarget && evt.currentTarget.closest)
+        ? evt.currentTarget.closest('.favorites-item')
+        : null;
+      const originRect = originEl ? originEl.getBoundingClientRect() : null;
       let triggered = false;
       const timer = setTimeout(() => {
         triggered = true;
-        this.beginDrag(index, startX, startY, rect);
-      }, 400);
+        this.beginDrag(index, startX, startY, originRect);
+      }, this.longPressThreshold);
       const cancel = () => {
         clearTimeout(timer);
         window.removeEventListener('mouseup', cancel, true);
         window.removeEventListener('touchend', cancel, true);
-        window.removeEventListener('mousemove', onMove, true);
-        window.removeEventListener('touchmove', onMove, true);
+        window.removeEventListener('touchmove', preventScroll, { passive: false });
       };
-      const onMove = (ev) => {
-        const p = ev.touches ? ev.touches[0] : ev;
-        if (!p) return;
-        const dx = Math.abs(p.clientX - startX);
-        const dy = Math.abs(p.clientY - startY);
-        if (dx > 8 || dy > 8) cancel();
+      const preventScroll = (ev) => {
+        const point = ev.touches
+          ? Array.from(ev.touches).find(t => touchId === null || t.identifier === touchId)
+          : ev;
+        if (!point) return;
+        const dx = point.clientX - startX;
+        const dy = point.clientY - startY;
+        const distance = Math.hypot(dx, dy);
+        if (triggered) {
+          if (ev.cancelable) ev.preventDefault();
+          return;
+        }
+        if (distance > this.dragTouchTolerance) {
+          cancel();
+          return;
+        }
+        if (ev.cancelable) ev.preventDefault();
       };
       window.addEventListener('mouseup', cancel, true);
       window.addEventListener('touchend', cancel, true);
-      window.addEventListener('mousemove', onMove, true);
-      window.addEventListener('touchmove', onMove, true);
+      window.addEventListener('touchmove', preventScroll, { passive: false });
     },
     beginDrag(index, startClientX, startClientY, originRect) {
       this.dragging = true;
       this.dragIndex = index;
-      this.placeholderIndex = index;
-      this.dragItem = this.sortedFavorites[index];
+      this.lockPageTouchScroll();
+      this.dragItem = { ...this.sortedFavorites[index] };
+      this.dragSourceTabId = this.activeTabId;
+      this.dragHoverTabIndex = null;
+      this.clearTabHoverTimer();
+      this.dragX = startClientX;
+      const list = this.favoritesListEl();
+      if (!list) return;
+      this.dragListRect = list.getBoundingClientRect();
+      const itemEls = Array.from(list.querySelectorAll('.favorites-item'));
+      const elRect = (itemEls[index] && itemEls[index].getBoundingClientRect) ? itemEls[index].getBoundingClientRect() : null;
+      const baseRect = elRect || originRect || this.dragListRect;
+      this.dragOffsetY = startClientY - baseRect.top;
       this.dragY = startClientY;
-      this.dragOffsetY = originRect ? (startClientY - originRect.top) : 24;
-      this.dragLeft = originRect ? originRect.left : 20;
-      this.dragWidth = originRect ? originRect.width : 320;
+      this.dragLeft = baseRect ? baseRect.left : this.dragListRect.left;
+      this.dragWidth = baseRect ? baseRect.width : this.dragListRect.width;
+      this.placeholderIndex = index;
+      try {
+        let ph = 0;
+        if (elRect && elRect.height) ph = elRect.height;
+        else if (itemEls[0]) ph = itemEls[0].getBoundingClientRect().height || 0;
+        if (ph) this.placeholderStyle = { height: ph + 'px' };
+      } catch (e) { this.placeholderStyle = {}; }
 
-      const list = this.$refs.favoritesList && this.$refs.favoritesList.$el;
-      if (list) {
-        const itemEls = Array.from(list.querySelectorAll('.favorites-item'));
-        this.itemTops = itemEls.map(el => {
-          const r = el.getBoundingClientRect();
-          return r.top + r.height / 2;
-        });
-      }
+      this.favActionId = null;
+      this.favSwipeActive = false;
+      this.favSwipeItemId = null;
+      this.favSwipeOffsetX = 0;
+      this.favRightActionId = null;
+      this.favRightSwipeItemId = null;
+      this.favRightSwipeOffsetX = 0;
+      this.favListTouchScrolling = false;
+      this.captureDragMetrics(itemEls, list);
+      this.stopAutoScroll();
       this.attachDragListeners();
     },
     attachDragListeners() {
-      window.addEventListener('mousemove', this.onDragMove, true);
-      window.addEventListener('mouseup', this.finishDrag, true);
-      window.addEventListener('touchmove', this.onDragMove, { passive: false, capture: true });
-      window.addEventListener('touchend', this.finishDrag, true);
+      this.moveListener = (evt) => {
+        const e = evt.touches ? evt.touches[0] : evt;
+        if (evt.cancelable) evt.preventDefault();
+        this.dragY = e.clientY;
+        this.dragX = e.clientX;
+        this.updatePlaceholderIndex();
+        this.maybeAutoScroll();
+        this.handleTabHoverDuringItemDrag(e);
+        this.maybeTabAutoScroll(e, 'item');
+      };
+      this.upListener = (evt) => {
+        this.finishDrag(evt);
+      };
+      window.addEventListener('mousemove', this.moveListener, true);
+      window.addEventListener('touchmove', this.moveListener, { passive: false, capture: true });
+      window.addEventListener('mouseup', this.upListener, true);
+      window.addEventListener('touchend', this.upListener, true);
     },
     detachDragListeners() {
-      window.removeEventListener('mousemove', this.onDragMove, true);
-      window.removeEventListener('mouseup', this.finishDrag, true);
-      window.removeEventListener('touchmove', this.onDragMove, { capture: true });
-      window.removeEventListener('touchend', this.finishDrag, true);
+      if (this.moveListener) {
+        window.removeEventListener('mousemove', this.moveListener, true);
+        window.removeEventListener('touchmove', this.moveListener, { capture: true });
+        this.moveListener = null;
+      }
+      if (this.upListener) {
+        window.removeEventListener('mouseup', this.upListener, true);
+        window.removeEventListener('touchend', this.upListener, true);
+        this.upListener = null;
+      }
+      this.stopAutoScroll();
+      this.stopTabAutoScroll();
+      this.clearTabHoverTimer();
+      this.dragHoverTabIndex = null;
+      this.dragBoundaries = [];
     },
-    onDragMove(evt) {
-      if (!this.dragging) return;
-      if (evt.cancelable) evt.preventDefault();
-      const p = evt.touches ? evt.touches[0] : evt;
-      if (!p) return;
-      this.dragY = p.clientY;
-      const y = p.clientY;
-      let target = this.itemTops.length;
-      for (let i = 0; i < this.itemTops.length; i++) {
-        if (y < this.itemTops[i]) {
-          target = i;
+    captureDragMetrics(itemEls, list) {
+      const targetList = list || this.favoritesListEl();
+      if (!targetList) {
+        this.dragBoundaries = [];
+        return;
+      }
+      const elements = (itemEls && itemEls.length)
+        ? itemEls
+        : Array.from(targetList.querySelectorAll('.favorites-item'));
+      if (!elements.length) {
+        this.dragBoundaries = [];
+        return;
+      }
+      const listRect = this.dragListRect || targetList.getBoundingClientRect();
+      const baseTop = listRect.top;
+      const scrollTop = targetList.scrollTop;
+      this.dragBoundaries = elements.map(el => {
+        const rect = el.getBoundingClientRect();
+        const start = rect.top - baseTop + scrollTop;
+        const end = rect.bottom - baseTop + scrollTop;
+        return {
+          start,
+          end,
+          mid: (start + end) / 2,
+        };
+      });
+    },
+    clearTabHoverTimer() {
+      if (this.tabHoverTimer) {
+        clearTimeout(this.tabHoverTimer);
+        this.tabHoverTimer = null;
+      }
+    },
+    handleTabHoverDuringItemDrag(point) {
+      if (!this.dragging || !point) return;
+      const tabs = this.$refs.favTabs;
+      if (!tabs) {
+        this.clearTabHoverTimer();
+        this.dragHoverTabIndex = null;
+        return;
+      }
+      const rect = tabs.getBoundingClientRect();
+      const x = point.clientX;
+      const y = point.clientY;
+      const withinVertical = y >= rect.top && y <= rect.bottom;
+      if (!withinVertical) {
+        if (this.dragHoverTabIndex !== null) {
+          this.dragHoverTabIndex = null;
+        }
+        this.clearTabHoverTimer();
+        return;
+      }
+      const tabEls = Array.from(tabs.querySelectorAll('.fav-tab'));
+      let hoveredIndex = -1;
+      for (let i = 0; i < tabEls.length; i++) {
+        const el = tabEls[i];
+        const r = el.getBoundingClientRect();
+        if (x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) {
+          hoveredIndex = i;
           break;
         }
       }
-      this.placeholderIndex = target;
+      if (hoveredIndex < 0) {
+        if (this.dragHoverTabIndex !== null) {
+          this.dragHoverTabIndex = null;
+        }
+        this.clearTabHoverTimer();
+        return;
+      }
+      const hoveredTab = this.sortedTabs[hoveredIndex];
+      if (!hoveredTab || hoveredTab.id === this.activeTabId) {
+        if (this.dragHoverTabIndex !== null) {
+          this.dragHoverTabIndex = null;
+        }
+        this.clearTabHoverTimer();
+        return;
+      }
+      if (this.dragHoverTabIndex !== hoveredIndex) {
+        this.clearTabHoverTimer();
+        this.dragHoverTabIndex = hoveredIndex;
+        this.tabHoverTimer = setTimeout(() => {
+          this.activateTabForDrag(hoveredTab.id);
+        }, this.tabHoverDelay);
+      }
+    },
+    activateTabForDrag(tabId) {
+      this.clearTabHoverTimer();
+      if (!this.dragging) return;
+      const targetTab = this.favoriteTabs.find(t => t.id === tabId);
+      if (!targetTab || tabId === this.activeTabId) return;
+      this.setActiveTab(tabId);
+      this.dragHoverTabIndex = null;
+      this.$nextTick(() => {
+        const list = this.favoritesListEl();
+        if (list) {
+          this.dragListRect = list.getBoundingClientRect();
+          const itemEls = Array.from(list.querySelectorAll('.favorites-item'));
+          this.captureDragMetrics(itemEls, list);
+        }
+        if (tabId === this.dragSourceTabId) {
+          const idx = this.sortedFavorites.findIndex(item => item.id === (this.dragItem && this.dragItem.id));
+          this.dragIndex = idx >= 0 ? idx : null;
+        } else {
+          this.dragIndex = null;
+        }
+        this.placeholderIndex = this.sortedFavorites.length;
+        this.updatePlaceholderIndex();
+      });
+    },
+    updatePlaceholderIndex() {
+      if (!this.dragListRect) return;
+      const list = this.favoritesListEl();
+      if (!list) return;
+      const listRect = this.dragListRect || list.getBoundingClientRect();
+      const scrollTop = list.scrollTop;
+      const relativeY = this.dragY - listRect.top + scrollTop;
+      const children = Array.from(list.children || [])
+        .filter(el => el.classList && (el.classList.contains('favorites-item') || el.classList.contains('favorites-placeholder')));
+      if (!children.length) return;
+      let target = this.sortedFavorites.length;
+      let passedItems = 0;
+      const localBoundaries = [];
+      for (let i = 0; i < children.length; i++) {
+        const el = children[i];
+        const rect = el.getBoundingClientRect ? el.getBoundingClientRect() : null;
+        if (!rect) continue;
+        const start = rect.top - listRect.top + scrollTop;
+        const end = rect.bottom - listRect.top + scrollTop;
+        const mid = (start + end) / 2;
+        const isItem = el.classList.contains('favorites-item');
+        if (isItem) {
+          localBoundaries.push({ start, end, mid });
+        }
+        if (relativeY < mid) {
+          target = passedItems;
+          break;
+        }
+        if (isItem) passedItems += 1;
+      }
+      const lastChild = children[children.length - 1];
+      const lastRect = lastChild && lastChild.getBoundingClientRect ? lastChild.getBoundingClientRect() : null;
+      if (lastRect) {
+        const lastEnd = lastRect.bottom - listRect.top + scrollTop;
+        if (relativeY >= lastEnd) {
+          target = passedItems;
+        }
+      }
+      const current = this.placeholderIndex != null ? this.placeholderIndex : this.dragIndex;
+      const bounds = this.dragBoundaries && this.dragBoundaries.length ? this.dragBoundaries : localBoundaries;
+      if (current != null && target !== current) {
+        const refBoundary = bounds[Math.min(current, bounds.length - 1)];
+        if (target < current && refBoundary && relativeY > (refBoundary.start + this.dragHysteresis)) {
+          target = current;
+        } else if (target > current && refBoundary && relativeY < (refBoundary.end - this.dragHysteresis)) {
+          target = current;
+        }
+      }
+      this.placeholderIndex = Math.max(0, Math.min(target, this.sortedFavorites.length));
+    },
+    computeDomPlaceholderIndex() {
+      const list = this.favoritesListEl();
+      if (!list) return this.placeholderIndex;
+      const placeholder = list.querySelector('[data-fav-placeholder="active"]');
+      if (!placeholder || !placeholder.parentNode) return this.placeholderIndex;
+      let placeholderMid = null;
+      try {
+        const r = placeholder.getBoundingClientRect();
+        placeholderMid = (r.top + r.bottom) / 2;
+      } catch (e) {}
+
+      const isLeavingAbsolute = (el) => {
+        if (!el) return false;
+        try {
+          const s = window.getComputedStyle(el);
+          return s && s.position === 'absolute';
+        } catch (e) {
+          return false;
+        }
+      };
+
+      if (typeof placeholderMid === 'number') {
+        const itemEls = Array.from(list.querySelectorAll('.favorites-item')).filter(el => !isLeavingAbsolute(el));
+        let count = 0;
+        for (const el of itemEls) {
+          try {
+            const rr = el.getBoundingClientRect();
+            const mid = (rr.top + rr.bottom) / 2;
+            if (mid < placeholderMid) count += 1;
+          } catch (e) {}
+        }
+        return count;
+      }
+
+      const siblings = Array.from(placeholder.parentNode.children || []);
+      let count = 0;
+      for (const el of siblings) {
+        if (el === placeholder) break;
+        if (el.classList && el.classList.contains('favorites-item') && !isLeavingAbsolute(el)) {
+          count += 1;
+        }
+      }
+      return count;
+    },
+    getPlaceholderContentTop(indexOverride) {
+      const list = this.favoritesListEl();
+      if (!list) return null;
+      const placeholderEl = list.querySelector('[data-fav-placeholder="active"]');
+      if (placeholderEl && placeholderEl.getBoundingClientRect) {
+        try {
+          const listRect = list.getBoundingClientRect();
+          const rect = placeholderEl.getBoundingClientRect();
+          return (rect.top - listRect.top) + list.scrollTop;
+        } catch (e) {}
+      }
+      const bounds = this.dragBoundaries;
+      const idx = typeof indexOverride === 'number' ? indexOverride : this.placeholderIndex;
+      if (!bounds || !bounds.length || idx == null) return null;
+      if (idx <= 0) return bounds[0].start || 0;
+      if (idx >= bounds.length) {
+        return bounds[bounds.length - 1].end || 0;
+      }
+      return bounds[idx].start;
+    },
+    maybeAutoScroll() {
+      if (!this.dragging) return;
+      const list = this.favoritesListEl();
+      if (!list) return;
+      if (list.scrollHeight <= list.clientHeight + 1) {
+        this.stopAutoScroll();
+        return;
+      }
+      const rect = list.getBoundingClientRect();
+      const threshold = Math.min(80, rect.height / 2);
+      let velocity = 0;
+      if (this.dragY < rect.top + threshold) {
+        const distance = this.dragY - (rect.top + threshold);
+        velocity = Math.max(-12, (distance / threshold) * 12);
+      } else if (this.dragY > rect.bottom - threshold) {
+        const distance = this.dragY - (rect.bottom - threshold);
+        velocity = Math.min(12, (distance / threshold) * 12);
+      }
+      if (velocity !== 0) {
+        this.autoScrollVelocity = velocity;
+        if (!this.autoScrollFrame) {
+          this.runAutoScrollLoop();
+        }
+      } else {
+        this.stopAutoScroll();
+      }
+    },
+    runAutoScrollLoop() {
+      if (this.autoScrollFrame) {
+        window.cancelAnimationFrame(this.autoScrollFrame);
+      }
+      const step = () => {
+        if (!this.dragging) {
+          this.stopAutoScroll();
+          return;
+        }
+        const list = this.favoritesListEl();
+        if (!list) {
+          this.stopAutoScroll();
+          return;
+        }
+        if (Math.abs(this.autoScrollVelocity) < 0.5) {
+          this.stopAutoScroll();
+          return;
+        }
+        const maxScroll = list.scrollHeight - list.clientHeight;
+        let nextScroll = list.scrollTop + this.autoScrollVelocity;
+        if (nextScroll < 0) nextScroll = 0;
+        if (nextScroll > maxScroll) nextScroll = maxScroll;
+        if (nextScroll !== list.scrollTop) {
+          list.scrollTop = nextScroll;
+          const itemEls = Array.from(list.querySelectorAll('.favorites-item'));
+          this.captureDragMetrics(itemEls, list);
+          this.updatePlaceholderIndex();
+          this.maybeAutoScroll();
+          if (Math.abs(this.autoScrollVelocity) < 0.5) {
+            this.stopAutoScroll();
+            return;
+          }
+        } else {
+          this.stopAutoScroll();
+          return;
+        }
+        this.autoScrollFrame = window.requestAnimationFrame(step);
+      };
+      this.autoScrollFrame = window.requestAnimationFrame(step);
+    },
+    stopAutoScroll() {
+      if (this.autoScrollFrame) {
+        window.cancelAnimationFrame(this.autoScrollFrame);
+        this.autoScrollFrame = null;
+      }
+      this.autoScrollVelocity = 0;
     },
     finishDrag(evt) {
-      if (!this.dragging) return;
-      this.detachDragListeners();
-      const from = this.dragIndex;
-      let to = this.placeholderIndex;
-      if (from !== -1 && to !== -1) {
-        if (from < to) to -= 1;
-        if (from !== to) {
-          const ordered = [...this.sortedFavorites];
-          const [moved] = ordered.splice(from, 1);
-          ordered.splice(to, 0, moved);
-          ordered.forEach((it, i) => (it.order = i + 1));
-          this.favorites = ordered;
-          const at = this.favoriteTabs.find(t => t.id === this.activeTabId);
-          if (at) at.items = ordered;
-          this.saveFavorites();
-          this.recentlyMovedId = moved ? moved.id : null;
-          if (this.recentlyMovedTimer) clearTimeout(this.recentlyMovedTimer);
-          this.recentlyMovedTimer = setTimeout(() => {
-            this.recentlyMovedId = null;
-          }, 800);
+      const e = evt.changedTouches ? evt.changedTouches[0] : evt;
+      const dropX = e.clientX;
+      const dropY = e.clientY;
+      const menu = this.$refs.favoritesMenu;
+      const inside = menu && (() => {
+        const r = menu.getBoundingClientRect();
+        return dropX >= r.left && dropX <= r.right && dropY >= r.top && dropY <= r.bottom;
+      })();
+      const domIndex = this.computeDomPlaceholderIndex();
+      const finalIndex = (typeof domIndex === 'number' && domIndex >= 0)
+        ? domIndex
+        : (this.placeholderIndex != null ? this.placeholderIndex : null);
+      const list = this.favoritesListEl();
+      const listRect = list && list.getBoundingClientRect ? list.getBoundingClientRect() : null;
+      const pointerOffset = listRect ? Math.max(0, Math.min(listRect.height, dropY - listRect.top)) : 0;
+      const placeholderTop = this.getPlaceholderContentTop(finalIndex);
+      const fallbackScrollTop = list ? list.scrollTop : 0;
+      const scrollTarget = (list && placeholderTop != null)
+        ? Math.min(Math.max(placeholderTop - pointerOffset, 0), Math.max(0, (list.scrollHeight || 0) - (list.clientHeight || 0)))
+        : fallbackScrollTop;
+      const draggedId = this.dragItem && this.dragItem.id;
+      const sourceTab = this.favoriteTabs.find(t => t.id === this.dragSourceTabId);
+      let movedId = null;
+      if (!inside) {
+        const sourceItems = sourceTab && Array.isArray(sourceTab.items) ? sourceTab.items : this.favorites;
+        const fi = draggedId ? sourceItems.find(f => f.id === draggedId) : null;
+        if (fi) {
+          this.itemDeleteTarget = { ...fi };
+          this.itemDeleteConfirmVisible = true;
+        }
+      } else if (draggedId && sourceTab) {
+        const targetTab = this.favoriteTabs.find(t => t.id === this.activeTabId);
+        if (targetTab) {
+          if (sourceTab.id === targetTab.id) {
+            const ordered = [...this.sortedFavorites];
+            let from = ordered.findIndex(item => item.id === draggedId);
+            if (
+              this.dragIndex != null &&
+              this.dragIndex >= 0 &&
+              this.dragIndex < ordered.length &&
+              ordered[this.dragIndex] &&
+              ordered[this.dragIndex].id === draggedId
+            ) {
+              from = this.dragIndex;
+            }
+            let to = finalIndex != null ? finalIndex : from;
+            if (to < 0) to = 0;
+            if (to > ordered.length) to = ordered.length;
+            if (from >= 0 && to > from) {
+              to -= 1;
+            }
+            if (from >= 0 && from < ordered.length && from !== to) {
+              const [moved] = ordered.splice(from, 1);
+              const insertIndex = Math.max(0, Math.min(to, ordered.length));
+              ordered.splice(insertIndex, 0, moved);
+              ordered.forEach((item, i) => { item.order = i + 1; });
+              movedId = moved && moved.id ? moved.id : draggedId;
+              this.normalizeTabItemsOrder(targetTab);
+              if (this.activeTabId === targetTab.id) {
+                this.favorites = targetTab.items;
+                this.normalizeFavoritesOrder();
+              }
+              this.saveFavorites();
+            }
+          } else {
+            const sourceItems = Array.isArray(sourceTab.items) ? sourceTab.items : [];
+            const targetItems = Array.isArray(targetTab.items) ? targetTab.items : [];
+            const sourceIdx = sourceItems.findIndex(item => item.id === draggedId);
+            let moved = null;
+            if (sourceIdx >= 0) {
+              const removed = sourceItems.splice(sourceIdx, 1);
+              moved = removed && removed[0] ? removed[0] : null;
+              this.normalizeTabItemsOrder(sourceTab);
+            }
+            if (!moved) {
+              moved = { ...this.dragItem };
+            }
+            const orderedTarget = [...this.sortedFavorites];
+            let insertIndex = finalIndex != null ? finalIndex : orderedTarget.length;
+            if (insertIndex < 0) insertIndex = 0;
+            if (insertIndex > orderedTarget.length) insertIndex = orderedTarget.length;
+            orderedTarget.splice(insertIndex, 0, moved);
+            orderedTarget.forEach((item, i) => { item.order = i + 1; });
+            targetItems.splice(0, targetItems.length, ...orderedTarget);
+            movedId = moved && moved.id ? moved.id : draggedId;
+            this.normalizeTabItemsOrder(targetTab);
+            if (this.activeTabId === targetTab.id) {
+              this.favorites = targetItems;
+              this.normalizeFavoritesOrder();
+            }
+            if (moved) {
+              try { this.ensureFavThumb(moved); } catch (err) {}
+            }
+            this.saveFavorites();
+          }
         }
       }
       this.dragging = false;
-      this.dragIndex = -1;
-      this.placeholderIndex = -1;
+      this.dragIndex = null;
       this.dragItem = null;
+      this.placeholderIndex = null;
+      this.dragListRect = null;
+      this.placeholderStyle = {};
+      this.dragSourceTabId = null;
+      this.dragHoverTabIndex = null;
+      this.clearTabHoverTimer();
+      this.detachDragListeners();
+      this.unlockPageTouchScroll();
+      if (inside && movedId) {
+        this.markRecentlyMoved(movedId);
+        this.$nextTick(() => {
+          const listEl = this.favoritesListEl();
+          if (!listEl) return;
+          const maxScroll = Math.max(0, (listEl.scrollHeight || 0) - (listEl.clientHeight || 0));
+          const next = Math.max(0, Math.min(scrollTarget, maxScroll));
+          if (Number.isFinite(next)) {
+            listEl.scrollTop = next;
+          }
+        });
+      }
+    },
+    markRecentlyMoved(id) {
+      if (!id) return;
+      this.recentlyMovedId = id;
+      if (this.recentlyMovedTimer) {
+        clearTimeout(this.recentlyMovedTimer);
+      }
+      this.recentlyMovedTimer = setTimeout(() => {
+        this.recentlyMovedId = null;
+        this.recentlyMovedTimer = null;
+      }, 900);
+    },
+    normalizeTabItemsOrder(tab) {
+      if (!tab || !Array.isArray(tab.items)) return;
+      tab.items
+        .sort((a, b) => (a.order || 0) - (b.order || 0))
+        .forEach((item, idx) => { item.order = idx + 1; });
     },
 
     // 上下文菜单
@@ -2203,6 +3038,22 @@ export default {
 
 .favorites-item.dragging-shadow {
   box-shadow: 0 12px 28px rgba(0, 0, 0, 0.2);
+}
+
+.fav-move-enter-active,
+.fav-move-leave-active,
+.fav-move-move {
+  transition: transform 0.18s ease, opacity 0.18s ease;
+}
+.fav-move-leave-active {
+  position: absolute;
+  left: 0;
+  right: 0;
+}
+.fav-move-enter-from,
+.fav-move-leave-to {
+  opacity: 0;
+  transform: translateY(6px);
 }
 
 .favorites-item.just-inserted {
