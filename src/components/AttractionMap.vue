@@ -1543,9 +1543,12 @@ export default {
             region: (fav.region || (ca && ca.region) || ''),
             county: (fav.county || (ca && ca.county) || ''),
             rating: Number.isFinite(fav.rating) ? fav.rating : (ca && ca.rating) || 0,
-            hasImage: !!(ca && (ca.hasImage1 || ca.hasImage2 || ca.hasImage3)),
+            hasImage: !!(ca && (ca.hasImage1 || ca.hasImage2 || ca.hasImage3 || (ca.images && (ca.images.main || (ca.images.secondary && ca.images.secondary.some(Boolean)))))),
             country: 'custom',
           };
+          if (meta.hasImage) {
+            this.loadImage(meta).catch(() => {});
+          }
           let latlng = null;
           // ① 优先使用用户手动选择的坐标
           if (ca && Number.isFinite(Number(ca.userLat)) && Number.isFinite(Number(ca.userLng))) {
@@ -1715,8 +1718,10 @@ export default {
                     if (Number.isFinite(Number(caMaybe.userLat)) && Number.isFinite(Number(caMaybe.userLng))) {
                       const uLat = Number(caMaybe.userLat), uLng = Number(caMaybe.userLng);
                       try { console.info('[Geo] use user-selected latlng (favorite)', { id: String(fav.id), lat: uLat, lng: uLng }); } catch(_) {}
-                      this._geoPut(`custom|${String(fav.id)}`, uLat, uLng);
-                      const metaU = { id: String(fav.id), name: caMaybe.name || '', region: caMaybe.region || '', county: caMaybe.county || '', rating: Number.isFinite(fav.rating) ? fav.rating : 0, country: 'custom', hasImage: !!(caMaybe.hasImage1 || caMaybe.hasImage2 || caMaybe.hasImage3) };
+                      const metaU = { id: String(fav.id), name: caMaybe.name || '', region: caMaybe.region || '', county: caMaybe.county || '', rating: Number.isFinite(fav.rating) ? fav.rating : 0, country: 'custom', hasImage: !!(caMaybe.hasImage1 || caMaybe.hasImage2 || caMaybe.hasImage3 || (caMaybe.images && (caMaybe.images.main || (caMaybe.images.secondary && caMaybe.images.secondary.some(Boolean))))) };
+                      if (metaU.hasImage) {
+                        this.loadImage(metaU).catch(() => {});
+                      }
                       renderOne([uLat, uLng], metaU);
                     } else {
                     this._favGeoPending++;
@@ -2440,7 +2445,10 @@ export default {
             }
           }
         }
-        meta = ca ? { id, name: ca.name, region: ca.region, county: ca.county, rating: (Number.isFinite(ca && ca.rating) ? ca.rating : 0), country: 'custom', hasImage: !!(ca.hasImage1 || ca.hasImage2 || ca.hasImage3) } : null;
+        meta = ca ? { id, name: ca.name, region: ca.region, county: ca.county, rating: (Number.isFinite(ca && ca.rating) ? ca.rating : 0), country: 'custom', hasImage: !!(ca.hasImage1 || ca.hasImage2 || ca.hasImage3 || (ca.images && (ca.images.main || (ca.images.secondary && ca.images.secondary.some(Boolean))))) } : null;
+        if (meta && meta.hasImage) {
+          this.loadImage(meta).catch(() => {});
+        }
         // 若已有收藏层 marker，则直接作为聚焦弹窗目标
         if (!focusMarker) {
           try {
@@ -2519,8 +2527,16 @@ export default {
         focusMarker = marker;
       }
 
+      // 预先加载聚焦景点的图片（自创景点特别需要），确保首次弹窗时图片立即可见
+      if (meta && (meta.hasImage || String(meta.country || this.country) === 'custom')) {
+        try { await this.loadImage(meta); } catch (_) {}
+      }
+
       // 自动弹出聚焦景点气泡
       if (focusMarker && typeof focusMarker.openPopup === 'function') {
+        if (meta) {
+          try { focusMarker.setPopupContent(this.buildPopup(meta)); } catch (_) {}
+        }
         this.$nextTick(() => {
           try { focusMarker.openPopup(); } catch (e) {}
         });
@@ -3224,11 +3240,14 @@ export default {
       const weekdayText = this.getFavoriteDateWeekday(favoriteDate);
       const dateHtml = dateText ? `<div class=\"popup-favorite-date\">${this.formatFavoriteDateHtml(dateText, weekdayText)}</div>` : '';
       // ʹ data- ԴΣ򿪺¼
+      const hasCachedImage = !!imageSrc;
+      const placeholderStyle = hasCachedImage ? 'style="display:none"' : '';
+      const imgClass = hasCachedImage ? 'class="fade-in-image"' : '';
       return `
         <div class="map-popup" data-id="${String(meta.id)}" data-country="${String(meta.country || this.country)}">
           <div class="popup-thumb">
-            <div class="popup-image-placeholder"></div>
-            <img id="${imgId}" src="${imageSrc || ''}" alt="thumb"/>
+            <div class="popup-image-placeholder" ${placeholderStyle}></div>
+            <img id="${imgId}" src="${imageSrc || ''}" ${imgClass} alt="thumb"/>
           </div>
           <div class="popup-main">
             <div class="popup-name">${this.escapeHtml(name)}</div>
@@ -3247,8 +3266,6 @@ export default {
       } catch (_) {}
     },
     attachPopupHandlers(meta) {
-      // ???????l.src ????URL???
-      //  getAttribute('src') ??????????
       const imgId = `img_${meta.country || this.country}_${meta.id}`;
       const el = document.getElementById(imgId);
       if (el) {
@@ -3264,20 +3281,43 @@ export default {
             applyLoaded();
           }, { once: true, passive: true });
         } catch (e) {}
-        // ??????????
         try {
           el.addEventListener('error', () => {
-            // keep placeholder visible; avoid permanently hiding img if src empty initially
             try { if (placeholder) placeholder.style.display = ''; } catch (e) {}
             try { el.classList.remove('fade-in-image'); } catch (e) {}
           }, { once: true, passive: true });
         } catch (e) {}
         this.loadImage(meta).then(src => {
+          const currentEl = document.getElementById(imgId) || el;
+          if (!currentEl) return;
+          let curPlaceholder = null;
+          try { curPlaceholder = currentEl.closest('.popup-thumb')?.querySelector('.popup-image-placeholder') || null; } catch (e) {}
+          const doApply = () => {
+            try { currentEl.style.display = ''; } catch (_) {}
+            try { if (curPlaceholder) curPlaceholder.style.display = 'none'; } catch (_) {}
+            try { currentEl.classList.add('fade-in-image'); } catch (_) {}
+          };
           if (src) {
-            el.src = src;
-            if (el.complete && el.naturalWidth) applyLoaded();
+            currentEl.addEventListener('load', () => doApply(), { once: true, passive: true });
+            currentEl.src = src;
+            if (currentEl.complete && currentEl.naturalWidth) doApply();
+            // 更新当前 marker 绑定的 popup 内容，使得地图缩放或重绘时仍保留图片
+            try {
+              const layersToCheck = [
+                ...Object.values(this.favoritesLayer?._layers || {}),
+                ...Object.values(this.focusedLayer?._layers || {})
+              ];
+              for (const l of layersToCheck) {
+                const m = l && l.options && l.options._meta;
+                if (m && String(m.id) === String(meta.id)) {
+                  const popup = l.getPopup && l.getPopup();
+                  if (popup) popup._content = this.buildPopup(meta);
+                  break;
+                }
+              }
+            } catch (_) {}
           } else {
-            try { if (placeholder) placeholder.style.display = "none"; } catch (_) {}
+            try { if (curPlaceholder) curPlaceholder.style.display = 'none'; } catch (_) {}
           }
         });
       }

@@ -1,4 +1,4 @@
-﻿<template>
+<template>
   <div class="container ">
 
      <!-- 固定顶部区域（标题 + 筛选器） -->
@@ -521,7 +521,41 @@
           this.$router.push({ path: `/map/${this.country}`, query });
         } catch(e) {}
       },
+      getUserCustomCoords() {
+        try {
+          // 1. 优先从当前 attraction 对象读取 userLat / userLng
+          const a = this.attraction;
+          if (a && Number.isFinite(Number(a.userLat)) && Number.isFinite(Number(a.userLng))) {
+            return { lat: Number(a.userLat), lng: Number(a.userLng) };
+          }
+          // 2. 若是自创景点，从本地自创景点存储中查找
+          if (String(this.country) === 'custom' || this.isCustomAttraction) {
+            const ca = findCustomAttractionById(this.id);
+            if (ca && Number.isFinite(Number(ca.userLat)) && Number.isFinite(Number(ca.userLng))) {
+              return { lat: Number(ca.userLat), lng: Number(ca.userLng) };
+            }
+            if (ca && Number.isFinite(Number(ca.lat)) && Number.isFinite(Number(ca.lng))) {
+              return { lat: Number(ca.lat), lng: Number(ca.lng) };
+            }
+            // 3. 尝试从 geoCache_v1 缓存中获取
+            const raw = localStorage.getItem('geoCache_v1');
+            const geo = raw ? JSON.parse(raw) : null;
+            const cached = geo && geo[`custom|${this.id}`];
+            if (cached && Number.isFinite(Number(cached.lat)) && Number.isFinite(Number(cached.lng))) {
+              return { lat: Number(cached.lat), lng: Number(cached.lng) };
+            }
+          }
+        } catch (_) {}
+        return null;
+      },
       buildMapQuery() {
+        try {
+          const userCoords = this.getUserCustomCoords();
+          if (userCoords) {
+            return `${userCoords.lat},${userCoords.lng}`;
+          }
+        } catch (_) {}
+
         const parts = [];
         try {
           if (this.attraction) {
