@@ -179,6 +179,16 @@
         </div>
       </div>
     </div>
+
+    <!-- 右下角圆形浮动收藏按钮 -->
+    <button
+      class="country-floating-fav-btn"
+      @click="goToFavorites"
+      title="收藏"
+      aria-label="收藏"
+    >
+      收藏
+    </button>
   </div>
 </template>
 
@@ -551,6 +561,9 @@ export default {
     }
   },
   methods: {
+    goToFavorites() {
+      this.$router.push('/favorites');
+    },
     handleHeroLogoClick() {
       if (this.logoutInProgress || this.longPressHandled) {
         this.longPressHandled = false;
@@ -1643,6 +1656,50 @@ export default {
     font-size: 0.72rem;
     line-height: 1.35;
     word-break: break-word;
+  }
+}
+
+/* 右下角圆形浮动收藏按钮 */
+.country-floating-fav-btn {
+  position: fixed;
+  right: 28px;
+  bottom: calc(28px + env(safe-area-inset-bottom, 0px));
+  width: 60px;
+  height: 60px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #ffd700 0%, #ffb700 100%);
+  color: #5a4100;
+  border: none;
+  font-weight: 700;
+  font-size: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  box-shadow: 0 4px 16px rgba(255, 183, 0, 0.45);
+  z-index: 1000;
+  transition: transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.2s ease;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  line-height: 1;
+}
+
+.country-floating-fav-btn:hover {
+  transform: scale(1.08);
+  box-shadow: 0 6px 22px rgba(255, 183, 0, 0.6);
+}
+
+.country-floating-fav-btn:active {
+  transform: scale(0.95);
+}
+
+@media (max-width: 768px) {
+  .country-floating-fav-btn {
+    right: 20px;
+    bottom: calc(20px + env(safe-area-inset-bottom, 0px));
+    width: 52px;
+    height: 52px;
+    font-size: 15px;
   }
 }
 </style>

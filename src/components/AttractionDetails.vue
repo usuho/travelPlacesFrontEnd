@@ -224,6 +224,7 @@
   import CreateAttractionModal from './CreateAttractionModal.vue'
   import { ensureUserDataHydrated, queueUserDataSync, deleteCustomImages } from '../stores/userDataSync.js'
   import { invalidateAttractionMapCache } from '../stores/attractionMapCache.js'
+  import { resolveCountryByCoords } from '../utils/countryCatalog.js'
 
   export default {
     components: { CreateAttractionModal },
@@ -482,7 +483,7 @@
           return false;
         }
       },
-      openMapForThis() {
+      async openMapForThis() {
         try {
           if (this.fromMap) {
             // 从地图进入：优先尝试打开 Google Maps 应用，其次打开网页版
@@ -520,11 +521,23 @@
           // 非地图进入：保持原逻辑，跳到站内地图
           // 自创景点时传入列表国家，便于地图默认定位
           let listCountry = null;
-          try {
-            const last = localStorage.getItem('lastAttractionsRoute') || '';
-            const m = last.match(/\/attractions\/([^\/?#]+)/i);
-            if (m && m[1] && m[1].toLowerCase() !== 'custom') listCountry = m[1];
-          } catch (e) {}
+          // 若自创景点带有物理坐标，优先反解其真实所处国家
+          if (String(this.country) === 'custom' || this.isCustomAttraction) {
+            try {
+              const coords = this.getUserCustomCoords();
+              if (coords && Number.isFinite(coords.lat) && Number.isFinite(coords.lng)) {
+                const resolved = await resolveCountryByCoords(coords.lat, coords.lng);
+                if (resolved) listCountry = resolved;
+              }
+            } catch (e) {}
+          }
+          if (!listCountry) {
+            try {
+              const last = localStorage.getItem('lastAttractionsRoute') || '';
+              const m = last.match(/\/attractions\/([^\/?#]+)/i);
+              if (m && m[1] && m[1].toLowerCase() !== 'custom') listCountry = m[1];
+            } catch (e) {}
+          }
           if (!listCountry) {
             try {
               const lastC = localStorage.getItem('lastNonCustomCountry') || '';

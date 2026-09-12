@@ -150,3 +150,114 @@ export function isSupportedCountrySlug(slug) {
   if (!slug) return false;
   return supportedSlugSet.has(String(slug));
 }
+
+export function normalizeCountryNameKey(input) {
+  return String(input || '')
+    .toLowerCase()
+    .replace(/[\u2018\u2019]/g, "'")
+    .replace(/[\u201c\u201d]/g, '"')
+    .replace(/[^a-z\s']/g, ' ')
+    .replace(/'/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+export function matchSlugByCountryName(name) {
+  if (!name) return '';
+  const key = normalizeCountryNameKey(String(name));
+  const table = {
+    'united states': 'america',
+    'united states of america': 'america',
+    'usa': 'america',
+    'america': 'america',
+    'peoples republic of china': 'china',
+    'people republic of china': 'china',
+    'people s republic of china': 'china',
+    'china': 'china',
+    'republic of singapore': 'singapore',
+    'singapore': 'singapore',
+    'federation of malaysia': 'malaysia',
+    'malaysia': 'malaysia',
+    'kingdom of thailand': 'thailand',
+    'thailand': 'thailand',
+    'socialist republic of vietnam': 'vietnam',
+    'vietnam': 'vietnam',
+    'swiss confederation': 'switzerland',
+    'switzerland': 'switzerland',
+    'united mexican states': 'mexico',
+    'mexico': 'mexico',
+    'kingdom of denmark': 'denmark',
+    'denmark': 'denmark',
+    'commonwealth of australia': 'australia',
+    'australia': 'australia',
+    'new zealand': 'newzealand',
+    'iceland': 'iceland',
+    'canada': 'canada',
+    'japan': 'japan',
+  };
+  return table[key] || '';
+}
+
+export function resolveSlugFromIsoAndName(iso2, countryName) {
+  let slug = getCountrySlugByIso(iso2);
+  if (!slug) slug = matchSlugByCountryName(countryName);
+  if (slug && !isSupportedCountrySlug(slug)) slug = '';
+  return slug || '';
+}
+
+export async function reverseLookupOpenMeteo(lat, lng) {
+  const params = new URLSearchParams({
+    latitude: lat,
+    longitude: lng,
+    language: 'en',
+  });
+  const resp = await fetch(`https://geocoding-api.open-meteo.com/v1/reverse?${params.toString()}`);
+  if (!resp || !resp.ok) return '';
+  const data = await resp.json();
+  const result = Array.isArray(data && data.results) ? data.results[0] : null;
+  if (!result) return '';
+  return resolveSlugFromIsoAndName(result.country_code, result.country);
+}
+
+export async function reverseLookupNominatim(lat, lng) {
+  const params = new URLSearchParams({
+    lat,
+    lon: lng,
+    format: 'json',
+    zoom: 3,
+    'accept-language': 'en'
+  });
+  const resp = await fetch(`https://nominatim.openstreetmap.org/reverse?${params.toString()}`);
+  if (!resp || !resp.ok) return '';
+  const data = await resp.json();
+  const addr = data && data.address;
+  if (!addr) return '';
+  return resolveSlugFromIsoAndName(addr.country_code, addr.country || data.display_name);
+}
+
+const countryCoordsCache = new Map();
+
+export async function resolveCountryByCoords(lat, lng) {
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return '';
+  const cacheKey = `${Number(lat).toFixed(3)},${Number(lng).toFixed(3)}`;
+  if (countryCoordsCache.has(cacheKey)) {
+    return countryCoordsCache.get(cacheKey);
+  }
+  const providers = [
+    () => reverseLookupOpenMeteo(lat, lng),
+    () => reverseLookupNominatim(lat, lng),
+  ];
+  for (const fn of providers) {
+    try {
+      const slug = await fn();
+      if (slug) {
+        countryCoordsCache.set(cacheKey, slug);
+        return slug;
+      }
+    } catch (e) {
+      try { console.error('[Locate] reverse geocode provider failed', e); } catch (_) {}
+    }
+  }
+  return '';
+}
+

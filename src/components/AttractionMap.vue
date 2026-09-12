@@ -24,7 +24,7 @@ import { getImageUrl as getCustomImageUrl } from '../utils/customImageStore.js';
 import { formatFavoriteDateLine as formatFavoriteDateLineValue, getFavoriteDateWeekdayLabel, normalizeFavoriteDate as normalizeFavoriteDateValue } from '../utils/favoriteDate.js';
 import { fetchAttractionsGeo, fetchAttractionsGeoByIds, fetchAttractionsPositions, fetchAttractionsPositionsByIds, getLastApiBase, withBackendApiKey } from '../utils/geoApi.js';
 import { getAttractionsGeoSnapshot, putAttractionsGeoSnapshot } from '../utils/attractionsGeoSnapshotStore.js';
-import { getCountrySlugByIso, isSupportedCountrySlug } from '../utils/countryCatalog.js';
+import { getCountrySlugByIso, isSupportedCountrySlug, resolveCountryByCoords } from '../utils/countryCatalog.js';
 import { ensureUserDataHydrated, queueUserDataSync } from '../stores/userDataSync.js';
 
 export default {
@@ -897,27 +897,24 @@ export default {
           this.activeTabId = this.favoriteTabs[0].id;
         }
       } catch (e) {}
-      // Ĭȡǰ tabҳ루 focusIdϲ tabȷ㾰һղزȾ
+      // 从详情页进入时，确保选中包含该聚焦景点的收藏列表
       if (this.fromDetails && this.focusId) {
-        const map = new Map();
-        for (const t of (this.favoriteTabs || [])) {
-          const items = Array.isArray(t.items) ? t.items : [];
-          for (const it of items) {
-            const key = `${String(it.country||'')}|${String(it.id)}`;
-            if (!map.has(key)) map.set(key, it);
+        const fid = String(this.focusId);
+        let currentTab = this.favoriteTabs.find(t => t.id === this.activeTabId);
+        const inCurrent = currentTab && Array.isArray(currentTab.items) && currentTab.items.some(it => String(it.id) === fid);
+        if (!inCurrent) {
+          const containingTab = (this.favoriteTabs || []).find(t => Array.isArray(t.items) && t.items.some(it => String(it.id) === fid));
+          if (containingTab) {
+            this.activeTabId = containingTab.id;
+            try { localStorage.setItem('favoriteTabs_activeId', containingTab.id); } catch (e) {}
+            currentTab = containingTab;
           }
         }
-        this.favorites = Array.from(map.values());
+        this.favorites = currentTab && Array.isArray(currentTab.items) ? [...currentTab.items] : [];
       } else {
         const at = this.favoriteTabs.find(t => t.id === this.activeTabId);
         this.favorites = at && Array.isArray(at.items) ? [...at.items] : [];
       }
-      // ٰҹˣղҲһչʾ֤ȶ
-      // ǿбҳһ£ʹõǰղб
-      try {
-        const __at = this.favoriteTabs.find(t => t.id === this.activeTabId);
-        this.favorites = __at && Array.isArray(__at.items) ? [...__at.items] : [];
-      } catch (e) {}
       this.favorites.sort((a, b) => (a.order || 0) - (b.order || 0));
     },
 
@@ -2408,8 +2405,20 @@ export default {
               (async () => {
                 try {
                   const g = await this.geocodeByFreeApi(_addr, hintKey, { amapLast: hintKey !== 'china', fallbackHintCountry: 'custom' });
-                  if (g) {
+                    if (g) {
                     this._geoPut(cacheKey, g.lat, g.lng);
+
+                    // 动态更新普通景点（绿色标记）所属国家
+                    if (String(this.country) === 'custom' || !this.normalsCountry) {
+                      try {
+                        const locatedCountry = await resolveCountryByCoords(g.lat, g.lng);
+                        if (locatedCountry && locatedCountry !== this.normalsCountry) {
+                          this.normalsCountry = locatedCountry;
+                          try { localStorage.setItem('lastNonCustomCountry', locatedCountry); } catch (e) {}
+                          await this.reloadNormalMarkers();
+                        }
+                      } catch (e) {}
+                    }
 
                     const cityZoom = 14;
                     const targetZoom = this.fromDetails ? cityZoom : this.getDefaultView().zoom;
@@ -2501,6 +2510,18 @@ export default {
       }
 
       if (!latlng) return;
+
+      // 动态确保普通景点（绿色标记）与当前自创景点物理位置所在的国家一致
+      if (String(this.country) === 'custom' || !this.normalsCountry) {
+        try {
+          const locatedCountry = await resolveCountryByCoords(latlng[0], latlng[1]);
+          if (locatedCountry && locatedCountry !== this.normalsCountry) {
+            this.normalsCountry = locatedCountry;
+            try { localStorage.setItem('lastNonCustomCountry', locatedCountry); } catch (e) {}
+            await this.reloadNormalMarkers();
+          }
+        } catch (e) {}
+      }
 
       const { zoom } = this.getDefaultView();
       const cityZoom = 14;
