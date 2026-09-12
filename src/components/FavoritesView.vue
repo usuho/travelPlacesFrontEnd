@@ -510,11 +510,10 @@ export default {
       favListTouchTolerance: 8,
 
       // 日期选择
-      useCustomFavoriteDatePicker: true,
       showFavoriteDateModal: false,
       favoriteDateModalTarget: null,
-      favoriteDateModalYear: 2026,
-      favoriteDateModalMonth: 1,
+      favoriteDateModalYear: 0,
+      favoriteDateModalMonth: 0,
       favoriteDateModalValue: '',
       favoriteDateClickLockUntil: 0,
       favoriteDateFlashStates: {},
@@ -578,70 +577,72 @@ export default {
       }
       return nodes;
     },
-    favoriteDateYearOptions() {
-      const currentYear = new Date().getFullYear();
-      const years = [];
-      for (let y = currentYear - 5; y <= currentYear + 10; y++) {
-        years.push(y);
-      }
-      return years;
+    useCustomFavoriteDatePicker() {
+      if (typeof navigator === 'undefined') return false;
+      const ua = String(navigator.userAgent || '');
+      const platform = String(navigator.platform || '');
+      const maxTouchPoints = Number(navigator.maxTouchPoints || 0);
+      return /iPhone|iPad|iPod/i.test(ua) || (platform === 'MacIntel' && maxTouchPoints > 1);
     },
     favoriteDateWeekdayHeaders() {
-      return ['一', '二', '三', '四', '五', '六', '日'];
+      return ['\u65e5', '\u4e00', '\u4e8c', '\u4e09', '\u56db', '\u4e94', '\u516d'];
+    },
+    favoriteDateYearOptions() {
+      const currentYear = new Date().getFullYear();
+      const selectedYear = Number(this.favoriteDateModalYear || currentYear);
+      const start = Math.min(1900, selectedYear);
+      const end = Math.max(currentYear + 30, selectedYear);
+      const years = [];
+      for (let year = start; year <= end; year += 1) years.push(year);
+      return years;
     },
     favoriteDateCalendarCells() {
-      const year = Number(this.favoriteDateModalYear);
-      const month = Number(this.favoriteDateModalMonth);
-      if (!year || !month) return [];
-      const firstDay = new Date(year, month - 1, 1);
-      const firstWeekday = (firstDay.getDay() + 6) % 7;
+      const year = Number(this.favoriteDateModalYear || 0);
+      const month = Number(this.favoriteDateModalMonth || 0);
+      if (!Number.isFinite(year) || !Number.isFinite(month) || month < 1 || month > 12) return [];
+
+      const firstWeekday = new Date(year, month - 1, 1).getDay();
       const daysInMonth = new Date(year, month, 0).getDate();
-      const prevMonthDays = new Date(year, month - 1, 0).getDate();
-      const todayStr = this.formatDateIso(new Date());
-      const selectedStr = this.favoriteDateModalValue;
+      const prevMonthDate = new Date(year, month - 2, 1);
+      const prevYear = prevMonthDate.getFullYear();
+      const prevMonth = prevMonthDate.getMonth() + 1;
+      const prevDaysInMonth = new Date(prevYear, prevMonth, 0).getDate();
+      const nextMonthDate = new Date(year, month, 1);
+      const nextYear = nextMonthDate.getFullYear();
+      const nextMonth = nextMonthDate.getMonth() + 1;
+      const selected = this.normalizeFavoriteDate(this.favoriteDateModalValue);
+      const today = this.normalizeFavoriteDate(new Date());
       const cells = [];
 
-      for (let i = firstWeekday - 1; i >= 0; i--) {
-        const d = prevMonthDays - i;
-        const prevDate = new Date(year, month - 2, d);
-        const iso = this.formatDateIso(prevDate);
+      for (let index = 0; index < 42; index += 1) {
+        let cellYear = year;
+        let cellMonth = month;
+        let cellDay = index - firstWeekday + 1;
+        let currentMonth = true;
+
+        if (cellDay <= 0) {
+          cellYear = prevYear;
+          cellMonth = prevMonth;
+          cellDay = prevDaysInMonth + cellDay;
+          currentMonth = false;
+        } else if (cellDay > daysInMonth) {
+          cellYear = nextYear;
+          cellMonth = nextMonth;
+          cellDay -= daysInMonth;
+          currentMonth = false;
+        }
+
+        const value = this.createFavoriteDateValue(cellYear, cellMonth, cellDay);
         cells.push({
-          key: `prev-${d}`,
-          day: d,
-          value: iso,
-          currentMonth: false,
-          selected: iso === selectedStr,
-          today: iso === todayStr
+          key: `${value || `${cellYear}-${cellMonth}-${cellDay}`}-${index}`,
+          value,
+          day: cellDay,
+          currentMonth,
+          selected: !!value && value === selected,
+          today: !!value && value === today,
         });
       }
 
-      for (let d = 1; d <= daysInMonth; d++) {
-        const iso = this.formatDateParts(year, month, d);
-        cells.push({
-          key: `cur-${d}`,
-          day: d,
-          value: iso,
-          currentMonth: true,
-          selected: iso === selectedStr,
-          today: iso === todayStr
-        });
-      }
-
-      const totalCells = Math.ceil(cells.length / 7) * 7;
-      let nextDay = 1;
-      while (cells.length < totalCells) {
-        const nextDate = new Date(year, month, nextDay);
-        const iso = this.formatDateIso(nextDate);
-        cells.push({
-          key: `next-${nextDay}`,
-          day: nextDay,
-          value: iso,
-          currentMonth: false,
-          selected: iso === selectedStr,
-          today: iso === todayStr
-        });
-        nextDay++;
-      }
       return cells;
     }
   },
@@ -1583,6 +1584,7 @@ export default {
     // 收藏项拖拽重排与跨选项卡
     onFavoritesNodeMouseDown(node, evt) {
       if (!node || node.type !== 'item') return;
+      if (this.isFavoriteDateEvent(evt)) return;
       if (evt && typeof evt.button === 'number' && evt.button !== 0) return;
       if (evt && evt.preventDefault) evt.preventDefault();
       this.startMenuItemPress(node.index, evt);
@@ -2215,106 +2217,201 @@ export default {
     },
 
     // 日期处理
-    normalizeFavoriteDate(val) {
-      return normalizeFavoriteDateValue(val);
+    normalizeFavoriteDate(value) {
+      return normalizeFavoriteDateValue(value);
     },
     hasFavoriteDate(item) {
       return !!this.normalizeFavoriteDate(item && item.favoriteDate);
     },
     getFavoriteDateYear(item) {
-      const d = this.normalizeFavoriteDate(item && item.favoriteDate);
-      return d ? d.slice(0, 4) : '';
+      const normalized = this.normalizeFavoriteDate(item && item.favoriteDate);
+      return normalized ? normalized.slice(0, 4) : '';
     },
     getFavoriteDateMonthDay(item) {
-      const d = this.normalizeFavoriteDate(item && item.favoriteDate);
-      return d ? `${Number(d.slice(5, 7))}月${Number(d.slice(8, 10))}日` : '';
+      const normalized = this.normalizeFavoriteDate(item && item.favoriteDate);
+      if (!normalized) return '';
+      return `${normalized.slice(5, 7)}/${normalized.slice(8, 10)}`;
     },
     getFavoriteDateWeekday(item) {
       return getFavoriteDateWeekdayLabel(item && item.favoriteDate);
     },
+    readFavoriteDateFromImportEntry(entry) {
+      if (!entry || typeof entry !== 'object') return '';
+      const direct = this.normalizeFavoriteDate(entry.favoriteDate);
+      if (direct) return direct;
+      return this.normalizeFavoriteDate(entry.data && entry.data.favoriteDate);
+    },
+    createFavoriteDateValue(year, month, day) {
+      const y = Number(year);
+      const m = Number(month);
+      const d = Number(day);
+      if (!Number.isFinite(y) || !Number.isFinite(m) || !Number.isFinite(d)) return '';
+      return this.normalizeFavoriteDate(
+        `${String(y).padStart(4, '0')}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`
+      );
+    },
+    getFavoriteDateStateKey(item) {
+      if (!item) return '';
+      return `favDateFlash_${String(item.country || '')}_${String(item.id || '')}`;
+    },
     isFavoriteDateFlashing(item) {
-      const key = item ? `${item.country}_${item.id}` : '';
-      return !!this.favoriteDateFlashStates[key];
+      const key = this.getFavoriteDateStateKey(item);
+      return !!(key && this.favoriteDateFlashStates && this.favoriteDateFlashStates[key]);
+    },
+    clearFavoriteDateFlashByKey(key) {
+      if (!key) return;
+      const timer = this.favoriteDateFlashTimers && this.favoriteDateFlashTimers[key];
+      if (timer) clearTimeout(timer);
+      if (this.favoriteDateFlashTimers && Object.prototype.hasOwnProperty.call(this.favoriteDateFlashTimers, key)) {
+        if (this.$delete) this.$delete(this.favoriteDateFlashTimers, key);
+        else delete this.favoriteDateFlashTimers[key];
+      }
+      if (this.favoriteDateFlashStates && Object.prototype.hasOwnProperty.call(this.favoriteDateFlashStates, key)) {
+        if (this.$delete) this.$delete(this.favoriteDateFlashStates, key);
+        else delete this.favoriteDateFlashStates[key];
+      }
     },
     triggerFavoriteDateFlash(item) {
-      if (!item) return;
-      const key = `${item.country}_${item.id}`;
-      this.favoriteDateFlashStates[key] = true;
-      if (this.favoriteDateFlashTimers[key]) clearTimeout(this.favoriteDateFlashTimers[key]);
-      this.favoriteDateFlashTimers[key] = setTimeout(() => {
-        delete this.favoriteDateFlashStates[key];
-      }, 800);
+      const key = this.getFavoriteDateStateKey(item);
+      if (!key) return;
+      this.clearFavoriteDateFlashByKey(key);
+      this.$nextTick(() => {
+        const token = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+        if (this.$set) this.$set(this.favoriteDateFlashStates, key, token);
+        else this.favoriteDateFlashStates[key] = token;
+        const timer = window.setTimeout(() => {
+          if (this.favoriteDateFlashStates && this.favoriteDateFlashStates[key] === token) {
+            if (this.$delete) this.$delete(this.favoriteDateFlashStates, key);
+            else delete this.favoriteDateFlashStates[key];
+          }
+          if (this.favoriteDateFlashTimers && this.favoriteDateFlashTimers[key] === timer) {
+            if (this.$delete) this.$delete(this.favoriteDateFlashTimers, key);
+            else delete this.favoriteDateFlashTimers[key];
+          }
+        }, 760);
+        if (this.$set) this.$set(this.favoriteDateFlashTimers, key, timer);
+        else this.favoriteDateFlashTimers[key] = timer;
+      });
     },
-    openFavoriteDatePicker(item) {
-      this.favoriteDateClickLockUntil = Date.now() + 600;
+    applyFavoriteDateValue(target, normalized) {
+      if (!target) return;
+      const nextValue = this.normalizeFavoriteDate(normalized);
+      const prevValue = this.normalizeFavoriteDate(target.favoriteDate);
+      if (nextValue === prevValue) return;
+      if (nextValue) {
+        if (this.$set) this.$set(target, 'favoriteDate', nextValue);
+        else target.favoriteDate = nextValue;
+      } else {
+        if (this.$delete) this.$delete(target, 'favoriteDate');
+        else delete target.favoriteDate;
+      }
+      this.saveFavorites();
+      this.triggerFavoriteDateFlash(target);
+    },
+    syncFavoriteDateModalView(value) {
+      const normalized = this.normalizeFavoriteDate(value) || this.normalizeFavoriteDate(new Date());
+      if (!normalized) return;
+      this.favoriteDateModalYear = Number(normalized.slice(0, 4));
+      this.favoriteDateModalMonth = Number(normalized.slice(5, 7));
+    },
+    openFavoriteDateModal(item) {
+      if (!item) return;
+      const normalized = this.normalizeFavoriteDate(item.favoriteDate);
       this.favoriteDateModalTarget = item;
-      const cur = this.normalizeFavoriteDate(item.favoriteDate);
-      this.favoriteDateModalValue = cur || '';
-      const base = cur ? new Date(cur) : new Date();
-      this.favoriteDateModalYear = base.getFullYear();
-      this.favoriteDateModalMonth = base.getMonth() + 1;
+      this.favoriteDateModalValue = normalized;
+      this.syncFavoriteDateModalView(normalized);
       this.showFavoriteDateModal = true;
     },
     closeFavoriteDateModal() {
       this.showFavoriteDateModal = false;
       this.favoriteDateModalTarget = null;
+      this.favoriteDateModalValue = '';
+      this.favoriteDateModalYear = 0;
+      this.favoriteDateModalMonth = 0;
     },
-    shiftFavoriteDateModalMonth(delta) {
-      let m = this.favoriteDateModalMonth + delta;
-      let y = this.favoriteDateModalYear;
-      if (m > 12) { m = 1; y++; }
-      if (m < 1) { m = 12; y--; }
-      this.favoriteDateModalMonth = m;
-      this.favoriteDateModalYear = y;
+    shiftFavoriteDateModalMonth(offset) {
+      const year = Number(this.favoriteDateModalYear || 0);
+      const month = Number(this.favoriteDateModalMonth || 0);
+      if (!Number.isFinite(year) || !Number.isFinite(month) || month < 1 || month > 12) {
+        this.syncFavoriteDateModalView(this.favoriteDateModalValue);
+        return;
+      }
+      const nextDate = new Date(year, month - 1 + Number(offset || 0), 1);
+      this.favoriteDateModalYear = nextDate.getFullYear();
+      this.favoriteDateModalMonth = nextDate.getMonth() + 1;
     },
     selectFavoriteDateCalendarCell(cell) {
-      if (!cell || !cell.value || !this.favoriteDateModalTarget) return;
-      this.favoriteDateModalTarget.favoriteDate = cell.value;
-      this.saveFavorites();
-      this.triggerFavoriteDateFlash(this.favoriteDateModalTarget);
-      this.closeFavoriteDateModal();
-    },
-    clearFavoriteDateModal() {
-      if (this.favoriteDateModalTarget) {
-        delete this.favoriteDateModalTarget.favoriteDate;
-        this.saveFavorites();
-      }
+      if (!cell || !cell.value) return;
+      this.favoriteDateModalValue = cell.value;
+      this.favoriteDateModalYear = Number(cell.value.slice(0, 4));
+      this.favoriteDateModalMonth = Number(cell.value.slice(5, 7));
+      this.applyFavoriteDateValue(this.favoriteDateModalTarget, cell.value);
       this.closeFavoriteDateModal();
     },
     setFavoriteDateModalToday() {
-      const today = this.formatDateIso(new Date());
-      if (this.favoriteDateModalTarget) {
-        this.favoriteDateModalTarget.favoriteDate = today;
-        this.saveFavorites();
-        this.triggerFavoriteDateFlash(this.favoriteDateModalTarget);
-      }
+      const today = this.normalizeFavoriteDate(new Date());
+      this.favoriteDateModalValue = today;
+      this.syncFavoriteDateModalView(today);
+      this.applyFavoriteDateValue(this.favoriteDateModalTarget, today);
       this.closeFavoriteDateModal();
     },
-    isFavoriteDateEvent(evt) {
-      const t = evt && evt.target;
-      return !!(t && (t.closest('.fav-date-trigger') || t.closest('.fav-date-native-input')));
+    clearFavoriteDateModal() {
+      this.applyFavoriteDateValue(this.favoriteDateModalTarget, '');
+      this.closeFavoriteDateModal();
     },
     getFavoriteDateInputRefKey(item) {
-      return item ? `favDateInput_${item.country}_${item.id}` : '';
+      if (!item) return '';
+      return `favDateInput_${String(item.country || '')}_${String(item.id || '')}`;
     },
-    onFavoriteDateNativeInput(item, evt) {
-      const val = evt && evt.target && evt.target.value;
-      if (item) {
-        item.favoriteDate = this.normalizeFavoriteDate(val);
-        this.saveFavorites();
-        this.triggerFavoriteDateFlash(item);
+    getFavoriteDateInputEl(item) {
+      const key = this.getFavoriteDateInputRefKey(item);
+      if (!key) return null;
+      const ref = this.$refs[key];
+      if (Array.isArray(ref)) return ref[0] || null;
+      return ref || null;
+    },
+    isFavoriteDateEvent(evt) {
+      try {
+        const t = evt && evt.target;
+        if (!t || !t.closest) return false;
+        return !!(t.closest('.fav-date-trigger') || t.closest('.fav-date-native-input'));
+      } catch (e) {
+        return false;
       }
     },
-    formatDateParts(y, m, d) {
-      const mm = String(m).padStart(2, '0');
-      const dd = String(d).padStart(2, '0');
-      return `${y}-${mm}-${dd}`;
+    openFavoriteDatePicker(item) {
+      if (!item) return;
+      this.closeFavoritesContextMenu();
+      this.favoriteDateClickLockUntil = Date.now() + 700;
+      if (this.useCustomFavoriteDatePicker) {
+        this.openFavoriteDateModal(item);
+        return;
+      }
+      const input = this.getFavoriteDateInputEl(item);
+      if (!input) return;
+      const normalized = this.normalizeFavoriteDate(item.favoriteDate);
+      try {
+        if (input.value !== normalized) input.value = normalized;
+      } catch (e) {}
+      try {
+        if (typeof input.showPicker === 'function') {
+          input.showPicker();
+          return;
+        }
+      } catch (e) {}
+      try {
+        input.focus({ preventScroll: true });
+      } catch (e) {
+        try { input.focus(); } catch (_) {}
+      }
+      try {
+        input.click();
+      } catch (e) {}
     },
-    formatDateIso(date) {
-      const y = date.getFullYear();
-      const m = String(date.getMonth() + 1).padStart(2, '0');
-      const d = String(date.getDate()).padStart(2, '0');
-      return `${y}-${m}-${d}`;
+    onFavoriteDateNativeInput(target, evt) {
+      if (!target) return;
+      const normalized = this.normalizeFavoriteDate(evt && evt.target ? evt.target.value : '');
+      this.applyFavoriteDateValue(target, normalized);
     },
 
     // 自创景点新增回调
@@ -2880,14 +2977,35 @@ export default {
   text-overflow: ellipsis;
 }
 
-.fav-right-meta {
+.favorites-item .fav-right-meta {
   flex: 0 0 auto;
   display: flex;
   align-items: center;
-  gap: 12px;
 }
 
-.fav-rating {
+.favorites-item .fav-right-meta > * + * {
+  margin-left: 16px;
+}
+
+.favorites-item .fav-date-slot {
+  position: relative;
+  flex: 0 0 42px;
+  width: 42px;
+  height: 42px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.favorites-item .fav-rating-slot {
+  flex: 0 0 var(--fav-rating-slot-width, 56px);
+  width: var(--fav-rating-slot-width, 56px);
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+.favorites-item .fav-rating {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -2901,60 +3019,139 @@ export default {
 }
 
 /* 日期样式 */
-.fav-date-trigger {
+.favorites-item .fav-date-trigger {
   border: none;
   background: transparent;
-  padding: 4px;
-  border-radius: 8px;
+  color: #2563eb;
+  border-radius: 0;
+  min-width: 0;
+  height: 100%;
+  padding: 0;
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  width: 100%;
   cursor: pointer;
+  flex: 0 0 auto;
   position: relative;
-  transition: background 0.15s ease;
+  isolation: isolate;
+  transition: color 0.18s ease;
 }
 
-.fav-date-trigger:hover {
-  background: rgba(0, 0, 0, 0.04);
+.favorites-item .fav-date-trigger.selected {
+  color: #0f172a;
 }
 
-.fav-date-icon {
-  width: 18px;
-  height: 18px;
-  fill: #8e8e93;
+.favorites-item .fav-date-trigger.date-flashing::after {
+  content: '';
+  position: absolute;
+  inset: 3px;
+  border-radius: 12px;
+  background:
+    radial-gradient(circle at center,
+      rgba(255, 255, 255, 0.98) 0%,
+      rgba(253, 224, 71, 0.82) 28%,
+      rgba(96, 165, 250, 0.24) 62%,
+      rgba(96, 165, 250, 0) 100%);
+  pointer-events: none;
+  z-index: 0;
+  animation: fav-date-flash-glow 760ms ease-out forwards;
 }
 
-.fav-date-lines {
+.favorites-item .fav-date-trigger.date-flashing .fav-date-icon,
+.favorites-item .fav-date-trigger.date-flashing .fav-date-lines {
+  position: relative;
+  z-index: 1;
+  animation: fav-date-flash-content 760ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.favorites-item .fav-date-icon {
+  width: 16px;
+  height: 16px;
+  fill: currentColor;
+  display: block;
+  pointer-events: none;
+}
+
+.favorites-item .fav-date-lines {
   display: inline-flex;
   flex-direction: column;
   align-items: center;
   line-height: 1.05;
   gap: 1px;
+  pointer-events: none;
 }
 
-.fav-date-year {
-  font-size: 10px;
-  font-weight: 600;
-  color: #8e8e93;
-}
-
-.fav-date-md {
-  font-size: 12px;
-  font-weight: 700;
-  color: #1d1d1f;
-}
-
-.fav-date-weekday {
+.favorites-item .fav-date-year {
   font-size: 10px;
   font-weight: 700;
+}
+
+.favorites-item .fav-date-md {
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.favorites-item .fav-date-weekday {
+  font-size: 10px;
+  font-weight: 800;
   color: #dc2626;
 }
 
-.fav-date-native-input {
+.favorites-item .fav-date-native-input {
   position: absolute;
   inset: 0;
+  width: 100%;
+  height: 100%;
   opacity: 0;
-  pointer-events: none;
+  pointer-events: auto;
+  background: transparent;
+  border: 0;
+  margin: 0;
+  padding: 0;
+  color: transparent;
+  caret-color: transparent;
+  cursor: pointer;
+  z-index: 1;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .favorites-item .fav-date-native-input {
+    pointer-events: none;
+  }
+}
+
+@media (hover: none), (pointer: coarse) {
+  .favorites-item .fav-date-native-input {
+    opacity: 0.015;
+  }
+}
+
+@keyframes fav-date-flash-glow {
+  0% {
+    opacity: 0;
+    transform: scale(0.7);
+  }
+  28% {
+    opacity: 1;
+    transform: scale(1.08);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.32);
+  }
+}
+
+@keyframes fav-date-flash-content {
+  0% {
+    transform: scale(1);
+  }
+  28% {
+    transform: scale(1.12);
+  }
+  100% {
+    transform: scale(1);
+  }
 }
 
 /* 滑动操作按钮 */
@@ -3350,9 +3547,14 @@ export default {
 }
 
 /* 收藏日期弹窗 */
+.favorite-date-backdrop {
+  z-index: 1200;
+}
+
 .favorite-date-dialog {
   width: min(340px, calc(100vw - 24px));
-  padding: 20px;
+  min-width: 0;
+  padding: 18px;
 }
 
 .favorite-date-header {
@@ -3362,12 +3564,12 @@ export default {
 .favorite-date-title {
   font-size: 18px;
   font-weight: 800;
-  color: #1d1d1f;
+  color: #0f172a;
 }
 
 .favorite-date-toolbar {
   display: grid;
-  grid-template-columns: 40px 1fr 40px;
+  grid-template-columns: 40px minmax(0, 1fr) 40px;
   align-items: center;
   gap: 10px;
   margin-bottom: 12px;
@@ -3379,74 +3581,89 @@ export default {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  border: 1px solid #d2d2d7;
-  border-radius: 10px;
+  border: 1px solid #d7deea;
+  border-radius: 12px;
   background: #f8fafc;
-  font-size: 22px;
+  color: #0f172a;
+  font-size: 24px;
+  line-height: 1;
+  text-align: center;
   cursor: pointer;
 }
 
 .favorite-date-selects {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: 8px;
 }
 
 .favorite-date-select {
-  padding: 8px 10px;
-  border-radius: 8px;
-  border: 1px solid #d2d2d7;
+  width: 100%;
+  min-width: 0;
+  border: 1px solid #d7deea;
+  border-radius: 10px;
+  background: #fff;
+  color: #0f172a;
+  padding: 9px 10px;
+  font-size: 14px;
   font-weight: 700;
 }
 
 .favorite-date-weekdays {
   display: grid;
-  grid-template-columns: repeat(7, 1fr);
-  gap: 4px;
-  margin-bottom: 6px;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.favorite-date-weekdays span {
   text-align: center;
   font-size: 12px;
-  color: #8e8e93;
   font-weight: 700;
+  color: #64748b;
 }
 
 .favorite-date-grid {
   display: grid;
-  grid-template-columns: repeat(7, 1fr);
-  gap: 4px;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 6px;
 }
 
 .favorite-date-day {
-  aspect-ratio: 1;
-  border: 1px solid #e5e5ea;
-  border-radius: 8px;
+  min-width: 0;
+  aspect-ratio: 1 / 1;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
   background: #fff;
+  color: #0f172a;
+  font-size: 14px;
   font-weight: 700;
-  font-size: 13px;
   cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
 }
 
 .favorite-date-day.muted {
-  color: #c7c7cc;
+  color: #94a3b8;
   background: #f8fafc;
 }
 
 .favorite-date-day.today {
-  color: #007aff;
-  border-color: #007aff;
+  border-color: #2563eb;
+  color: #2563eb;
 }
 
 .favorite-date-day.selected {
-  background: #007aff;
+  background: #2563eb;
+  border-color: #2563eb;
   color: #fff;
-  border-color: #007aff;
+}
+
+.favorite-date-day.selected.today {
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.18);
 }
 
 .favorite-date-actions {
   display: flex;
+  align-items: center;
   justify-content: space-between;
   margin-top: 14px;
 }
@@ -3454,17 +3671,20 @@ export default {
 .favorite-date-action-link {
   border: none;
   background: transparent;
+  padding: 10px 8px;
+  margin: -6px -8px;
   font-size: 14px;
   font-weight: 700;
+  line-height: 1.2;
   cursor: pointer;
 }
 
 .favorite-date-action-link.clear {
-  color: #ff3b30;
+  color: #dc2626;
 }
 
 .favorite-date-action-link.today {
-  color: #007aff;
+  color: #2563eb;
 }
 
 /* 收藏项右键菜单 */
