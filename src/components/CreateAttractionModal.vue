@@ -900,7 +900,6 @@ label.full { grid-column: 1 / -1; }
 .location-picker-row {
   display: flex;
   align-items: center;
-  gap: 10px;
   flex-wrap: wrap;
 }
 .location-pick-btn {
@@ -916,6 +915,7 @@ label.full { grid-column: 1 / -1; }
   font-weight: 500;
   cursor: pointer;
   white-space: nowrap;
+  margin-right: 12px;
 }
 .location-pick-btn:hover { background: #dbeafe; }
 .location-pick-btn:active { transform: translateY(1px); }
