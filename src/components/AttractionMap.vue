@@ -3234,7 +3234,9 @@ export default {
       const region = meta.region || '';
       const county = meta.county || '';
       const name = meta.name || '';
-      const ratingHtml = isCustom ? '' : `<div class=\"popup-rating\" style=\"background:${color}\">${rating}</div>`;
+      const ratingHtml = isCustom
+        ? '<div class="popup-rating popup-rating-placeholder" aria-hidden="true">&nbsp;</div>'
+        : `<div class="popup-rating" style="background:${color}">${rating}</div>`;
       const favoriteDate = this.getFavoriteDateFromMeta(meta);
       const dateText = this.formatFavoriteDateLine(favoriteDate);
       const weekdayText = this.getFavoriteDateWeekday(favoriteDate);
@@ -4210,7 +4212,27 @@ export default {
   text-overflow: ellipsis;
 }
 :deep(.popup-meta) { color: #64748b; font-size: 12px; }
-:deep(.popup-rating) { color: #fff; font-weight: 800; padding: 2px 6px; font-size: 12px; border-radius: 6px; align-self: start; display: inline-flex; align-items: center; gap: 4px; }
+:deep(.popup-rating) {
+  color: #fff;
+  font-weight: 800;
+  padding: 2px 6px;
+  font-size: 12px;
+  border-radius: 6px;
+  align-self: start;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  min-width: 48px;
+  box-sizing: border-box;
+  gap: 4px;
+}
+:deep(.popup-rating.popup-rating-placeholder) {
+  visibility: hidden;
+  pointer-events: none;
+  background: transparent !important;
+  user-select: none;
+}
 :deep(.popup-favorite-date) { grid-column: 1 / 3; color: #64748b; font-size: 11px; line-height: 1.25; margin-top: 0px; margin-bottom: -4px; padding-bottom: 0; align-self: end; }
 :deep(.popup-favorite-date-num) { color: #dc2626; font-weight: 700; }
 :deep(.popup-favorite-weekday) { color: #dc2626; font-weight: 800; }
