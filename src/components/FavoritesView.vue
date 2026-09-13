@@ -667,6 +667,7 @@ export default {
       } catch (e) {}
       this.$nextTick(() => {
         try { this.sortedFavorites.forEach(f => this.ensureFavThumb(f)); } catch (e) {}
+        this.scrollToFirstNonPendingItem();
       });
     },
     sortedFavorites: {
@@ -686,6 +687,7 @@ export default {
     this.$nextTick(() => {
       try { this.sortedFavorites.forEach(f => this.ensureFavThumb(f)); } catch (e) {}
       this.scrollActiveTabIntoCenter();
+      this.scrollToFirstNonPendingItem();
     });
 
     try {
@@ -695,6 +697,9 @@ export default {
       };
       window.addEventListener('hardware-back', this._onHardwareBack);
     } catch (e) {}
+  },
+  activated() {
+    this.scrollToFirstNonPendingItem();
   },
   beforeUnmount() {
     this.closeFavoritesContextMenu();
@@ -884,6 +889,7 @@ export default {
       this.favorites = at ? at.items : [];
       this.normalizeFavoritesOrder();
       this.scrollActiveTabIntoCenter();
+      this.scrollToFirstNonPendingItem();
     },
     scrollActiveTabIntoCenter() {
       this.$nextTick(() => {
@@ -898,6 +904,28 @@ export default {
             tabs.scrollBy({ left: offset, behavior: 'smooth' });
           }
         } catch (e) {}
+      });
+    },
+    scrollToFirstNonPendingItem() {
+      this.$nextTick(() => {
+        requestAnimationFrame(() => {
+          try {
+            const list = this.favoritesListEl();
+            if (!list) return;
+            const targetEl = list.querySelector('.favorites-item:not(.pending)');
+            if (!targetEl) {
+              list.scrollTop = 0;
+              return;
+            }
+            const listRect = list.getBoundingClientRect();
+            const targetRect = targetEl.getBoundingClientRect();
+            const listStyle = window.getComputedStyle(list);
+            const paddingTop = parseFloat(listStyle.paddingTop) || 0;
+            const borderTop = parseFloat(listStyle.borderTopWidth) || 0;
+            const targetScrollTop = list.scrollTop + (targetRect.top - listRect.top) - paddingTop - borderTop;
+            list.scrollTop = Math.max(0, Math.round(targetScrollTop));
+          } catch (e) {}
+        });
       });
     },
     startEditTab(tab) {
@@ -3468,6 +3496,15 @@ export default {
   z-index: 1201;
 }
 
+.confirm-dialog.has-close {
+  position: fixed;
+  padding-right: 48px;
+}
+
+.confirm-dialog.has-close .confirm-message {
+  padding-right: 8px;
+}
+
 .confirm-message {
   margin-bottom: 16px;
   font-size: 15px;
@@ -3518,13 +3555,25 @@ export default {
 
 .confirm-close {
   position: absolute;
-  top: 8px;
+  top: 10px;
   right: 12px;
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   border: none;
   background: transparent;
-  font-size: 24px;
+  font-size: 20px;
+  line-height: 1;
   cursor: pointer;
   color: #8e8e93;
+  padding: 0;
+  transition: color 0.15s ease;
+}
+
+.confirm-close:hover {
+  color: #1d1d1f;
 }
 
 .export-area-wrap {

@@ -1687,6 +1687,9 @@
         const at = this.favoriteTabs.find(t => t.id === this.activeTabId);
         this.favorites = at ? at.items : [];
         this.normalizeFavoritesOrder();
+        if (this.showFavorites) {
+          this.updateFavoritesListScroll({ scrollToFirstNonPending: true });
+        }
       },
 
       showFavorites(val) {
@@ -1694,7 +1697,7 @@
         this.closeFavoritesContextMenu();
         if (val) {
           this.$nextTick(() => {
-            this.updateFavoritesListScroll();
+            this.updateFavoritesListScroll({ scrollToFirstNonPending: true });
             this.scrollActiveTabIntoCenter(); // 打开时自动居中激活tab
           });
         } else {
@@ -2817,7 +2820,26 @@
         });
       },
 
-      
+      scrollToFirstNonPendingItem() {
+        if (!this.showFavorites) return;
+        try {
+          const list = this.favoritesListEl();
+          if (!list) return;
+          const targetEl = list.querySelector('.favorites-item:not(.pending)');
+          if (!targetEl) {
+            list.scrollTop = 0;
+            return;
+          }
+          const listRect = list.getBoundingClientRect();
+          const targetRect = targetEl.getBoundingClientRect();
+          const listStyle = window.getComputedStyle(list);
+          const paddingTop = parseFloat(listStyle.paddingTop) || 0;
+          const borderTop = parseFloat(listStyle.borderTopWidth) || 0;
+          const targetScrollTop = list.scrollTop + (targetRect.top - listRect.top) - paddingTop - borderTop;
+          list.scrollTop = Math.max(0, Math.round(targetScrollTop));
+        } catch (e) {}
+      },
+
       loadFavorites() {
         try {
           const tabsKey = this.getFavoritesStorageKey();
@@ -2956,6 +2978,7 @@
         this.normalizeFavoritesOrder();
         // 滚动到激活tab居中
         this.scrollActiveTabIntoCenter();
+        this.updateFavoritesListScroll({ scrollToFirstNonPending: true });
         // 预加载缩略图
         this.$nextTick(() => {
           try { this.sortedFavorites.forEach(f => this.ensureFavThumb(f)); } catch(e) {}
@@ -3559,7 +3582,7 @@ const all = this.sortedFavorites || [];
           try { this.refreshCustomFavorites(); this.saveFavorites(); } catch(e) {}
           this.updateFavoritesMenuPosition();
           this.$nextTick(() => {
-            this.updateFavoritesListScroll();
+            this.updateFavoritesListScroll({ scrollToFirstNonPending: true });
             document.addEventListener('mousedown', this.onOutsideClick, { capture: true });
             document.addEventListener('touchstart', this.onOutsideClick, { capture: true });
             window.addEventListener('resize', this.updateFavoritesMenuPosition, { passive: true });
@@ -4102,7 +4125,7 @@ const all = this.sortedFavorites || [];
           };
         });
       },
-      updateFavoritesListScroll() {
+      updateFavoritesListScroll(opts = {}) {
         if (!this.showFavorites) return;
         this.$nextTick(() => {
           const list = this.favoritesListEl();
@@ -4141,6 +4164,13 @@ const all = this.sortedFavorites || [];
           if (this.dragging) {
             const itemEls = Array.from(list.querySelectorAll('.favorites-item'));
             this.captureDragMetrics(itemEls, list);
+          }
+          if (opts && opts.scrollToFirstNonPending) {
+            this.$nextTick(() => {
+              requestAnimationFrame(() => {
+                this.scrollToFirstNonPendingItem();
+              });
+            });
           }
         });
       },
@@ -7164,16 +7194,24 @@ const all = this.sortedFavorites || [];
 
 /* Confirm dialog close button (top-right X) */
 .confirm-dialog.has-close { position: fixed; padding-right: 48px; }
+.confirm-dialog.has-close .confirm-message { padding-right: 8px; }
 .confirm-close {
   position: absolute;
-  top: 4px;
-  right: 6px;
+  top: 6px;
+  right: 8px;
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   border: none;
   background: transparent;
   font-size: 20px;
   line-height: 1;
   cursor: pointer;
   color: #6b7280;
+  padding: 0;
+  transition: color 0.15s ease;
 }
 .confirm-close:hover { color: #111827; }
 
