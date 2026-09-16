@@ -105,7 +105,8 @@
           >
             <button
               class="fullscreen-close-btn"
-              @click.stop="closeFullscreen"
+              @click.stop.prevent="closeFullscreen"
+              @touchend.stop.prevent="closeFullscreen"
               aria-label="关闭大图"
               title="关闭"
             >
@@ -118,7 +119,8 @@
             <div
               ref="fullscreenContainer"
               class="fullscreen-container"
-              @mousedown.prevent="handleMouseDown"
+              :class="{ 'is-zoomed': imageScale > 1.05, 'is-dragging': isDragging }"
+              @mousedown="handleMouseDown"
               @dblclick="handleDoubleClick"
             >
               <img 
@@ -300,6 +302,7 @@
         lastTouchDistance: 0,
         lastTouchCenter: { x: 0, y: 0 },
         touchStartCenter: { x: 0, y: 0 },
+        mouseDownPos: { x: 0, y: 0 },
         lastTapTime: 0,
         lastTapPos: { x: 0, y: 0 },
         // 编辑自创景点
@@ -1732,8 +1735,15 @@
         window.addEventListener('mouseup', this._onFullscreenMouseUp);
       },
 
-      closeFullscreen() {
+      closeFullscreen(event) {
         if (!this.fullscreenImage) return;
+
+        if (event) {
+          try { event.preventDefault && event.preventDefault(); } catch(e) {}
+          try { event.stopPropagation && event.stopPropagation(); } catch(e) {}
+          try { event.stopImmediatePropagation && event.stopImmediatePropagation(); } catch(e) {}
+        }
+
         this.fullscreenImage = null;
         this.imageScale = 1;
         this.imageTranslateX = 0;
@@ -1756,6 +1766,23 @@
           window.removeEventListener('mouseup', this._onFullscreenMouseUp);
           this._onFullscreenMouseUp = null;
         }
+
+        // 彻底杜绝移动端/Web端点击穿透（Ghost Click Penetration）问题：
+        // 在关闭大图后的 350ms 内，在全局事件捕获阶段截获并消除所有可能穿透的 click、mouseup、touchend 事件，
+        // 确保点击大图外部区域退出时，绝不会误触页面底层的按钮、链接、卡片等其他物件。
+        const swallowGhostEvent = (e) => {
+          try { e.preventDefault && e.preventDefault(); } catch(err) {}
+          try { e.stopPropagation && e.stopPropagation(); } catch(err) {}
+          try { e.stopImmediatePropagation && e.stopImmediatePropagation(); } catch(err) {}
+        };
+        window.addEventListener('click', swallowGhostEvent, true);
+        window.addEventListener('touchend', swallowGhostEvent, true);
+        window.addEventListener('mouseup', swallowGhostEvent, true);
+        setTimeout(() => {
+          window.removeEventListener('click', swallowGhostEvent, true);
+          window.removeEventListener('touchend', swallowGhostEvent, true);
+          window.removeEventListener('mouseup', swallowGhostEvent, true);
+        }, 350);
 
         // 退出详情页或关闭全屏后，不再持有列表传来的颜色，避免污染下次进入
         try { localStorage.removeItem('selectedAttractionRatingColor'); } catch(e) {}
@@ -1838,6 +1865,21 @@
         };
       },
 
+      isPointInsideImage(clientX, clientY) {
+        if (clientX === undefined || clientY === undefined || clientX === null || clientY === null) {
+          return false;
+        }
+        const img = this.$refs.fullscreenImg;
+        if (!img) return false;
+        const rect = img.getBoundingClientRect();
+        return (
+          clientX >= rect.left &&
+          clientX <= rect.right &&
+          clientY >= rect.top &&
+          clientY <= rect.bottom
+        );
+      },
+
       resetToBounds() {
         // 如果缩放比例过小或接近 1，重置回 1 并居中
         if (this.imageScale <= 1.05) {
@@ -1871,13 +1913,13 @@
         this.isInteracting = false;
         this.hasDragged = true;
 
-        if (this.imageScale > 1.2) {
-          // 当前已放大，双击平滑恢复 1x 居中
+        if (this.imageScale > 1.05) {
+          // 当前已处于放大状态：双击平滑恢复到 1x 居中正常状态
           this.imageScale = 1;
           this.imageTranslateX = 0;
           this.imageTranslateY = 0;
         } else {
-          // 当前 1x，双击以点击位置为焦点放大至 2.5x
+          // 当前处于正常 1x 状态：双击以点击位置为焦点放大至 2.5x
           const targetScale = 2.5;
           const containerCenter = this.getContainerCenter();
           const clickX = clientX - containerCenter.x;
@@ -1895,7 +1937,11 @@
       },
 
       handleDoubleClick(event) {
-        this.handleDoubleTapAt(event.clientX, event.clientY);
+        const isClickOnImage = (event.target === this.$refs.fullscreenImg) ||
+                               this.isPointInsideImage(event.clientX, event.clientY);
+        if (isClickOnImage) {
+          this.handleDoubleTapAt(event.clientX, event.clientY);
+        }
       },
 
       handleWheel(event) {
@@ -1931,20 +1977,29 @@
           const now = Date.now();
           const distFromLastTap = Math.hypot(t.clientX - this.lastTapPos.x, t.clientY - this.lastTapPos.y);
 
-          // 双击快速缩放识别 (< 320ms, 距离 < 35px)
-          if (now - this.lastTapTime < 320 && distFromLastTap < 35) {
+          const isTouchOnImage = (event.target === this.$refs.fullscreenImg) ||
+                                 this.isPointInsideImage(t.clientX, t.clientY);
+
+          // 双击快速缩放识别 (< 320ms, 距离 < 35px，且在图片内部)
+          if (isTouchOnImage && (now - this.lastTapTime < 320) && distFromLastTap < 35) {
             this.handleDoubleTapAt(t.clientX, t.clientY);
             this.lastTapTime = 0;
             this.isDragging = false;
             return;
           }
-          this.lastTapTime = now;
-          this.lastTapPos = { x: t.clientX, y: t.clientY };
+
+          if (isTouchOnImage) {
+            this.lastTapTime = now;
+            this.lastTapPos = { x: t.clientX, y: t.clientY };
+          } else {
+            this.lastTapTime = 0;
+          }
 
           this.isDragging = true;
           this.isInteracting = true;
           this.hasDragged = false;
           this.lastTouchCenter = { x: t.clientX, y: t.clientY };
+          this.touchStartCenter = { x: t.clientX, y: t.clientY };
         } else if (touches.length === 2) {
           const t1 = touches[0];
           const t2 = touches[1];
@@ -1969,7 +2024,7 @@
           const dx = t.clientX - this.lastTouchCenter.x;
           const dy = t.clientY - this.lastTouchCenter.y;
 
-          if (Math.abs(dx) > 3 || Math.abs(dy) > 3) {
+          if (Math.hypot(t.clientX - this.touchStartCenter.x, t.clientY - this.touchStartCenter.y) > 6) {
             this.hasDragged = true;
           }
 
@@ -2035,19 +2090,36 @@
           this.lastTouchDistance = 0;
           this.lastTouchCenter = { x: t.clientX, y: t.clientY };
         } else if (!touches || touches.length === 0) {
+          const wasDragging = this.isDragging;
+          const hadDragged = this.hasDragged;
           this.isDragging = false;
           this.isInteracting = false;
           this.lastTouchDistance = 0;
           this.resetToBounds();
+
+          // 移动端轻触背景区域直接关闭（杜绝点击穿透）
+          if (wasDragging && !hadDragged) {
+            const startPos = this.touchStartCenter;
+            const isTouchOnImage = this.isPointInsideImage(startPos.x, startPos.y);
+            if (!isTouchOnImage) {
+              if (event && event.cancelable) {
+                try { event.preventDefault(); } catch(e) {}
+              }
+              try { event.stopPropagation(); } catch(e) {}
+              this.closeFullscreen(event);
+            }
+          }
         }
       },
 
       handleMouseDown(event) {
         if (event.button !== 0) return;
+        event.preventDefault();
         this.isDragging = true;
         this.isInteracting = true;
         this.hasDragged = false;
         this.lastTouchCenter = { x: event.clientX, y: event.clientY };
+        this.mouseDownPos = { x: event.clientX, y: event.clientY };
       },
 
       handleMouseMove(event) {
@@ -2055,7 +2127,7 @@
         const dx = event.clientX - this.lastTouchCenter.x;
         const dy = event.clientY - this.lastTouchCenter.y;
 
-        if (Math.abs(dx) > 3 || Math.abs(dy) > 3) {
+        if (Math.hypot(event.clientX - this.mouseDownPos.x, event.clientY - this.mouseDownPos.y) > 6) {
           this.hasDragged = true;
         }
 
@@ -2078,11 +2150,24 @@
       },
 
       handleOverlayClick(event) {
-        if (this.isDragging || this.hasDragged) {
+        if (this.hasDragged) {
           this.hasDragged = false;
           return;
         }
-        this.closeFullscreen();
+
+        const isClickOnImage = (event.target === this.$refs.fullscreenImg) ||
+                               this.isPointInsideImage(event.clientX, event.clientY);
+
+        if (isClickOnImage) {
+          // 点击图片本身：不关闭
+          return;
+        }
+
+        // 仅在点击图片以外区域时才关闭大图，严格阻止穿透到底层组件
+        try { event.preventDefault && event.preventDefault(); } catch(e) {}
+        try { event.stopPropagation && event.stopPropagation(); } catch(e) {}
+        try { event.stopImmediatePropagation && event.stopImmediatePropagation(); } catch(e) {}
+        this.closeFullscreen(event);
       },
 
       getRatingColor(rating) {
@@ -2987,7 +3072,7 @@
   justify-content: center;
   align-items: center;
   z-index: 999999;
-  cursor: pointer;
+  cursor: zoom-out;
   touch-action: none;
   user-select: none;
   -webkit-user-select: none;
@@ -3031,13 +3116,18 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  cursor: grab;
+  cursor: zoom-out;
   overflow: hidden;
   touch-action: none;
 }
 
-.fullscreen-container:active {
-  cursor: grabbing;
+.fullscreen-container.is-zoomed {
+  cursor: grab;
+}
+
+.fullscreen-container.is-dragging,
+.fullscreen-container.is-dragging .fullscreen-image {
+  cursor: grabbing !important;
 }
 
 .fullscreen-image {
@@ -3051,6 +3141,11 @@
   will-change: transform;
   transform-origin: center center;
   transition: transform 0.28s cubic-bezier(0.2, 0, 0.25, 1);
+  cursor: zoom-in;
+}
+
+.fullscreen-container.is-zoomed .fullscreen-image {
+  cursor: grab;
 }
 
 .fullscreen-image.is-interacting {

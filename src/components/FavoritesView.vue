@@ -3127,7 +3127,8 @@ export default {
   justify-content: center;
   font-size: 13px;
   font-weight: 700;
-  margin-right: 14px;
+  margin-right: 0;
+  margin-left: 8px;
 }
 
 .fav-thumb-wrap {
@@ -3137,6 +3138,7 @@ export default {
   border-radius: 10px;
   overflow: hidden;
   background: #f2f2f7;
+  margin-left: 8px;
 }
 
 .fav-thumb {
@@ -3154,7 +3156,7 @@ export default {
   display: flex;
   flex-direction: column;
   min-width: 0;
-  margin-left: 14px;
+  margin-left: 8px;
 }
 
 .fav-name {
@@ -3210,11 +3212,12 @@ export default {
   justify-content: center;
   min-width: 42px;
   height: 24px;
-  padding: 0 6px;
-  border-radius: 12px;
+  padding: 15px;
+  border-radius: 10px;
   color: #fff;
   font-size: 13px;
   font-weight: 700;
+  margin-right: 8px;
 }
 
 /* 日期样式 */
