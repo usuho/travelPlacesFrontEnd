@@ -36,6 +36,7 @@ export default {
       // ·ɲ
       focusId: this.$route.query.focusId || null,
       fromDetails: this.$route.query.from === 'details',
+      fromFavorites: this.$route.query.from === 'favorites',
       // ղ
       favoriteTabs: [],
       activeTabId: null,
@@ -869,10 +870,13 @@ export default {
     },
     handleBack() {
       if (this.fromDetails) {
-        // صͼǰҳ
+        // 从详情页进入地图，返回上一页
         this.$router.back();
+      } else if (this.fromFavorites) {
+        // 从收藏页进入地图，返回收藏页
+        this.$router.push('/favorites');
       } else {
-        // صбҳ
+        // 返回景点列表页
         const route = { path: `/attractions/${this.country}` };
         if (this._shouldResetListFilters) {
           route.query = { resetFilters: '1' };

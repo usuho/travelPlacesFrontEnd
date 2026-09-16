@@ -1587,6 +1587,7 @@ export default {
   user-select: none;
   -webkit-tap-highlight-color: transparent;
   line-height: 1;
+  white-space: nowrap;
 }
 
 .country-floating-fav-btn:hover {

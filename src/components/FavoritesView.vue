@@ -4,7 +4,7 @@
     <header class="page-header">
       <div class="header-content">
         <div class="title-text-group">
-          <h1 class="page-title title-hero">收藏列表</h1>
+          <h1 class="page-title title-hero">收藏</h1>
         </div>
       </div>
     </header>
@@ -241,6 +241,16 @@
     <!-- 页面左下角固定返回按钮：点击返回国家列表页面 -->
     <button class="back-button bottom-left-back-btn" @click="goBack">
       返回
+    </button>
+
+    <!-- 右下角圆形浮动地图按钮 -->
+    <button
+      class="fav-floating-map-btn"
+      @click="openFavoritesMap"
+      title="地图"
+      aria-label="地图"
+    >
+      地图
     </button>
 
     <!-- 自创景点弹窗 -->
@@ -655,6 +665,16 @@ export default {
       }
 
       return cells;
+    },
+    firstNonPendingCountry() {
+      // 当前收藏列表中第一个非待定状态景点所在国家（排除 custom）
+      const list = this.sortedFavorites || [];
+      for (const fav of list) {
+        if (!fav.pending && String(fav.country) && String(fav.country) !== 'custom') {
+          return String(fav.country).toLowerCase();
+        }
+      }
+      return '';
     }
   },
   watch: {
@@ -728,6 +748,16 @@ export default {
   methods: {
     goBack() {
       this.$router.push('/');
+    },
+    openFavoritesMap() {
+      try {
+        const listCountry = this.firstNonPendingCountry;
+        const query = { from: 'favorites' };
+        if (listCountry) query.listCountry = listCountry;
+        // 切换收藏列表后地图组件被 keep-alive 缓存，需强制失效缓存使其重新挂载
+        try { invalidateAttractionMapCache('favorites:openMap'); } catch (e) {}
+        this.$router.push({ path: '/map/custom', query });
+      } catch (e) {}
     },
     uid() {
       return 't' + Math.random().toString(36).slice(2, 9);
@@ -3466,7 +3496,7 @@ export default {
 .bottom-left-back-btn {
   position: fixed;
   left: 48px;
-  bottom: calc(48px + env(safe-area-inset-bottom, 0px));
+  bottom: calc(88px + env(safe-area-inset-bottom, 0px));
   z-index: 1000;
 }
 
@@ -3827,7 +3857,7 @@ export default {
   }
   .bottom-left-back-btn {
     left: 20px;
-    bottom: calc(20px + env(safe-area-inset-bottom, 0px));
+    bottom: calc(56px + env(safe-area-inset-bottom, 0px));
   }
 }
 
@@ -3841,6 +3871,51 @@ export default {
   }
   .favorites-full-menu {
     padding: 12px 10px 0;
+  }
+}
+
+/* 右下角圆形浮动地图按钮（与 CountrySelect 收藏按钮位置一致，使用景点列表页地图按钮颜色） */
+.fav-floating-map-btn {
+  position: fixed;
+  right: 80px;
+  bottom: calc(80px + env(safe-area-inset-bottom, 0px));
+  width: 60px;
+  height: 60px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #0a84ff 0%, #0066cc 100%);
+  color: #fff;
+  border: none;
+  font-weight: 700;
+  font-size: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  box-shadow: 0 4px 16px rgba(0, 102, 204, 0.45);
+  z-index: 1000;
+  transition: transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.2s ease;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.fav-floating-map-btn:hover {
+  transform: scale(1.08);
+  box-shadow: 0 6px 22px rgba(0, 102, 204, 0.6);
+}
+
+.fav-floating-map-btn:active {
+  transform: scale(0.95);
+}
+
+@media (max-width: 768px) {
+  .fav-floating-map-btn {
+    right: 48px;
+    bottom: calc(48px + env(safe-area-inset-bottom, 0px));
+    width: 52px;
+    height: 52px;
+    font-size: 15px;
   }
 }
 </style>
