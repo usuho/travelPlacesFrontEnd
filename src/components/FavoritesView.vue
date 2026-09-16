@@ -2951,7 +2951,6 @@ export default {
   display: flex;
   width: 100%;
   align-items: center;
-  gap: 16px;
   overflow-x: auto;
   overflow-y: hidden;
   padding: 4px 0 8px;
@@ -2977,6 +2976,8 @@ export default {
   border-radius: 10px;
   transition: all 0.2s ease;
   white-space: nowrap;
+  margin-left: 7px;
+  margin-right: 7px;
 }
 
 .fav-tab:hover {
@@ -3061,7 +3062,6 @@ export default {
   -webkit-overflow-scrolling: touch;
   display: flex;
   flex-direction: column;
-  gap: 10px;
   width: 100%;
   padding: 0px 0px 90px 0px;
   box-sizing: border-box;
@@ -3098,6 +3098,7 @@ export default {
   transition: box-shadow 0.2s ease, transform 0.15s ease;
   width: 100%;
   box-sizing: border-box;
+  margin-bottom: 10px;
 }
 
 .favorites-item:hover {
