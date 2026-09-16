@@ -1,4 +1,4 @@
-﻿<template>
+<template>
   <div class="container ">
 
      <!-- 固定顶部区域（标题 + 筛选器） -->
@@ -103,19 +103,6 @@
             @touchend.stop="handleTouchEnd"
             @touchcancel.stop="handleTouchEnd"
           >
-            <button
-              class="fullscreen-close-btn"
-              @click.stop.prevent="closeFullscreen"
-              @touchend.stop.prevent="closeFullscreen"
-              aria-label="关闭大图"
-              title="关闭"
-            >
-              <svg viewBox="0 0 24 24" width="22" height="22" stroke="currentColor" stroke-width="2.2" fill="none" stroke-linecap="round">
-                <line x1="18" y1="6" x2="6" y2="18"></line>
-                <line x1="6" y1="6" x2="18" y2="18"></line>
-              </svg>
-            </button>
-
             <div
               ref="fullscreenContainer"
               class="fullscreen-container"
@@ -305,6 +292,8 @@
         mouseDownPos: { x: 0, y: 0 },
         lastTapTime: 0,
         lastTapPos: { x: 0, y: 0 },
+        lastDoubleTapExecutionTime: 0,
+        lastTouchDoubleTapTime: 0,
         // 编辑自创景点
         showEditModal: false,
         // 动画 key（当路由或数据变化时强制触发飞入动画）
@@ -1703,6 +1692,9 @@
         this.isInteracting = false;
         this.lastTouchDistance = 0;
         this.lastTouchCenter = { x: 0, y: 0 };
+        this.lastTapTime = 0;
+        this.lastDoubleTapExecutionTime = 0;
+        this.lastTouchDoubleTapTime = 0;
         document.body.style.overflow = 'hidden';
 
         this._onFullscreenKeydown = (e) => {
@@ -1893,6 +1885,12 @@
       },
 
       handleDoubleTapAt(clientX, clientY) {
+        const now = Date.now();
+        // 450ms 冷却保护：防止触屏合成的 dblclick 重复触发导致放大后立刻缩小
+        if (now - this.lastDoubleTapExecutionTime < 450) {
+          return;
+        }
+        this.lastDoubleTapExecutionTime = now;
         this.isInteracting = false;
         this.hasDragged = true;
 
@@ -1920,6 +1918,12 @@
       },
 
       handleDoubleClick(event) {
+        // 如果刚刚在 800ms 内触发过触屏双击，忽略合成的 dblclick，防止二次切换回缩
+        if (Date.now() - this.lastTouchDoubleTapTime < 800) {
+          try { event.preventDefault && event.preventDefault(); } catch(e) {}
+          try { event.stopPropagation && event.stopPropagation(); } catch(e) {}
+          return;
+        }
         const isClickOnImage = (event.target === this.$refs.fullscreenImg) ||
                                this.isPointInsideImage(event.clientX, event.clientY);
         if (isClickOnImage) {
@@ -1965,9 +1969,13 @@
 
           // 双击快速缩放识别 (< 320ms, 距离 < 35px，且在图片内部)
           if (isTouchOnImage && (now - this.lastTapTime < 320) && distFromLastTap < 35) {
+            this.lastTouchDoubleTapTime = now;
             this.handleDoubleTapAt(t.clientX, t.clientY);
             this.lastTapTime = 0;
             this.isDragging = false;
+            if (event && event.cancelable) {
+              try { event.preventDefault(); } catch(e) {}
+            }
             return;
           }
           
@@ -3125,36 +3133,6 @@
   user-select: none;
   -webkit-user-select: none;
   overscroll-behavior: contain;
-}
-
-.fullscreen-close-btn {
-  position: absolute;
-  top: max(16px, env(safe-area-inset-top, 16px));
-  right: max(16px, env(safe-area-inset-right, 16px));
-  width: 44px;
-  height: 44px;
-  border-radius: 50%;
-  border: none;
-  background: rgba(255, 255, 255, 0.18);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
-  color: #fff;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  z-index: 1000000;
-  transition: background-color 0.2s, transform 0.2s;
-  padding: 0;
-}
-
-.fullscreen-close-btn:hover {
-  background: rgba(255, 255, 255, 0.35);
-  transform: scale(1.08);
-}
-
-.fullscreen-close-btn:active {
-  transform: scale(0.92);
 }
 
 .fullscreen-container {
