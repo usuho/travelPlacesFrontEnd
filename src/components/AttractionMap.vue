@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="map-page">
     <div id="map" class="map-container"></div>
     <div v-if="showLoading" class="map-loading-overlay"><div class="spinner"></div></div>
@@ -97,6 +97,7 @@ export default {
       _countyValueMapCache: null,
       _regionValueMapCacheRaw: null,
       _regionValueMapCache: null,
+      _normalsCountryResolving: false,
     };
   },
   computed: {
@@ -340,6 +341,8 @@ export default {
       if (String(this.country) !== 'custom') return String(this.country || '');
       const fromQuery = this.getListCountryFromQuery();
       if (fromQuery) return fromQuery;
+      // 从收藏页面进入时，若未指定普通景点的目标国家，严格遵循“不存在则不显示普通景点”，绝不回退到历史国家
+      if (this.fromFavorites) return '';
       try {
         const fallback = localStorage.getItem('lastNonCustomCountry') || '';
         if (fallback && fallback.toLowerCase() !== 'custom') return fallback;
@@ -353,6 +356,49 @@ export default {
         if (raw && raw.toLowerCase() !== 'custom') return raw;
       } catch (e) {}
       return '';
+    },
+    _getFavCustomCoords(fav) {
+      if (!fav) return null;
+      try {
+        const ca = findCustomAttractionById(String(fav.id));
+        if (!ca) return null;
+        if (Number.isFinite(Number(ca.userLat)) && Number.isFinite(Number(ca.userLng))) {
+          return [Number(ca.userLat), Number(ca.userLng)];
+        }
+        if (Number.isFinite(Number(ca.lat)) && Number.isFinite(Number(ca.lng))) {
+          return [Number(ca.lat), Number(ca.lng)];
+        }
+      } catch (e) {}
+      return null;
+    },
+    _findTargetFavoriteForCountry(favorites) {
+      const list = Array.isArray(favorites) ? favorites : [];
+
+      // 规则 2：先看第一个非待定且如果是自创景点的话有坐标的景点是否存在，如果存在，则显示这个国家的普通景点
+      for (const fav of list) {
+        if (fav.pending) continue;
+        const isCustom = String(fav.country || '') === 'custom' || !!findCustomAttractionById(String(fav.id));
+        if (isCustom) {
+          const coords = this._getFavCustomCoords(fav);
+          if (coords) return { type: 'custom', coords };
+        } else if (fav.country && String(fav.country).trim() && String(fav.country).toLowerCase() !== 'custom') {
+          return { type: 'normal', country: String(fav.country).trim().toLowerCase() };
+        }
+      }
+
+      // 规则 3：看第一个待定且如果是自创景点的话有坐标的景点是否存在，如果存在，则显示这个国家的普通景点。不存在的话，则不显示普通景点。
+      for (const fav of list) {
+        if (!fav.pending) continue;
+        const isCustom = String(fav.country || '') === 'custom' || !!findCustomAttractionById(String(fav.id));
+        if (isCustom) {
+          const coords = this._getFavCustomCoords(fav);
+          if (coords) return { type: 'custom', coords };
+        } else if (fav.country && String(fav.country).trim() && String(fav.country).toLowerCase() !== 'custom') {
+          return { type: 'normal', country: String(fav.country).trim().toLowerCase() };
+        }
+      }
+
+      return null;
     },
     activateBrowserBackGuard() {
       try {
@@ -1507,6 +1553,12 @@ export default {
       const pendingTasks = [];
       this._favGeoPending = 0;
 
+      // 若 normalsCountry 尚未确定且当前是 custom 模式，严格按照用户的 3 条规则寻找目标有效景点
+      let _candidateToResolve = null;
+      if (!this.normalsCountry && String(this.country) === 'custom') {
+        _candidateToResolve = this._findTargetFavoriteForCountry(this.favorites);
+      }
+
       const renderOne = (latlng, meta) => {
         if (!latlng) return;
         if (!firstCenter) firstCenter = latlng;
@@ -1837,6 +1889,29 @@ export default {
             this._didInitCenter = true;
           }
         });
+      }
+
+      // 循环结束后：若 normalsCountry 仍为空且通过规则找到了候选景点，反推并加载普通景点
+      if (_candidateToResolve && !this.normalsCountry && !this._normalsCountryResolving) {
+        this._normalsCountryResolving = true;
+        (async () => {
+          try {
+            let locatedCountry = '';
+            if (_candidateToResolve.type === 'normal') {
+              locatedCountry = _candidateToResolve.country;
+            } else if (_candidateToResolve.type === 'custom' && _candidateToResolve.coords) {
+              locatedCountry = await resolveCountryByCoords(_candidateToResolve.coords[0], _candidateToResolve.coords[1]);
+            }
+            if (locatedCountry && locatedCountry !== this.normalsCountry) {
+              this.normalsCountry = locatedCountry;
+              try { localStorage.setItem('lastNonCustomCountry', locatedCountry); } catch (e) {}
+              await this.reloadNormalMarkers();
+            }
+          } catch (e) {}
+          finally {
+            this._normalsCountryResolving = false;
+          }
+        })();
       }
     },
 

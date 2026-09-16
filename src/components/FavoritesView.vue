@@ -438,6 +438,7 @@ import { normalizeFavoriteDate as normalizeFavoriteDateValue, getFavoriteDateWee
 import { ensureUserDataHydrated, queueUserDataSync, deleteCustomImages } from '../stores/userDataSync.js';
 import { invalidateAttractionMapCache } from '../stores/attractionMapCache.js';
 import { withBackendApiKey } from '../utils/geoApi.js';
+import { resolveCountryByCoords } from '../utils/countryCatalog.js';
 import { Capacitor } from '@capacitor/core';
 import { Filesystem, Directory, Encoding } from '@capacitor/filesystem';
 
@@ -665,16 +666,6 @@ export default {
       }
 
       return cells;
-    },
-    firstNonPendingCountry() {
-      // 当前收藏列表中第一个非待定状态景点所在国家（排除 custom）
-      const list = this.sortedFavorites || [];
-      for (const fav of list) {
-        if (!fav.pending && String(fav.country) && String(fav.country) !== 'custom') {
-          return String(fav.country).toLowerCase();
-        }
-      }
-      return '';
     }
   },
   watch: {
@@ -749,15 +740,80 @@ export default {
     goBack() {
       this.$router.push('/');
     },
-    openFavoritesMap() {
+    getFavCustomCoords(fav) {
+      if (!fav) return null;
       try {
-        const listCountry = this.firstNonPendingCountry;
+        const ca = findCustomAttractionById(String(fav.id));
+        if (!ca) return null;
+        if (Number.isFinite(Number(ca.userLat)) && Number.isFinite(Number(ca.userLng))) {
+          return [Number(ca.userLat), Number(ca.userLng)];
+        }
+        if (Number.isFinite(Number(ca.lat)) && Number.isFinite(Number(ca.lng))) {
+          return [Number(ca.lat), Number(ca.lng)];
+        }
+      } catch (e) {}
+      return null;
+    },
+    findTargetFavoriteForCountry(favorites) {
+      const list = Array.isArray(favorites) ? favorites : [];
+
+      // 规则 2：先看第一个非待定且如果是自创景点的话有坐标的景点是否存在，如果存在，则显示这个国家的普通景点
+      for (const fav of list) {
+        if (fav.pending) continue;
+        const isCustom = String(fav.country || '') === 'custom' || !!findCustomAttractionById(String(fav.id));
+        if (isCustom) {
+          const coords = this.getFavCustomCoords(fav);
+          if (coords) return { type: 'custom', coords };
+        } else if (fav.country && String(fav.country).trim() && String(fav.country).toLowerCase() !== 'custom') {
+          return { type: 'normal', country: String(fav.country).trim().toLowerCase() };
+        }
+      }
+
+      // 规则 3：看第一个待定且如果是自创景点的话有坐标的景点是否存在，如果存在，则显示这个国家的普通景点。不存在的话，则不显示普通景点。
+      for (const fav of list) {
+        if (!fav.pending) continue;
+        const isCustom = String(fav.country || '') === 'custom' || !!findCustomAttractionById(String(fav.id));
+        if (isCustom) {
+          const coords = this.getFavCustomCoords(fav);
+          if (coords) return { type: 'custom', coords };
+        } else if (fav.country && String(fav.country).trim() && String(fav.country).toLowerCase() !== 'custom') {
+          return { type: 'normal', country: String(fav.country).trim().toLowerCase() };
+        }
+      }
+
+      return null;
+    },
+    async resolveCountryFromTarget(target) {
+      if (!target) return '';
+      if (target.type === 'normal') {
+        return target.country;
+      }
+      if (target.type === 'custom' && target.coords) {
+        try {
+          const slug = await resolveCountryByCoords(target.coords[0], target.coords[1]);
+          return slug || '';
+        } catch (e) {
+          return '';
+        }
+      }
+      return '';
+    },
+    async openFavoritesMap() {
+      if (this.clickGuard) return;
+      this.clickGuard = true;
+      try {
+        const target = this.findTargetFavoriteForCountry(this.sortedFavorites);
+        const listCountry = await this.resolveCountryFromTarget(target);
         const query = { from: 'favorites' };
         if (listCountry) query.listCountry = listCountry;
         // 切换收藏列表后地图组件被 keep-alive 缓存，需强制失效缓存使其重新挂载
         try { invalidateAttractionMapCache('favorites:openMap'); } catch (e) {}
         this.$router.push({ path: '/map/custom', query });
-      } catch (e) {}
+      } catch (e) {
+        console.error(e);
+      } finally {
+        setTimeout(() => { this.clickGuard = false; }, 300);
+      }
     },
     uid() {
       return 't' + Math.random().toString(36).slice(2, 9);
@@ -3550,7 +3606,6 @@ export default {
 .confirm-actions {
   display: flex;
   justify-content: flex-end;
-  gap: 10px;
 }
 
 .btn-cancel {
@@ -3561,6 +3616,7 @@ export default {
   padding: 8px 16px;
   font-weight: 700;
   cursor: pointer;
+  margin-right: 10px;
 }
 
 .btn-danger {
