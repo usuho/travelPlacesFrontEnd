@@ -3550,7 +3550,6 @@ export default {
 .confirm-actions {
   display: flex;
   justify-content: flex-end;
-  gap: 10px;
 }
 
 .btn-cancel {
@@ -3561,6 +3560,7 @@ export default {
   padding: 8px 16px;
   font-weight: 700;
   cursor: pointer;
+  margin-right: 10px;
 }
 
 .btn-danger {
