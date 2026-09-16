@@ -1,4 +1,4 @@
-﻿<template>
+<template>
   <div class="map-page">
     <div id="map" class="map-container"></div>
     <div v-if="showLoading" class="map-loading-overlay"><div class="spinner"></div></div>
@@ -156,10 +156,6 @@ export default {
     if (this.fromDetails) this._blockFavFit = true;
     this.showLoading = true;
     await this.renderFavoritesMarkers();
-    // Դңбʱ飩ԴȱʧγȵһԶ
-    if (String(this.country) === 'custom' && !this.fromDetails) {
-      try { await this.geocodeAllCustomIfNeeded(); } catch (e) {}
-    }
     // 先用快照快速渲染（localStorage / IndexedDB），再按需后台刷新
     try {
       const isCustomCountry = String(this.country) === 'custom';
