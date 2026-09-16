@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="container ">
 
      <!-- 固定顶部区域（标题 + 筛选器） -->
@@ -123,14 +123,39 @@
               @mousedown="handleMouseDown"
               @dblclick="handleDoubleClick"
             >
-              <img 
-                ref="fullscreenImg"
-                :src="fullscreenImage" 
-                alt="全屏图片" 
-                class="fullscreen-image"
+              <div
+                class="fullscreen-track"
                 :class="{ 'is-interacting': isInteracting }"
-                :style="{ transform: `translate3d(${imageTranslateX}px, ${imageTranslateY}px, 0) scale(${imageScale})` }"
-              />
+                :style="trackStyle"
+              >
+                <div
+                  v-for="(imgSrc, idx) in fullscreenImages"
+                  :key="idx"
+                  class="fullscreen-slide"
+                >
+                  <img
+                    ref="fullscreenImgs"
+                    :src="imgSrc"
+                    alt="全屏图片"
+                    class="fullscreen-image"
+                    :class="{
+                      'is-active': idx === fullscreenImageIndex,
+                      'is-interacting': isInteracting && idx === fullscreenImageIndex
+                    }"
+                    :style="idx === fullscreenImageIndex ? activeImageStyle : {}"
+                  />
+                </div>
+              </div>
+
+              <!-- 底部指示圆点（多张图片时展示） -->
+              <div v-if="fullscreenImages.length > 1" class="fullscreen-indicator">
+                <span
+                  v-for="(_, idx) in fullscreenImages"
+                  :key="idx"
+                  class="indicator-dot"
+                  :class="{ active: idx === fullscreenImageIndex }"
+                ></span>
+              </div>
             </div>
           </div>
         </Teleport>
@@ -293,6 +318,8 @@
         isFavorited: false,
         customDeleteConfirmVisible: false,
         fullscreenImage: null,
+        fullscreenImageIndex: 0,
+        swipeAxis: null,
         imageScale: 1,
         imageTranslateX: 0,
         imageTranslateY: 0,
@@ -424,6 +451,33 @@
     
 
     computed: {
+      fullscreenImages() {
+        const list = [];
+        if (this.image1) list.push(this.image1);
+        if (this.image2) list.push(this.image2);
+        if (this.image3) list.push(this.image3);
+        return list;
+      },
+      trackStyle() {
+        if (this.imageScale > 1.05) {
+          return {
+            transform: `translate3d(calc(-${this.fullscreenImageIndex * 100}% + 0px), 0, 0)`
+          };
+        }
+        return {
+          transform: `translate3d(calc(-${this.fullscreenImageIndex * 100}% + ${this.imageTranslateX}px), 0, 0)`
+        };
+      },
+      activeImageStyle() {
+        if (this.imageScale > 1.05) {
+          return {
+            transform: `translate3d(${this.imageTranslateX}px, ${this.imageTranslateY}px, 0) scale(${this.imageScale})`
+          };
+        }
+        return {
+          transform: 'translate3d(0, 0, 0) scale(1)'
+        };
+      },
       isFavoritesMode() {
         return this.$route.query.from === 'favorites';
       },
@@ -1713,7 +1767,11 @@
       },
 
       openFullscreen(imageData) {
+        if (!imageData) return;
         this.fullscreenImage = imageData;
+        const idx = this.fullscreenImages.indexOf(imageData);
+        this.fullscreenImageIndex = idx >= 0 ? idx : 0;
+        this.swipeAxis = null;
         this.imageScale = 1;
         this.imageTranslateX = 0;
         this.imageTranslateY = 0;
@@ -1722,6 +1780,8 @@
         this.isInteracting = false;
         this.lastTouchDistance = 0;
         this.lastTouchCenter = { x: 0, y: 0 };
+        this.touchStartCenter = { x: 0, y: 0 };
+        this.mouseDownPos = { x: 0, y: 0 };
         this.lastTapTime = 0;
         this.lastDoubleTapExecutionTime = 0;
         this.lastTouchDoubleTapTime = 0;
@@ -1730,6 +1790,20 @@
         this._onFullscreenKeydown = (e) => {
           if (e.key === 'Escape' || e.key === 'Esc') {
             this.closeFullscreen();
+          } else if (e.key === 'ArrowRight' || e.key === 'Right') {
+            if (this.imageScale <= 1.05 && this.fullscreenImageIndex < this.fullscreenImages.length - 1) {
+              this.fullscreenImageIndex++;
+              this.fullscreenImage = this.fullscreenImages[this.fullscreenImageIndex];
+              this.imageTranslateX = 0;
+              this.imageTranslateY = 0;
+            }
+          } else if (e.key === 'ArrowLeft' || e.key === 'Left') {
+            if (this.imageScale <= 1.05 && this.fullscreenImageIndex > 0) {
+              this.fullscreenImageIndex--;
+              this.fullscreenImage = this.fullscreenImages[this.fullscreenImageIndex];
+              this.imageTranslateX = 0;
+              this.imageTranslateY = 0;
+            }
           }
         };
         this._onFullscreenMouseMove = (e) => this.handleMouseMove(e);
@@ -1750,6 +1824,8 @@
         }
 
         this.fullscreenImage = null;
+        this.fullscreenImageIndex = 0;
+        this.swipeAxis = null;
         this.imageScale = 1;
         this.imageTranslateX = 0;
         this.imageTranslateY = 0;
@@ -1869,12 +1945,20 @@
           height: window.innerHeight
         };
       },
+      
+      getActiveImageEl() {
+        const imgs = this.$refs.fullscreenImgs;
+        if (Array.isArray(imgs)) {
+          return imgs[this.fullscreenImageIndex] || imgs[0] || null;
+        }
+        return imgs || null;
+      },
 
       isPointInsideImage(clientX, clientY) {
         if (clientX === undefined || clientY === undefined || clientX === null || clientY === null) {
           return false;
         }
-        const img = this.$refs.fullscreenImg;
+        const img = this.getActiveImageEl();
         if (!img) return false;
         const rect = img.getBoundingClientRect();
         return (
@@ -1900,7 +1984,7 @@
         }
 
         const container = this.getContainerCenter();
-        const img = this.$refs.fullscreenImg;
+        const img = this.getActiveImageEl();
         const imgW = (img && img.offsetWidth) || container.width;
         const imgH = (img && img.offsetHeight) || container.height;
 
@@ -1954,7 +2038,8 @@
           try { event.stopPropagation && event.stopPropagation(); } catch(e) {}
           return;
         }
-        const isClickOnImage = (event.target === this.$refs.fullscreenImg) ||
+        const activeImg = this.getActiveImageEl();
+        const isClickOnImage = (event.target === activeImg) ||
                                this.isPointInsideImage(event.clientX, event.clientY);
         if (isClickOnImage) {
           this.handleDoubleTapAt(event.clientX, event.clientY);
@@ -1994,7 +2079,8 @@
           const now = Date.now();
           const distFromLastTap = Math.hypot(t.clientX - this.lastTapPos.x, t.clientY - this.lastTapPos.y);
 
-          const isTouchOnImage = (event.target === this.$refs.fullscreenImg) ||
+          const activeImg = this.getActiveImageEl();
+          const isTouchOnImage = (event.target === activeImg) ||
                                  this.isPointInsideImage(t.clientX, t.clientY);
 
           // 双击快速缩放识别 (< 320ms, 距离 < 35px，且在图片内部)
@@ -2003,6 +2089,7 @@
             this.handleDoubleTapAt(t.clientX, t.clientY);
             this.lastTapTime = 0;
             this.isDragging = false;
+            this.isInteracting = false;
             if (event && event.cancelable) {
               try { event.preventDefault(); } catch(e) {}
             }
@@ -2019,6 +2106,7 @@
           this.isDragging = true;
           this.isInteracting = true;
           this.hasDragged = false;
+          this.swipeAxis = null;
           this.lastTouchCenter = { x: t.clientX, y: t.clientY };
           this.touchStartCenter = { x: t.clientX, y: t.clientY };
         } else if (touches.length === 2) {
@@ -2027,6 +2115,7 @@
           this.isDragging = false;
           this.isInteracting = true;
           this.hasDragged = true;
+          this.swipeAxis = null;
 
           this.lastTouchDistance = Math.hypot(t2.clientX - t1.clientX, t2.clientY - t1.clientY);
           this.lastTouchCenter = {
@@ -2044,8 +2133,10 @@
           const t = touches[0];
           const dx = t.clientX - this.lastTouchCenter.x;
           const dy = t.clientY - this.lastTouchCenter.y;
+          const totalDx = t.clientX - this.touchStartCenter.x;
+          const totalDy = t.clientY - this.touchStartCenter.y;
 
-          if (Math.hypot(t.clientX - this.touchStartCenter.x, t.clientY - this.touchStartCenter.y) > 6) {
+          if (Math.hypot(totalDx, totalDy) > 6) {
             this.hasDragged = true;
           }
 
@@ -2054,9 +2145,22 @@
             this.imageTranslateX += dx;
             this.imageTranslateY += dy;
           } else {
-            // 原图 1x 状态：阻尼弹性微移
-            this.imageTranslateX += dx * 0.35;
-            this.imageTranslateY += dy * 0.35;
+            // 原图 1x 状态：判断滑动手势方向与横向切图跟随
+            if (!this.swipeAxis && Math.hypot(totalDx, totalDy) > 6) {
+              this.swipeAxis = Math.abs(totalDx) >= Math.abs(totalDy) ? 'horizontal' : 'vertical';
+            }
+
+            if (this.swipeAxis === 'horizontal') {
+              const isAtStart = this.fullscreenImageIndex === 0 && dx > 0 && this.imageTranslateX >= 0;
+              const isAtEnd = this.fullscreenImageIndex === (this.fullscreenImages.length - 1) && dx < 0 && this.imageTranslateX <= 0;
+              const isSingle = this.fullscreenImages.length <= 1;
+
+              if (isSingle || isAtStart || isAtEnd) {
+                this.imageTranslateX += dx * 0.35;
+              } else {
+                this.imageTranslateX += dx;
+              }
+            }
           }
 
           this.lastTouchCenter = { x: t.clientX, y: t.clientY };
@@ -2098,7 +2202,7 @@
           this.imageScale = newScale;
 
           this.lastTouchDistance = currentDistance;
-          this.lastTouchCenter = currentCenter;
+            this.lastTouchCenter = currentCenter;
         }
       },
 
@@ -2116,7 +2220,26 @@
           this.isDragging = false;
           this.isInteracting = false;
           this.lastTouchDistance = 0;
-          this.resetToBounds();
+
+          if (this.imageScale > 1.05) {
+            this.resetToBounds();
+          } else {
+            // 未放大状态：判断是否达到切图阈值（55px）
+            const threshold = 55;
+            if (this.swipeAxis === 'horizontal' || Math.abs(this.imageTranslateX) > 20) {
+              if (this.imageTranslateX < -threshold && this.fullscreenImageIndex < this.fullscreenImages.length - 1) {
+                this.fullscreenImageIndex++;
+                this.fullscreenImage = this.fullscreenImages[this.fullscreenImageIndex];
+              } else if (this.imageTranslateX > threshold && this.fullscreenImageIndex > 0) {
+                this.fullscreenImageIndex--;
+                this.fullscreenImage = this.fullscreenImages[this.fullscreenImageIndex];
+              }
+            }
+            this.imageTranslateX = 0;
+            this.imageTranslateY = 0;
+            this.swipeAxis = null;
+          }
+
 
           // 移动端轻触背景区域直接关闭（杜绝点击穿透）
           if (wasDragging && !hadDragged) {
@@ -2139,6 +2262,7 @@
         this.isDragging = true;
         this.isInteracting = true;
         this.hasDragged = false;
+        this.swipeAxis = null;
         this.lastTouchCenter = { x: event.clientX, y: event.clientY };
         this.mouseDownPos = { x: event.clientX, y: event.clientY };
       },
@@ -2147,8 +2271,10 @@
         if (!this.isDragging) return;
         const dx = event.clientX - this.lastTouchCenter.x;
         const dy = event.clientY - this.lastTouchCenter.y;
+        const totalDx = event.clientX - this.mouseDownPos.x;
+        const totalDy = event.clientY - this.mouseDownPos.y;
 
-        if (Math.hypot(event.clientX - this.mouseDownPos.x, event.clientY - this.mouseDownPos.y) > 6) {
+        if (Math.hypot(totalDx, totalDy) > 6) {
           this.hasDragged = true;
         }
 
@@ -2156,8 +2282,15 @@
           this.imageTranslateX += dx;
           this.imageTranslateY += dy;
         } else {
-          this.imageTranslateX += dx * 0.35;
-          this.imageTranslateY += dy * 0.35;
+          const isAtStart = this.fullscreenImageIndex === 0 && dx > 0 && this.imageTranslateX >= 0;
+          const isAtEnd = this.fullscreenImageIndex === (this.fullscreenImages.length - 1) && dx < 0 && this.imageTranslateX <= 0;
+          const isSingle = this.fullscreenImages.length <= 1;
+
+          if (isSingle || isAtStart || isAtEnd) {
+            this.imageTranslateX += dx * 0.35;
+          } else {
+            this.imageTranslateX += dx;
+          }
         }
 
         this.lastTouchCenter = { x: event.clientX, y: event.clientY };
@@ -2167,7 +2300,22 @@
         if (!this.isDragging) return;
         this.isDragging = false;
         this.isInteracting = false;
-        this.resetToBounds();
+
+        if (this.imageScale > 1.05) {
+          this.resetToBounds();
+        } else {
+          const threshold = 55;
+          if (this.imageTranslateX < -threshold && this.fullscreenImageIndex < this.fullscreenImages.length - 1) {
+            this.fullscreenImageIndex++;
+            this.fullscreenImage = this.fullscreenImages[this.fullscreenImageIndex];
+          } else if (this.imageTranslateX > threshold && this.fullscreenImageIndex > 0) {
+            this.fullscreenImageIndex--;
+            this.fullscreenImage = this.fullscreenImages[this.fullscreenImageIndex];
+          }
+          this.imageTranslateX = 0;
+          this.imageTranslateY = 0;
+          this.swipeAxis = null;
+        }
       },
 
       handleOverlayClick(event) {
@@ -2176,7 +2324,8 @@
           return;
         }
 
-        const isClickOnImage = (event.target === this.$refs.fullscreenImg) ||
+        const activeImg = this.getActiveImageEl();
+        const isClickOnImage = (event.target === activeImg) ||
                                this.isPointInsideImage(event.clientX, event.clientY);
 
         if (isClickOnImage) {
@@ -3171,6 +3320,64 @@
 
 .fullscreen-image.is-interacting {
   transition: none !important;
+}
+
+.fullscreen-track {
+  display: flex;
+  flex-direction: row;
+  width: 100%;
+  height: 100%;
+  will-change: transform;
+  transition: transform 0.32s cubic-bezier(0.2, 0, 0.25, 1);
+  touch-action: none;
+}
+
+.fullscreen-track.is-interacting {
+  transition: none !important;
+}
+
+.fullscreen-slide {
+  flex: 0 0 100%;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  touch-action: none;
+}
+
+.fullscreen-indicator {
+  position: absolute;
+  bottom: 28px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  z-index: 10;
+  pointer-events: none;
+  transition: opacity 0.24s ease;
+}
+
+.fullscreen-container.is-zoomed .fullscreen-indicator {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.indicator-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.38);
+  transition: all 0.25s cubic-bezier(0.2, 0, 0.25, 1);
+}
+
+.indicator-dot.active {
+  width: 22px;
+  border-radius: 4px;
+  background: #ffffff;
+  box-shadow: 0 0 8px rgba(255, 255, 255, 0.7);
 }
 
 @media (max-width: 390px) {
