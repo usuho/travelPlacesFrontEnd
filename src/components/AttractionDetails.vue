@@ -92,16 +92,46 @@
         </section>
 
         <!-- 全屏图片查看器 -->
-        <div v-if="fullscreenImage" class="fullscreen-overlay" @click="handleOverlayClick" @wheel="handleWheel" @touchstart="handleTouchStart" @touchmove="handleTouchMove" @touchend="handleTouchEnd">
-          <div class="fullscreen-container" @mousedown="handleMouseDown" @mousemove="handleMouseMove" @mouseup="handleMouseUp" @mouseleave="handleMouseUp">
-            <img 
-              :src="fullscreenImage" 
-              alt="全屏图片" 
-              class="fullscreen-image"
-              :style="{ transform: `scale(${imageScale}) translate(${imageTranslateX}px, ${imageTranslateY}px)` }"
-            />
+        <Teleport to="body">
+          <div
+            v-if="fullscreenImage"
+            class="fullscreen-overlay"
+            @click="handleOverlayClick"
+            @wheel.prevent="handleWheel"
+            @touchstart.stop="handleTouchStart"
+            @touchmove.stop.prevent="handleTouchMove"
+            @touchend.stop="handleTouchEnd"
+            @touchcancel.stop="handleTouchEnd"
+          >
+            <button
+              class="fullscreen-close-btn"
+              @click.stop="closeFullscreen"
+              aria-label="关闭大图"
+              title="关闭"
+            >
+              <svg viewBox="0 0 24 24" width="22" height="22" stroke="currentColor" stroke-width="2.2" fill="none" stroke-linecap="round">
+                <line x1="18" y1="6" x2="6" y2="18"></line>
+                <line x1="6" y1="6" x2="18" y2="18"></line>
+              </svg>
+            </button>
+
+            <div
+              ref="fullscreenContainer"
+              class="fullscreen-container"
+              @mousedown.prevent="handleMouseDown"
+              @dblclick="handleDoubleClick"
+            >
+              <img 
+                ref="fullscreenImg"
+                :src="fullscreenImage" 
+                alt="全屏图片" 
+                class="fullscreen-image"
+                :class="{ 'is-interacting': isInteracting }"
+                :style="{ transform: `translate3d(${imageTranslateX}px, ${imageTranslateY}px, 0) scale(${imageScale})` }"
+              />
+            </div>
           </div>
-        </div>
+        </Teleport>
 
         <!-- 景点信息 -->
         <section class="info-section">
@@ -266,8 +296,12 @@
         imageTranslateY: 0,
         isDragging: false,
         hasDragged: false,
+        isInteracting: false,
         lastTouchDistance: 0,
         lastTouchCenter: { x: 0, y: 0 },
+        touchStartCenter: { x: 0, y: 0 },
+        lastTapTime: 0,
+        lastTapPos: { x: 0, y: 0 },
         // 编辑自创景点
         showEditModal: false,
         // 动画 key（当路由或数据变化时强制触发飞入动画）
@@ -377,6 +411,7 @@
     },
 
     beforeUnmount() {
+      this.closeFullscreen();
       this.clearDetailSwipeResetTimer();
       try { if (this._onDetailsBack) window.removeEventListener('popstate', this._onDetailsBack); } catch(e) {}
       try { if (document && document.removeEventListener && this._onDetailsBack) document.removeEventListener('backbutton', this._onDetailsBack, false); } catch(e) {}
@@ -1677,15 +1712,51 @@
         this.imageScale = 1;
         this.imageTranslateX = 0;
         this.imageTranslateY = 0;
+        this.isDragging = false;
+        this.hasDragged = false;
+        this.isInteracting = false;
+        this.lastTouchDistance = 0;
+        this.lastTouchCenter = { x: 0, y: 0 };
         document.body.style.overflow = 'hidden';
+
+        this._onFullscreenKeydown = (e) => {
+          if (e.key === 'Escape' || e.key === 'Esc') {
+            this.closeFullscreen();
+          }
+        };
+        this._onFullscreenMouseMove = (e) => this.handleMouseMove(e);
+        this._onFullscreenMouseUp = (e) => this.handleMouseUp(e);
+
+        window.addEventListener('keydown', this._onFullscreenKeydown);
+        window.addEventListener('mousemove', this._onFullscreenMouseMove);
+        window.addEventListener('mouseup', this._onFullscreenMouseUp);
       },
 
       closeFullscreen() {
+        if (!this.fullscreenImage) return;
         this.fullscreenImage = null;
         this.imageScale = 1;
         this.imageTranslateX = 0;
         this.imageTranslateY = 0;
+        this.isDragging = false;
+        this.hasDragged = false;
+        this.isInteracting = false;
+        this.lastTouchDistance = 0;
         document.body.style.overflow = '';
+
+        if (this._onFullscreenKeydown) {
+          window.removeEventListener('keydown', this._onFullscreenKeydown);
+          this._onFullscreenKeydown = null;
+        }
+        if (this._onFullscreenMouseMove) {
+          window.removeEventListener('mousemove', this._onFullscreenMouseMove);
+          this._onFullscreenMouseMove = null;
+        }
+        if (this._onFullscreenMouseUp) {
+          window.removeEventListener('mouseup', this._onFullscreenMouseUp);
+          this._onFullscreenMouseUp = null;
+        }
+
         // 退出详情页或关闭全屏后，不再持有列表传来的颜色，避免污染下次进入
         try { localStorage.removeItem('selectedAttractionRatingColor'); } catch(e) {}
       },
@@ -1748,83 +1819,270 @@
         } catch (e) {}
       },
 
+      getContainerCenter() {
+        const container = this.$refs.fullscreenContainer;
+        if (container) {
+          const rect = container.getBoundingClientRect();
+          return {
+            x: rect.left + rect.width / 2,
+            y: rect.top + rect.height / 2,
+            width: rect.width,
+            height: rect.height
+          };
+        }
+        return {
+          x: window.innerWidth / 2,
+          y: window.innerHeight / 2,
+          width: window.innerWidth,
+          height: window.innerHeight
+        };
+      },
+
+      resetToBounds() {
+        // 如果缩放比例过小或接近 1，重置回 1 并居中
+        if (this.imageScale <= 1.05) {
+          this.imageScale = 1;
+          this.imageTranslateX = 0;
+          this.imageTranslateY = 0;
+          return;
+        }
+
+        // 超过最大缩放限制时，回弹至最大比例 4.5
+        if (this.imageScale > 4.5) {
+          this.imageScale = 4.5;
+        }
+
+        const container = this.getContainerCenter();
+        const img = this.$refs.fullscreenImg;
+        const imgW = (img && img.offsetWidth) || container.width;
+        const imgH = (img && img.offsetHeight) || container.height;
+
+        const currentW = imgW * this.imageScale;
+        const currentH = imgH * this.imageScale;
+
+        const maxX = Math.max(0, (currentW - container.width) / 2);
+        const maxY = Math.max(0, (currentH - container.height) / 2);
+
+        this.imageTranslateX = Math.max(-maxX, Math.min(maxX, this.imageTranslateX));
+        this.imageTranslateY = Math.max(-maxY, Math.min(maxY, this.imageTranslateY));
+      },
+
+      handleDoubleTapAt(clientX, clientY) {
+        this.isInteracting = false;
+        this.hasDragged = true;
+
+        if (this.imageScale > 1.2) {
+          // 当前已放大，双击平滑恢复 1x 居中
+          this.imageScale = 1;
+          this.imageTranslateX = 0;
+          this.imageTranslateY = 0;
+        } else {
+          // 当前 1x，双击以点击位置为焦点放大至 2.5x
+          const targetScale = 2.5;
+          const containerCenter = this.getContainerCenter();
+          const clickX = clientX - containerCenter.x;
+          const clickY = clientY - containerCenter.y;
+
+          const factor = targetScale / this.imageScale;
+          const newTx = clickX - factor * (clickX - this.imageTranslateX);
+          const newTy = clickY - factor * (clickY - this.imageTranslateY);
+
+          this.imageScale = targetScale;
+          this.imageTranslateX = newTx;
+          this.imageTranslateY = newTy;
+          this.resetToBounds();
+        }
+      },
+
+      handleDoubleClick(event) {
+        this.handleDoubleTapAt(event.clientX, event.clientY);
+      },
+
       handleWheel(event) {
-        event.preventDefault();
-        const delta = event.deltaY > 0 ? -0.1 : 0.1;
-        const newScale = Math.max(0.5, Math.min(3, this.imageScale + delta));
+        this.isInteracting = false;
+
+        const containerCenter = this.getContainerCenter();
+        const cursorX = event.clientX - containerCenter.x;
+        const cursorY = event.clientY - containerCenter.y;
+
+        const delta = -event.deltaY;
+        const factor = delta > 0 ? 1.2 : 1 / 1.2;
+        const oldScale = this.imageScale;
+        const newScale = Math.max(1, Math.min(5, oldScale * factor));
+
+        if (Math.abs(newScale - oldScale) < 0.001) return;
+
+        const effectiveFactor = newScale / oldScale;
+        const newTx = cursorX - effectiveFactor * (cursorX - this.imageTranslateX);
+        const newTy = cursorY - effectiveFactor * (cursorY - this.imageTranslateY);
+
         this.imageScale = newScale;
+        this.imageTranslateX = newTx;
+        this.imageTranslateY = newTy;
+        this.resetToBounds();
       },
 
       handleTouchStart(event) {
-        if (event.touches.length === 2) {
-          // 双指操作
-          const touch1 = event.touches[0];
-          const touch2 = event.touches[1];
-          this.lastTouchDistance = Math.sqrt(
-            Math.pow(touch2.clientX - touch1.clientX, 2) + 
-            Math.pow(touch2.clientY - touch1.clientY, 2)
-          );
-          this.lastTouchCenter = {
-            x: (touch1.clientX + touch2.clientX) / 2,
-            y: (touch1.clientY + touch2.clientY) / 2
-          };
-        } else if (event.touches.length === 1) {
-          // 单指拖拽
+        const touches = event.touches;
+        if (!touches) return;
+
+        if (touches.length === 1) {
+          const t = touches[0];
+          const now = Date.now();
+          const distFromLastTap = Math.hypot(t.clientX - this.lastTapPos.x, t.clientY - this.lastTapPos.y);
+
+          // 双击快速缩放识别 (< 320ms, 距离 < 35px)
+          if (now - this.lastTapTime < 320 && distFromLastTap < 35) {
+            this.handleDoubleTapAt(t.clientX, t.clientY);
+            this.lastTapTime = 0;
+            this.isDragging = false;
+            return;
+          }
+          this.lastTapTime = now;
+          this.lastTapPos = { x: t.clientX, y: t.clientY };
+
           this.isDragging = true;
+          this.isInteracting = true;
+          this.hasDragged = false;
+          this.lastTouchCenter = { x: t.clientX, y: t.clientY };
+        } else if (touches.length === 2) {
+          const t1 = touches[0];
+          const t2 = touches[1];
+          this.isDragging = false;
+          this.isInteracting = true;
+          this.hasDragged = true;
+
+          this.lastTouchDistance = Math.hypot(t2.clientX - t1.clientX, t2.clientY - t1.clientY);
+          this.lastTouchCenter = {
+            x: (t1.clientX + t2.clientX) / 2,
+            y: (t1.clientY + t2.clientY) / 2
+          };
         }
       },
 
       handleTouchMove(event) {
-        event.preventDefault();
-        if (event.touches.length === 2) {
-          // 双指缩放
-          const touch1 = event.touches[0];
-          const touch2 = event.touches[1];
-          const currentDistance = Math.sqrt(
-            Math.pow(touch2.clientX - touch1.clientX, 2) + 
-            Math.pow(touch2.clientY - touch1.clientY, 2)
-          );
-          const scaleChange = currentDistance / this.lastTouchDistance;
-          this.imageScale = Math.max(0.5, Math.min(3, this.imageScale * scaleChange));
+        const touches = event.touches;
+        if (!touches) return;
+
+        if (touches.length === 1 && this.isDragging) {
+          const t = touches[0];
+          const dx = t.clientX - this.lastTouchCenter.x;
+          const dy = t.clientY - this.lastTouchCenter.y;
+
+          if (Math.abs(dx) > 3 || Math.abs(dy) > 3) {
+            this.hasDragged = true;
+          }
+
+          if (this.imageScale > 1.05) {
+            // 放大状态：1:1 绝对精确跟手移动
+            this.imageTranslateX += dx;
+            this.imageTranslateY += dy;
+          } else {
+            // 原图 1x 状态：阻尼弹性微移
+            this.imageTranslateX += dx * 0.35;
+            this.imageTranslateY += dy * 0.35;
+          }
+
+          this.lastTouchCenter = { x: t.clientX, y: t.clientY };
+        } else if (touches.length === 2) {
+          this.hasDragged = true;
+          const t1 = touches[0];
+          const t2 = touches[1];
+          const currentDistance = Math.hypot(t2.clientX - t1.clientX, t2.clientY - t1.clientY);
+          if (this.lastTouchDistance <= 0) {
+            this.lastTouchDistance = currentDistance;
+            this.lastTouchCenter = {
+              x: (t1.clientX + t2.clientX) / 2,
+              y: (t1.clientY + t2.clientY) / 2
+            };
+            return;
+          }
+
+          const currentCenter = {
+            x: (t1.clientX + t2.clientX) / 2,
+            y: (t1.clientY + t2.clientY) / 2
+          };
+
+          const containerCenter = this.getContainerCenter();
+          const oldMidX = this.lastTouchCenter.x - containerCenter.x;
+          const oldMidY = this.lastTouchCenter.y - containerCenter.y;
+          const newMidX = currentCenter.x - containerCenter.x;
+          const newMidY = currentCenter.y - containerCenter.y;
+
+          const rawFactor = currentDistance / this.lastTouchDistance;
+          const oldScale = this.imageScale;
+          let newScale = oldScale * rawFactor;
+          // 手势期间允许轻微弹性超限（0.75 - 5.5）
+          newScale = Math.max(0.75, Math.min(5.5, newScale));
+          const effectiveFactor = newScale / oldScale;
+
+          // 仿射变换：手指捏合/放大的同时中心移动，图像严格锁定在两指之间
+          this.imageTranslateX = newMidX - effectiveFactor * (oldMidX - this.imageTranslateX);
+          this.imageTranslateY = newMidY - effectiveFactor * (oldMidY - this.imageTranslateY);
+          this.imageScale = newScale;
+
           this.lastTouchDistance = currentDistance;
-        } else if (event.touches.length === 1 && this.isDragging) {
-          // 单指拖拽
-          const touch = event.touches[0];
-          this.imageTranslateX += touch.clientX - this.lastTouchCenter.x;
-          this.imageTranslateY += touch.clientY - this.lastTouchCenter.y;
-          this.lastTouchCenter = { x: touch.clientX, y: touch.clientY };
+          this.lastTouchCenter = currentCenter;
         }
       },
 
       handleTouchEnd(event) {
-        this.isDragging = false;
-        this.lastTouchDistance = 0;
+        const touches = event.touches;
+        if (touches && touches.length === 1) {
+          // 双指松开一指：平滑过渡为单指拖拽，保持手指位置无突跳
+          const t = touches[0];
+          this.isDragging = true;
+          this.lastTouchDistance = 0;
+          this.lastTouchCenter = { x: t.clientX, y: t.clientY };
+        } else if (!touches || touches.length === 0) {
+          this.isDragging = false;
+          this.isInteracting = false;
+          this.lastTouchDistance = 0;
+          this.resetToBounds();
+        }
       },
 
       handleMouseDown(event) {
+        if (event.button !== 0) return;
         this.isDragging = true;
+        this.isInteracting = true;
+        this.hasDragged = false;
         this.lastTouchCenter = { x: event.clientX, y: event.clientY };
       },
 
       handleMouseMove(event) {
-        if (this.isDragging) {
+        if (!this.isDragging) return;
+        const dx = event.clientX - this.lastTouchCenter.x;
+        const dy = event.clientY - this.lastTouchCenter.y;
+
+        if (Math.abs(dx) > 3 || Math.abs(dy) > 3) {
           this.hasDragged = true;
-          this.imageTranslateX += event.clientX - this.lastTouchCenter.x;
-          this.imageTranslateY += event.clientY - this.lastTouchCenter.y;
-          this.lastTouchCenter = { x: event.clientX, y: event.clientY };
         }
+
+        if (this.imageScale > 1.05) {
+          this.imageTranslateX += dx;
+          this.imageTranslateY += dy;
+        } else {
+          this.imageTranslateX += dx * 0.35;
+          this.imageTranslateY += dy * 0.35;
+        }
+
+        this.lastTouchCenter = { x: event.clientX, y: event.clientY };
       },
 
       handleMouseUp(event) {
+        if (!this.isDragging) return;
         this.isDragging = false;
+        this.isInteracting = false;
+        this.resetToBounds();
       },
 
       handleOverlayClick(event) {
-        // 只有在没有拖动的情况下才退出全屏
-        if (!this.isDragging && !this.hasDragged) {
-          this.closeFullscreen();
+        if (this.isDragging || this.hasDragged) {
+          this.hasDragged = false;
+          return;
         }
-        this.hasDragged = false;
+        this.closeFullscreen();
       },
 
       getRatingColor(rating) {
@@ -2720,14 +2978,50 @@
   position: fixed;
   top: 0;
   left: 0;
+  right: 0;
+  bottom: 0;
   width: 100vw;
   height: 100vh;
-  background: rgba(0, 0, 0, 0.9);
+  background: rgba(0, 0, 0, 0.94);
   display: flex;
   justify-content: center;
   align-items: center;
-  z-index: 1000;
+  z-index: 999999;
   cursor: pointer;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  overscroll-behavior: contain;
+}
+
+.fullscreen-close-btn {
+  position: absolute;
+  top: max(16px, env(safe-area-inset-top, 16px));
+  right: max(16px, env(safe-area-inset-right, 16px));
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(255, 255, 255, 0.18);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  z-index: 1000000;
+  transition: background-color 0.2s, transform 0.2s;
+  padding: 0;
+}
+
+.fullscreen-close-btn:hover {
+  background: rgba(255, 255, 255, 0.35);
+  transform: scale(1.08);
+}
+
+.fullscreen-close-btn:active {
+  transform: scale(0.92);
 }
 
 .fullscreen-container {
@@ -2739,6 +3033,7 @@
   justify-content: center;
   cursor: grab;
   overflow: hidden;
+  touch-action: none;
 }
 
 .fullscreen-container:active {
@@ -2749,10 +3044,17 @@
   max-width: 100%;
   max-height: 100%;
   object-fit: contain;
-  transition: transform 0.1s ease;
-  border-radius: 8px;
+  border-radius: 6px;
   user-select: none;
-  pointer-events: none;
+  -webkit-user-drag: none;
+  pointer-events: auto;
+  will-change: transform;
+  transform-origin: center center;
+  transition: transform 0.28s cubic-bezier(0.2, 0, 0.25, 1);
+}
+
+.fullscreen-image.is-interacting {
+  transition: none !important;
 }
 
 @media (max-width: 390px) {
