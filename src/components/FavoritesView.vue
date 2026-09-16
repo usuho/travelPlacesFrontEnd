@@ -1,5 +1,7 @@
 <template>
   <div class="favorites-page-container fade-in" @contextmenu.prevent>
+    <!-- 遮罩层，用于开场“画卷向下展开”动画 -->
+    <div v-if="showUnrollAnim" class="unroll-curtain"></div>
     <!-- 固定顶部标题：与景点列表页面标题字体及大小完全一致 -->
     <header class="page-header">
       <div class="header-content">
@@ -84,13 +86,13 @@
         ref="favoritesList"
         name="fav-move"
         tag="div"
-        class="favorites-list"
+        :class="['favorites-list', { 'unroll-stagger': showUnrollAnim }]"
         @touchstart.passive="onFavoritesListTouchStart"
         @touchmove.passive="onFavoritesListTouchMove"
         @touchend.passive="onFavoritesListTouchEnd"
       >
         <div
-          v-for="node in favoritesMoveNodes"
+          v-for="(node, idx) in favoritesMoveNodes"
           :key="node.key"
           :data-fav-placeholder="node.type === 'placeholder' ? 'active' : null"
           :class="
@@ -103,7 +105,10 @@
                   'just-inserted': !dragging && recentlyMovedId === (node.f && node.f.id)
                 }
           "
-          :style="node.type === 'placeholder' ? placeholderStyle : null"
+          :style="[
+            node.type === 'placeholder' ? placeholderStyle : {},
+            node.type === 'item' ? { '--anim-delay': `${(node.index || 0) * 0.035}s` } : {}
+          ]"
           @mousedown="onFavoritesNodeMouseDown(node, $event)"
           @touchstart="onFavoritesNodeTouchStart(node, $event)"
           @touchmove="onFavoritesNodeTouchMove(node, $event)"
@@ -187,12 +192,14 @@
         </div>
 
         <!-- 创建自创景点的 + 项 -->
-        <div key="fav-add" class="favorites-add" @click.stop="showCreateModal = true" title="创建景点">
+        <div key="fav-add" class="favorites-add" @click.stop="showCreateModal = true" title="创建景点"
+             :style="{ '--anim-delay': `${favoritesMoveNodes.length * 0.035}s` }">
           <div class="plus-circle">+</div>
         </div>
 
         <!-- 导入/导出按钮行 -->
-        <div key="fav-actions" class="favorites-actions-row">
+        <div key="fav-actions" class="favorites-actions-row"
+             :style="{ '--anim-delay': `${(favoritesMoveNodes.length + 1) * 0.035}s` }">
           <button class="favorites-action-btn" @click.stop="onImportClick">导入</button>
           <button class="favorites-action-btn primary" @click.stop="promptExportFavorites">导出</button>
           <input
@@ -205,7 +212,8 @@
         </div>
 
         <!-- 删除收藏列表操作 -->
-        <div key="fav-clear" class="favorites-clear" @click="promptClearFavorites">
+        <div key="fav-clear" class="favorites-clear" @click="promptClearFavorites"
+             :style="{ '--anim-delay': `${(favoritesMoveNodes.length + 2) * 0.035}s` }">
           🗑️ 删除收藏
         </div>
       </transition-group>
@@ -239,19 +247,21 @@
     </main>
 
     <!-- 页面左下角固定返回按钮：点击返回国家列表页面 -->
-    <button class="back-button bottom-left-back-btn" @click="goBack">
-      返回
-    </button>
+    <teleport to="body">
+      <button class="back-button bottom-left-back-btn" @click="goBack">
+        返回
+      </button>
 
-    <!-- 右下角圆形浮动地图按钮 -->
-    <button
-      class="fav-floating-map-btn"
-      @click="openFavoritesMap"
-      title="地图"
-      aria-label="地图"
-    >
-      地图
-    </button>
+      <!-- 右下角圆形浮动地图按钮 -->
+      <button
+        class="fav-floating-map-btn"
+        @click="openFavoritesMap"
+        title="地图"
+        aria-label="地图"
+      >
+        地图
+      </button>
+    </teleport>
 
     <!-- 自创景点弹窗 -->
     <CreateAttractionModal v-model="showCreateModal" county-label="县/市" @created="onCustomCreated" />
@@ -451,6 +461,7 @@ export default {
       activeTabId: null,
       favorites: [],
       favThumbs: {},
+      showUnrollAnim: true,
 
       // 选项卡编辑与拖拽
       editingTabId: null,
@@ -969,8 +980,15 @@ export default {
     },
     setActiveTab(id) {
       if (this.activeTabId === id) return;
+      this.showUnrollAnim = false;
+      this.$nextTick(() => {
+        if (this.$el) void this.$el.offsetHeight;
+        this.showUnrollAnim = true;
+      });
       this.activeTabId = id;
       try { localStorage.setItem('favoriteTabs_activeId', id); } catch (e) {}
+      try { queueUserDataSync(); } catch (e) {}
+      try { invalidateAttractionMapCache('favorites:switchTab'); } catch (e) {}
       const at = this.favoriteTabs.find(t => t.id === this.activeTabId);
       this.favorites = at ? at.items : [];
       this.normalizeFavoritesOrder();
@@ -2830,6 +2848,43 @@ export default {
   box-sizing: border-box;
   background-color: #f5f5f7;
   width: 100%;
+  position: relative;
+}
+
+.unroll-curtain {
+  position: absolute;
+  top: 82px;
+  left: -32px;
+  right: -32px;
+  bottom: -20px;
+  background-color: #f5f5f7;
+  z-index: 1100;
+  pointer-events: none;
+  animation: unrollCurtainAnim 0.45s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes unrollCurtainAnim {
+  0% { clip-path: inset(0 0 0 0); }
+  100% { clip-path: inset(100% 0 0 0); }
+}
+
+.unroll-stagger .favorites-item,
+.unroll-stagger .favorites-add,
+.unroll-stagger .favorites-actions-row,
+.unroll-stagger .favorites-clear {
+  transition: none !important;
+  animation: itemUnrollPop 0.35s cubic-bezier(0.175, 0.885, 0.32, 1.275) both;
+  animation-delay: calc(0.035s + var(--anim-delay, 0s));
+}
+
+.unroll-stagger .fav-move-leave-active {
+  display: none !important;
+}
+
+
+@keyframes itemUnrollPop {
+  0% { transform: translateY(-20px) scale(0.95); opacity: 0; }
+  100% { transform: translateY(0) scale(1); opacity: 1; }
 }
 
 .page-header {
@@ -3553,7 +3608,7 @@ export default {
   position: fixed;
   left: 48px;
   bottom: calc(88px + env(safe-area-inset-bottom, 0px));
-  z-index: 1000;
+  z-index: 1150;
 }
 
 /* 通用弹窗对话框样式 */
@@ -3948,7 +4003,7 @@ export default {
   justify-content: center;
   cursor: pointer;
   box-shadow: 0 4px 16px rgba(0, 102, 204, 0.45);
-  z-index: 1000;
+  z-index: 1150;
   transition: transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.2s ease;
   user-select: none;
   -webkit-tap-highlight-color: transparent;
