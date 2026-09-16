@@ -635,7 +635,7 @@
                       v-if="String(node.f.country) !== 'custom' && node.f.rating !== undefined && node.f.rating !== null && node.f.rating !== ''"
                       class="fav-rating"
                       :style="{ backgroundColor: getRatingColor(node.f.rating) }"
-                    >{{ node.f && node.f.rating }}</span>
+                    >{{ String(node.f && node.f.rating != null ? node.f.rating : '').replace('%', '') }}</span>
                   </span>
                 </div>
               </div>
@@ -684,7 +684,7 @@
               v-if="String(dragItem.country) !== 'custom' && dragItem && dragItem.rating !== undefined && dragItem.rating !== null && dragItem.rating !== ''"
               class="fav-rating"
               :style="{ backgroundColor: getRatingColor(dragItem.rating) }"
-            >{{ dragItem.rating }}</span>
+            >{{ String(dragItem.rating != null ? dragItem.rating : '').replace('%', '') }}</span>
           </div>
         </div>
       </div>
@@ -2776,8 +2776,10 @@
         this.setActiveTab(newTab.id);
         try { evtTarget && (evtTarget.value = ''); } catch (e) {}
         this.$nextTick(() => {
+          // 预加载收藏缩略图
           try { this.sortedFavorites.forEach(f => this.ensureFavThumb(f)); } catch(e) {}
         });
+        this.syncActiveTabRatings();
       },
 
       cancelImportPaste() {
@@ -2835,8 +2837,13 @@
           const listStyle = window.getComputedStyle(list);
           const paddingTop = parseFloat(listStyle.paddingTop) || 0;
           const borderTop = parseFloat(listStyle.borderTopWidth) || 0;
-          const targetScrollTop = list.scrollTop + (targetRect.top - listRect.top) - paddingTop - borderTop;
-          list.scrollTop = Math.max(0, Math.round(targetScrollTop));
+          const targetScrollTop = list.scrollTop + (targetRect.top - listRect.top) - paddingTop - borderTop - 8; // subtract 8px buffer for safety
+          const allItems = Array.from(list.querySelectorAll('.favorites-item'));
+          if (allItems.length > 0 && allItems[0] === targetEl) {
+            list.scrollTop = 0;
+          } else {
+            list.scrollTop = Math.max(0, Math.round(targetScrollTop));
+          }
         } catch (e) {}
       },
 
@@ -2983,6 +2990,37 @@
         this.$nextTick(() => {
           try { this.sortedFavorites.forEach(f => this.ensureFavThumb(f)); } catch(e) {}
         });
+        this.syncActiveTabRatings();
+      },
+      async syncActiveTabRatings() {
+        if (!this.favorites || this.favorites.length === 0) return;
+        const itemsToSync = this.favorites.filter(f => String(f.country) !== 'custom' && f.id);
+        if (itemsToSync.length === 0) return;
+        
+        let hasUpdates = false;
+        await Promise.allSettled(itemsToSync.map(async (item) => {
+          try {
+            const resp = await fetch(`https://juseaxerf.com/api/attraction/${item.country}/${item.id}`, withBackendApiKey());
+            if (resp.ok) {
+              const data = await resp.json();
+              if (data && data.rating !== undefined && String(data.rating) !== String(item.rating)) {
+                item.rating = data.rating;
+                hasUpdates = true;
+              }
+            }
+          } catch (e) {}
+        }));
+        
+        if (hasUpdates) {
+          const tab = this.favoriteTabs.find(t => t.id === this.activeTabId);
+          if (tab) {
+            tab.items = this.favorites;
+            try {
+              localStorage.setItem('favoriteTabs_all', JSON.stringify(this.favoriteTabs));
+              queueUserDataSync();
+            } catch (e) {}
+          }
+        }
       },
 
       startEditTab(tab) {
@@ -3590,6 +3628,7 @@ const all = this.sortedFavorites || [];
             // 预加载收藏缩略图
             try { this.sortedFavorites.forEach(f => this.ensureFavThumb(f)); } catch(e) {}
           });
+          this.syncActiveTabRatings();
         } else {
           // 关闭菜单时，重置所有滑动相关状态
           this.favActionId = null;
