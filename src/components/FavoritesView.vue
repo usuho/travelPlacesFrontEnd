@@ -184,7 +184,7 @@
                     v-if="String(node.f.country) !== 'custom' && node.f.rating !== undefined && node.f.rating !== null && node.f.rating !== ''"
                     class="fav-rating"
                     :style="{ backgroundColor: getRatingColor(node.f.rating) }"
-                  >{{ node.f && node.f.rating }}</span>
+                  >{{ String(node.f && node.f.rating || '').replace('%', '') }}</span>
                 </span>
               </div>
             </div>
@@ -240,7 +240,7 @@
               v-if="String(dragItem.country) !== 'custom' && dragItem && dragItem.rating !== undefined && dragItem.rating !== null && dragItem.rating !== ''"
               class="fav-rating"
               :style="{ backgroundColor: getRatingColor(dragItem.rating) }"
-            >{{ dragItem.rating }}</span>
+            >{{ String(dragItem.rating || '').replace('%', '') }}</span>
           </div>
         </div>
       </teleport>
