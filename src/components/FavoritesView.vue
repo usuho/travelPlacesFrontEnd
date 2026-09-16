@@ -3063,7 +3063,7 @@ export default {
   flex-direction: column;
   gap: 10px;
   width: 100%;
-  padding: 4px 6px 90px 4px;
+  padding: 0px 0px 90px 0px;
   box-sizing: border-box;
 }
 
@@ -3087,7 +3087,7 @@ export default {
   justify-content: space-between;
   gap: 14px;
   min-height: 60px;
-  padding: 10px 14px;
+  padding: 5px 7px;
   border-radius: 12px;
   border: 1px solid rgba(0, 0, 0, 0.06);
   background: #ffffff;
@@ -3107,7 +3107,6 @@ export default {
 .favorites-item .fav-content {
   display: flex;
   align-items: center;
-  gap: 14px;
   width: 100%;
   will-change: transform;
   transition: transform 0.15s ease;
@@ -3128,6 +3127,7 @@ export default {
   justify-content: center;
   font-size: 13px;
   font-weight: 700;
+  margin-right: 14px;
 }
 
 .fav-thumb-wrap {
@@ -3153,8 +3153,8 @@ export default {
   flex: 1 1 auto;
   display: flex;
   flex-direction: column;
-  gap: 2px;
   min-width: 0;
+  margin-left: 14px;
 }
 
 .fav-name {
@@ -3164,6 +3164,7 @@ export default {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  margin-bottom: 1px;
 }
 
 .fav-meta {
@@ -3172,6 +3173,7 @@ export default {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  margin-top: 1px;
 }
 
 .favorites-item .fav-right-meta {
@@ -3495,7 +3497,6 @@ export default {
 /* 导入导出按钮行 */
 .favorites-actions-row {
   display: flex;
-  gap: 14px;
   margin-top: 12px;
 }
 
@@ -3520,6 +3521,7 @@ export default {
   background: #007aff;
   color: #fff;
   border-color: #007aff;
+  margin-left: 14px;
 }
 
 .favorites-action-btn.primary:hover {
@@ -3935,6 +3937,11 @@ export default {
 
 /* 响应式样式 */
 @media (max-width: 768px) {
+
+  .favorites-item .fav-right-meta > * + * {
+    margin-left: 0px;
+  }
+  
   .favorites-page-container {
     padding: calc(36px + env(safe-area-inset-top, 0px)) 14px calc(16px + env(safe-area-inset-bottom, 0px));
     height: 100vh;
