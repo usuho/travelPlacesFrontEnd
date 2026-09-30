@@ -1,4 +1,4 @@
-﻿<template>
+<template>
   <div class="container ">
 
      <!-- 固定顶部区域（标题 + 筛选器） -->
@@ -1747,13 +1747,10 @@
 
       goBack() {
         if (this.fullscreenImage) { this.closeFullscreen(); return; }
-        // 来自地图：返回上一页（地图）
+        // 来自地图：直接使用浏览器返回，保留原始的历史记录栈
+        // 不能使用 router.push(lastMapRoute)：那会在栈顶新增一个地图条目，
+        // 导致用户返回地图后无法再继续返回上一个景点详情页。
         if (this.fromMap) {
-          const mapRoute = sessionStorage.getItem('lastMapRoute');
-          if (mapRoute) {
-            this.$router.push(mapRoute);
-            return;
-          }
           this.$router.back();
           return;
         }
