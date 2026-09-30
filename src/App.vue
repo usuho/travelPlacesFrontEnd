@@ -288,8 +288,10 @@ html, body {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  font-size: 20x;
-  font-weight: 1000;
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1;
+  overflow: hidden;
 }
 
 @media (max-width: 768px) {
