@@ -1314,6 +1314,17 @@ export default {
       };
       this.map.on('moveend', updateInView);
       this.map.on('zoomend', () => {
+        // 缩放后先将普通景点 marker 归位到原始坐标，避免上次 overlap 偏移在新缩放级别下错位
+        try {
+          if (this.allLayer && this.allLayer._layers) {
+            for (const m of Object.values(this.allLayer._layers)) {
+              try {
+                const orig = m && m.options && m.options._origLatLng;
+                if (orig) m.setLatLng(orig);
+              } catch (e) {}
+            }
+          }
+        } catch (e) {}
         updateInView();
         // ¼صĴλصλ㣩
         try { this.scheduleRecomputeOverlapAll(); } catch (e) {}
