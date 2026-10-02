@@ -7985,6 +7985,7 @@ const all = this.sortedFavorites || [];
     overflow-y: auto;
     padding: 20px;
     padding-top: 0;
+    padding-bottom: 10px;
   }
 
   .back-button {

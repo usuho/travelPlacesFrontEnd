@@ -229,11 +229,15 @@ export default {
 <style scoped>
 .auth-page {
   min-height: 100vh;
+  min-height: 100dvh;
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding: 32px 16px;
+  padding: 32px 16px env(safe-area-inset-bottom, 0px);
   background: linear-gradient(135deg, #eef2ff 0%, #f5f7fb 100%);
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
 }
 
 .auth-card {

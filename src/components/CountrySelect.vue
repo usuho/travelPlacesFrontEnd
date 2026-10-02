@@ -475,6 +475,8 @@ export default {
     };
   },
   mounted() {
+    // 将 body 背景色设为页面渐变的终点色，防止 iOS 过度滚动时底部露出白色
+    document.body.style.backgroundColor = '#c3cfe2';
     // 从其它页面返回首页时，让右上角 logo 平滑放大到标题上的位置
     this.$nextTick(() => {
       setTimeout(() => {
@@ -515,6 +517,8 @@ export default {
     });
   },
   beforeUnmount() {
+    // 恢复 body 背景色
+    document.body.style.backgroundColor = '';
     if (this.longPressTimer) {
       clearTimeout(this.longPressTimer);
       this.longPressTimer = null;
@@ -1081,7 +1085,8 @@ export default {
 
 .container {
   min-height: 100vh;
-  padding: 20px;
+  min-height: 100dvh;
+  padding: 20px 20px calc(20px + env(safe-area-inset-bottom, 0px));
   background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
 }
 
